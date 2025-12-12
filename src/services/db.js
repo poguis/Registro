@@ -45,6 +45,19 @@ class DatabaseService {
         );
       `);
 
+            // Balance History (Full Ledger)
+            await this.db.execAsync(`
+        CREATE TABLE IF NOT EXISTS balance_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          amount REAL NOT NULL,
+          category TEXT NOT NULL,
+          description TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+      `);
+
             console.log('Database v2 initialized successfully');
             return true;
         } catch (error) {
@@ -212,6 +225,51 @@ class DatabaseService {
             return { success: true, data: result };
         } catch (error) {
             console.error(error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    // --- BALANCE HISTORY Methods ---
+
+    async addBalanceTransaction(userId, amount, category, description) {
+        if (!this.db) await this.init();
+        try {
+            await this.db.runAsync(
+                'INSERT INTO balance_history (user_id, amount, category, description) VALUES (?, ?, ?, ?)',
+                [userId, amount, category, description]
+            );
+            return { success: true };
+        } catch (error) {
+            console.error('Error adding balance history:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async getBalanceHistory(userId) {
+        if (!this.db) await this.init();
+        try {
+            // Get all records ordered by date DESC
+            const history = await this.db.getAllAsync(
+                `SELECT * FROM balance_history WHERE user_id = ? ORDER BY created_at DESC`,
+                [userId]
+            );
+            return { success: true, history };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async getDistinctCategories(userId) {
+        if (!this.db) await this.init();
+        try {
+            const result = await this.db.getAllAsync(
+                `SELECT DISTINCT category FROM balance_history WHERE user_id = ? ORDER BY category ASC`,
+                [userId]
+            );
+            // Returns array of objects: [{category: 'Food'}, {category: 'Salary'}]
+            const categories = result.map(r => r.category);
+            return { success: true, categories };
+        } catch (error) {
             return { success: false, error: error.message };
         }
     }
