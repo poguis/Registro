@@ -98,6 +98,24 @@ export default function SeriesDetailScreen({ category, onBack }) {
         const validSeasons = seasons.filter(s => parseInt(s.episodes) > 0);
         if (validSeasons.length === 0) return Alert.alert('Error', 'Debes añadir al menos una temporada con capítulos válidos');
 
+        if (status === 'Mirando') {
+            const seasonNum = parseInt(currentSeason);
+            const episodeNum = parseInt(currentEpisode);
+
+            if (isNaN(seasonNum) || isNaN(episodeNum)) {
+                return Alert.alert('Error', 'Temporada y Capítulo actuales deben ser números');
+            }
+
+            if (seasonNum < 1 || seasonNum > validSeasons.length) {
+                return Alert.alert('Error', `La temporada actual debe estar entre 1 y ${validSeasons.length}`);
+            }
+
+            const maxEpisodes = parseInt(validSeasons[seasonNum - 1].episodes);
+            if (episodeNum < 1 || episodeNum > maxEpisodes) {
+                return Alert.alert('Error', `El capítulo actual debe estar entre 1 y ${maxEpisodes} para la temporada ${seasonNum}`);
+            }
+        }
+
         if (seriesList.length >= category.series_count) {
             return Alert.alert('Límite Alcanzado', `Solo puedes agregar hasta ${category.series_count} series en esta categoría.`);
         }
