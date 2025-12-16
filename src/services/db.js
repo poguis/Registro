@@ -58,6 +58,50 @@ class DatabaseService {
         );
       `);
 
+            // Entertainment Categories (Series/Anime/Reading)
+            await this.db.execAsync(`
+        CREATE TABLE IF NOT EXISTS entertainment_categories (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          type TEXT CHECK(type IN ('video', 'reading')) NOT NULL,
+          start_date TEXT,
+          days_of_week TEXT, -- JSON string ["Monday", "Wednesday"]
+          frequency INTEGER DEFAULT 0,
+          series_count INTEGER DEFAULT 0,
+          description TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+      `);
+
+            // Create SERIES table
+            await this.db.execAsync(`
+        CREATE TABLE IF NOT EXISTS series (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          category_id INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          description TEXT,
+          status TEXT DEFAULT 'Nueva', -- 'Nueva', 'Mirando', 'Terminada', 'Pausada'
+          current_season INTEGER DEFAULT 1,
+          current_episode INTEGER DEFAULT 1,
+          total_seasons INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (category_id) REFERENCES entertainment_categories (id) ON DELETE CASCADE
+        );
+      `);
+
+            // Create SEASONS table
+            await this.db.execAsync(`
+        CREATE TABLE IF NOT EXISTS seasons (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          series_id INTEGER NOT NULL,
+          season_number INTEGER NOT NULL,
+          episode_count INTEGER DEFAULT 0,
+          FOREIGN KEY (series_id) REFERENCES series (id) ON DELETE CASCADE
+        );
+      `);
+
             console.log('Database v2 initialized successfully');
             return true;
         } catch (error) {
@@ -269,6 +313,160 @@ class DatabaseService {
             // Returns array of objects: [{category: 'Food'}, {category: 'Salary'}]
             const categories = result.map(r => r.category);
             return { success: true, categories };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    // --- ENTERTAINMENT (Series/Anime/Lectura) ---
+
+    async addEntertainmentCategory(userId, data) {
+        if (!this.db) await this.init();
+        try {
+            const { name, type, startDate, daysOfWeek, frequency, seriesCount, description } = data;
+            const daysString = JSON.stringify(daysOfWeek);
+
+            await this.db.runAsync(
+                `INSERT INTO entertainment_categories 
+                (user_id, name, type, start_date, days_of_week, frequency, series_count, description) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                [userId, name, type, startDate, daysString, frequency, seriesCount, description]
+            );
+
+            return { success: true };
+        } catch (error) {
+            console.error('Error adding entertainment category:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async getEntertainmentCategories(userId) {
+        if (!this.db) await this.init();
+        try {
+            const categories = await this.db.getAllAsync(
+                'SELECT * FROM entertainment_categories WHERE user_id = ? ORDER BY created_at DESC',
+                [userId]
+            );
+            return {
+                success: true,
+                categories: categories.map(c => ({
+                    ...c,
+                    days_of_week: JSON.parse(c.days_of_week || '[]')
+                }))
+            };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async updateEntertainmentCategory(id, data) {
+        if (!this.db) await this.init();
+        try {
+            const { name, type, startDate, daysOfWeek, frequency, seriesCount, description } = data;
+            const daysString = JSON.stringify(daysOfWeek);
+
+            await this.db.runAsync(
+                `UPDATE entertainment_categories 
+                SET name = ?, type = ?, start_date = ?, days_of_week = ?, frequency = ?, series_count = ?, description = ?
+                WHERE id = ?`,
+                [name, type, startDate, daysString, frequency, seriesCount, description, id]
+            );
+            return { success: true };
+        } catch (error) {
+            console.error('Error updating entertainment category:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async deleteEntertainmentCategory(id) {
+        if (!this.db) await this.init();
+        try {
+            await this.db.runAsync('DELETE FROM entertainment_categories WHERE id = ?', [id]);
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    // --- SERIES METHODS ---
+
+    async getSeriesByCategory(categoryId) {
+        if (!this.db) await this.init();
+        try {
+            const series = await this.db.getAllAsync(
+                'SELECT * FROM series WHERE category_id = ? ORDER BY id DESC',
+                [categoryId]
+            );
+            return { success: true, series };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async getSeasonsBySeries(seriesId) {
+        if (!this.db) await this.init();
+        try {
+            const seasons = await this.db.getAllAsync(
+                'SELECT * FROM seasons WHERE series_id = ? ORDER BY season_number ASC',
+                [seriesId]
+            );
+            return { success: true, seasons };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async addSeriesWithSeasons(seriesData, seasonsData) {
+        if (!this.db) await this.init();
+        try {
+            // Start Transaction logic (simulated with standard async calls for now as explicit transaction API might vary)
+            // Ideally use this.db.withTransactionAsync() if available in this version of expo-sqlite, 
+            // but standard sequential execution is often sufficient for this simple use case if we don't strictly need rollback.
+
+            const { category_id, name, description, status, current_season, current_episode, total_seasons } = seriesData;
+
+            // 1. Insert Series
+            const result = await this.db.runAsync(
+                `INSERT INTO series (category_id, name, description, status, current_season, current_episode, total_seasons) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [category_id, name, description, status, current_season, current_episode, total_seasons]
+            );
+            const seriesId = result.lastInsertRowId;
+
+            // 2. Insert Seasons
+            if (seasonsData && seasonsData.length > 0) {
+                for (const season of seasonsData) {
+                    await this.db.runAsync(
+                        `INSERT INTO seasons (series_id, season_number, episode_count) VALUES (?, ?, ?)`,
+                        [seriesId, season.season_number, season.episode_count]
+                    );
+                }
+            }
+
+            return { success: true };
+        } catch (error) {
+            console.error('Error adding series:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async updateSeriesProgress(seriesId, currentSeason, currentEpisode) {
+        if (!this.db) await this.init();
+        try {
+            await this.db.runAsync(
+                `UPDATE series SET current_season = ?, current_episode = ? WHERE id = ?`,
+                [currentSeason, currentEpisode, seriesId]
+            );
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async deleteSeries(id) {
+        if (!this.db) await this.init();
+        try {
+            await this.db.runAsync('DELETE FROM series WHERE id = ?', [id]);
+            return { success: true };
         } catch (error) {
             return { success: false, error: error.message };
         }

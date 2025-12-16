@@ -32,6 +32,10 @@ export default function HomeScreen({ user, onLogout, onNavigate }) {
             onNavigate('DINERO');
             return;
         }
+        if (module === 'Series y Anime') {
+            onNavigate('SERIES_ANIME');
+            return;
+        }
         Alert.alert('Próximamente', `El módulo de ${module} estará disponible pronto.`);
     };
 

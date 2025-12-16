@@ -4,13 +4,17 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import LoginScreen from './src/screens/LoginScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import DineroScreen from './src/screens/DineroScreen';
+import SeriesAnimeScreen from './src/screens/SeriesAnimeScreen';
 import DeudasPrestamosScreen from './src/screens/DeudasPrestamosScreen';
 import db from './src/services/db';
+
+import SeriesDetailScreen from './src/screens/SeriesDetailScreen';
 
 export default function App() {
   const [isReady, setIsReady] = useState(false);
   const [user, setUser] = useState(null);
   const [currentView, setCurrentView] = useState('LOGIN'); // LOGIN, HOME, DINERO, DEUDAS_PRESTAMOS
+  const [selectedCategory, setSelectedCategory] = useState(null);
 
   useEffect(() => {
     // Inicializar DB
@@ -61,14 +65,24 @@ export default function App() {
               <DineroScreen
                 user={user}
                 onBack={() => setCurrentView('HOME')}
-                onNavigate={handleNavigate}
               />
             );
-          case 'DEUDAS_PRESTAMOS':
+          case 'SERIES_ANIME':
             return (
-              <DeudasPrestamosScreen
+              <SeriesAnimeScreen
                 user={user}
-                onBack={() => setCurrentView('DINERO')}
+                onBack={() => setCurrentView('HOME')}
+                onNavigateDetail={(category) => {
+                  setSelectedCategory(category);
+                  setCurrentView('SERIES_DETAIL');
+                }}
+              />
+            );
+          case 'SERIES_DETAIL':
+            return (
+              <SeriesDetailScreen
+                category={selectedCategory}
+                onBack={() => setCurrentView('SERIES_ANIME')}
               />
             );
           case 'HOME':
@@ -76,7 +90,7 @@ export default function App() {
             return (
               <HomeScreen
                 user={user}
-                onNavigate={handleNavigate}
+                onNavigate={setCurrentView}
                 onLogout={handleLogout}
               />
             );
