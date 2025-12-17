@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import db from '../services/db';
 
-export default function SeriesDetailScreen({ category, onBack }) {
+export default function SeriesDetailScreen({ user, category, onBack, onNavigateRegistry }) {
     const [seriesList, setSeriesList] = useState([]);
     const [modalVisible, setModalVisible] = useState(false);
 
@@ -21,36 +21,82 @@ export default function SeriesDetailScreen({ category, onBack }) {
     const [currentEpisode, setCurrentEpisode] = useState(1);
     const [backlogInfo, setBacklogInfo] = useState(null);
 
+    const fetchSeries = async () => {
+        if (category?.id) {
+            try {
+                // Fetch all series for the category (Status: Nueva, Mirando, Finished)
+                const result = await db.getSeriesByCategory(category.id);
+
+                if (result.success) {
+                    const list = result.series;
+                    // Enriched list with seasons for backlog calculation
+                    const enrichedList = await Promise.all(list.map(async (series) => {
+                        const seasonsRes = await db.getSeasonsBySeries(series.id);
+                        return {
+                            ...series,
+                            seasons: seasonsRes.success ? seasonsRes.seasons : []
+                        };
+                    }));
+
+                    setSeriesList(enrichedList);
+                    calculateHeaderBacklog(enrichedList);
+                }
+            } catch (error) {
+                console.error("Error fetching series:", error);
+            }
+        }
+    };
+
     useEffect(() => {
         fetchSeries();
-        calculateHeaderBacklog();
+        // We can call calculateHeaderBacklog here but it depends on seriesList state which might be empty initially.
+        // fetchSeries calls it with new data, so that covers it.
+        // But if we want to recalc on category change? fetchSeries does it.
     }, [category]);
 
-    const calculateHeaderBacklog = () => {
+    const calculateHeaderBacklog = (currentSeriesList = seriesList) => {
+        if (!currentSeriesList || !currentSeriesList.length) return;
         if (!category?.start_date || !category?.frequency) return;
 
         const startStr = category.start_date;
         const freq = category.frequency;
         const daysOfWeek = category.days_of_week;
 
+        const scheduleCalc = calculateScheduleDays(startStr, daysOfWeek);
+        const targetTotal = scheduleCalc.validDays * freq;
+
+        let totalWatchedSinceStart = 0;
+        currentSeriesList.forEach(s => {
+            totalWatchedSinceStart += getWatchedCountSinceStart(s);
+        });
+
+        const totalBacklogItems = targetTotal - totalWatchedSinceStart;
+        const backlogValue = totalBacklogItems < 0 ? 0 : totalBacklogItems;
+        const backlogDays = Math.ceil(backlogValue / freq);
+
+        setBacklogInfo({
+            diffDays: backlogDays,
+            backlogItems: backlogValue
+        });
+    };
+
+    // Helper Functions
+    const calculateScheduleDays = (startStr, daysOfWeek) => {
+        if (!startStr) return { validDays: 0 };
         let daysArray = [];
         try {
             daysArray = typeof daysOfWeek === 'string' ? JSON.parse(daysOfWeek) : daysOfWeek;
         } catch (e) { daysArray = []; }
 
-        if (!daysArray || daysArray.length === 0) return;
-
         const now = new Date();
         now.setHours(0, 0, 0, 0);
-
         const [y, m, d] = startStr.split('-').map(Number);
         const start = new Date(y, m - 1, d);
 
-        if (start > now) return;
+        if (start > now) return { validDays: 0 };
 
         let count = 0;
         let current = new Date(start);
-
         while (current <= now) {
             const dayIndex = current.getDay();
             const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -58,18 +104,29 @@ export default function SeriesDetailScreen({ category, onBack }) {
             if (daysArray.includes(dayName)) count++;
             current.setDate(current.getDate() + 1);
         }
-
-        const backlogItems = count * freq;
-        setBacklogInfo({ diffDays: count, backlogItems });
+        return { validDays: count };
     };
 
-    const fetchSeries = async () => {
-        if (category?.id) {
-            const result = await db.getSeriesByCategory(category.id);
-            if (result.success) {
-                setSeriesList(result.series);
-            }
+    const getWatchedCountSinceStart = (series) => {
+        if (!series.seasons || !Array.isArray(series.seasons)) return 0;
+
+        const currentAbsolute = getAbsoluteEpisodeCount(series, series.current_season, series.current_episode);
+        const initS = series.initial_season || 1;
+        const initE = series.initial_episode || 1;
+        const initialAbsolute = getAbsoluteEpisodeCount(series, initS, initE);
+
+        let diff = currentAbsolute - initialAbsolute;
+        return diff < 0 ? 0 : diff;
+    };
+
+    const getAbsoluteEpisodeCount = (series, seasonNum, episodeNum) => {
+        let count = 0;
+        for (let i = 1; i < seasonNum; i++) {
+            const sobj = series.seasons.find(sea => sea.season_number === i);
+            count += sobj ? sobj.episode_count : 0;
         }
+        count += episodeNum;
+        return count;
     };
 
     const handleAddSeason = () => {
@@ -124,7 +181,7 @@ export default function SeriesDetailScreen({ category, onBack }) {
             category_id: category.id,
             name,
             description,
-            status,
+            status: 'Mirando',
             current_season: status === 'Nueva' ? 1 : parseInt(currentSeason),
             current_episode: status === 'Nueva' ? 1 : parseInt(currentEpisode),
             total_seasons: validSeasons.length
@@ -188,15 +245,20 @@ export default function SeriesDetailScreen({ category, onBack }) {
                         </Text>
                     )}
                 </View>
-                <TouchableOpacity
-                    style={styles.addButton}
-                    onPress={() => {
-                        resetForm();
-                        setModalVisible(true);
-                    }}
-                >
-                    <Text style={styles.addButtonText}>+</Text>
-                </TouchableOpacity>
+                <View style={{ flexDirection: 'row' }}>
+                    <TouchableOpacity onPress={onNavigateRegistry} style={[styles.addButton, { backgroundColor: '#FFF3E0', marginRight: 10 }]}>
+                        <Text style={{ fontSize: 20 }}>📋</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={styles.addButton}
+                        onPress={() => {
+                            resetForm();
+                            setModalVisible(true);
+                        }}
+                    >
+                        <Text style={styles.addButtonText}>+</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
 
             <FlatList
@@ -360,4 +422,5 @@ const styles = StyleSheet.create({
     row: { flexDirection: 'row' },
     saveButton: { backgroundColor: '#4CAF50', padding: 15, borderRadius: 10, alignItems: 'center', marginTop: 30 },
     saveButtonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' }
-});
+}
+);

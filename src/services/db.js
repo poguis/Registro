@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 
-const dbName = 'app_registro_v2.db'; // Changed name to force fresh DB for new schema
+const dbName = 'app_registro_v3.db'; // Changed to v3 for schema update
 
 class DatabaseService {
     constructor() {
@@ -85,6 +85,8 @@ class DatabaseService {
           status TEXT DEFAULT 'Nueva', -- 'Nueva', 'Mirando', 'Terminada', 'Pausada'
           current_season INTEGER DEFAULT 1,
           current_episode INTEGER DEFAULT 1,
+          initial_season INTEGER DEFAULT 1, -- New field
+          initial_episode INTEGER DEFAULT 1, -- New field
           total_seasons INTEGER DEFAULT 0,
           created_at TEXT DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (category_id) REFERENCES entertainment_categories (id) ON DELETE CASCADE
@@ -102,7 +104,7 @@ class DatabaseService {
         );
       `);
 
-            console.log('Database v2 initialized successfully');
+            console.log('Database v3 initialized successfully');
             return true;
         } catch (error) {
             console.error('Database initialization failed:', error);
@@ -343,18 +345,54 @@ class DatabaseService {
     async getEntertainmentCategories(userId) {
         if (!this.db) await this.init();
         try {
+            // Check if created_at exists, fall back to id for safety if needed, but assuming row 349 is correct.
             const categories = await this.db.getAllAsync(
-                'SELECT * FROM entertainment_categories WHERE user_id = ? ORDER BY created_at DESC',
+                `SELECT * FROM entertainment_categories WHERE user_id = ? ORDER BY id DESC`,
                 [userId]
             );
-            return {
-                success: true,
-                categories: categories.map(c => ({
-                    ...c,
-                    days_of_week: JSON.parse(c.days_of_week || '[]')
-                }))
-            };
+
+            // Calculate aggregated progress for each category
+            const enrichedCategories = await Promise.all(categories.map(async (cat) => {
+                const seriesList = await this.db.getAllAsync(
+                    `SELECT id, current_season, current_episode, initial_season, initial_episode, status FROM series WHERE category_id = ? AND status = 'Mirando'`,
+                    [cat.id]
+                );
+
+                let totalWatched = 0;
+                for (const s of seriesList) {
+                    const seasons = await this.db.getAllAsync(
+                        `SELECT season_number, episode_count FROM seasons WHERE series_id = ?`,
+                        [s.id]
+                    );
+
+                    const getAbs = (seasonNum, episodeNum) => {
+                        let count = 0;
+                        for (let i = 1; i < seasonNum; i++) {
+                            const sea = seasons.find(se => se.season_number === i);
+                            count += sea ? sea.episode_count : 0;
+                        }
+                        return count + episodeNum;
+                    };
+
+                    const currentAbs = getAbs(s.current_season, s.current_episode);
+                    const initS = s.initial_season || 1;
+                    const initE = s.initial_episode || 1;
+                    const initialAbs = getAbs(initS, initE);
+
+                    const diff = currentAbs - initialAbs;
+                    totalWatched += (diff > 0 ? diff : 0);
+                }
+
+                return {
+                    ...cat,
+                    days_of_week: typeof cat.days_of_week === 'string' ? JSON.parse(cat.days_of_week || '[]') : cat.days_of_week,
+                    totalWatched
+                };
+            }));
+
+            return { success: true, categories: enrichedCategories };
         } catch (error) {
+            console.error(error);
             return { success: false, error: error.message };
         }
     }
@@ -427,8 +465,8 @@ class DatabaseService {
 
             // 1. Insert Series
             const result = await this.db.runAsync(
-                `INSERT INTO series (category_id, name, description, status, current_season, current_episode, total_seasons) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [category_id, name, description, status, current_season, current_episode, total_seasons]
+                `INSERT INTO series (category_id, name, description, status, current_season, current_episode, initial_season, initial_episode, total_seasons) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [category_id, name, description, status, current_season, current_episode, current_season, current_episode, total_seasons]
             );
             const seriesId = result.lastInsertRowId;
 
@@ -467,6 +505,49 @@ class DatabaseService {
         try {
             await this.db.runAsync('DELETE FROM series WHERE id = ?', [id]);
             return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+    async getFullWatchlist(userId, categoryId = null) {
+        if (!this.db) await this.init();
+        try {
+            let query = `
+                SELECT 
+                    s.id as s_id, s.name as s_name, s.status, s.current_season, s.current_episode, 
+                    s.initial_season, s.initial_episode, s.total_seasons,
+                    c.id as c_id, c.start_date, c.frequency, c.days_of_week, c.type
+                FROM series s
+                JOIN entertainment_categories c ON s.category_id = c.id
+                WHERE c.user_id = ? AND s.status = 'Mirando'
+            `;
+
+            const params = [userId];
+            if (categoryId) {
+                query += ` AND c.id = ?`;
+                params.push(categoryId);
+            }
+
+            // Get all active series
+            const seriesRows = await this.db.getAllAsync(query, params);
+
+            const data = [];
+            for (const s of seriesRows) {
+                const seasons = await this.db.getAllAsync(
+                    'SELECT * FROM seasons WHERE series_id = ? ORDER BY season_number ASC',
+                    [s.s_id]
+                );
+
+                // Parse days_of_week
+                let days = [];
+                try {
+                    days = typeof s.days_of_week === 'string' ? JSON.parse(s.days_of_week) : s.days_of_week;
+                } catch (e) { }
+
+                data.push({ ...s, seasons, days_of_week: days });
+            }
+
+            return { success: true, data };
         } catch (error) {
             return { success: false, error: error.message };
         }

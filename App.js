@@ -9,6 +9,7 @@ import DeudasPrestamosScreen from './src/screens/DeudasPrestamosScreen';
 import db from './src/services/db';
 
 import SeriesDetailScreen from './src/screens/SeriesDetailScreen';
+import ChapterRegistryScreen from './src/screens/ChapterRegistryScreen';
 
 export default function App() {
   const [isReady, setIsReady] = useState(false);
@@ -81,8 +82,18 @@ export default function App() {
           case 'SERIES_DETAIL':
             return (
               <SeriesDetailScreen
+                user={user}
                 category={selectedCategory}
                 onBack={() => setCurrentView('SERIES_ANIME')}
+                onNavigateRegistry={() => setCurrentView('CHAPTER_REGISTRY')}
+              />
+            );
+          case 'CHAPTER_REGISTRY':
+            return (
+              <ChapterRegistryScreen
+                user={user}
+                category={selectedCategory}
+                onBack={() => setCurrentView('SERIES_DETAIL')}
               />
             );
           case 'HOME':

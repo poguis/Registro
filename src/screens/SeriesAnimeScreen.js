@@ -131,7 +131,7 @@ const CustomCalendar = ({ visible, onClose, onSelectDate, initialDate }) => {
     );
 };
 
-export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail }) {
+export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNavigateRegistry }) {
     const [categories, setCategories] = useState([]);
     const [modalVisible, setModalVisible] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
@@ -250,7 +250,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail }) {
         );
     };
 
-    const calculateBacklog = (startStr, freq, daysOfWeek) => {
+    const calculateBacklog = (startStr, freq, daysOfWeek, totalWatched = 0) => {
         if (!startStr || !freq) return null;
 
         let daysArray = [];
@@ -266,33 +266,32 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail }) {
         const [y, m, d] = startStr.split('-').map(Number);
         const start = new Date(y, m - 1, d);
 
-        // If start date is in the future, return 0
         if (start > now) return { diffDays: 0, backlogItems: 0, unit: '' };
 
-        let count = 0;
+        let validDaysPassed = 0;
         let current = new Date(start);
 
-        // Loop from start date to today (inclusive)
         while (current <= now) {
-            // Get day name (Monday, Tuesday...)
-            // getDay() returns 0 for Sunday, 1 for Monday...
-            // Our DAYS array keys are 'Sunday', 'Monday', etc.
             const dayIndex = current.getDay();
             const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
             const dayName = dayMap[dayIndex];
 
             if (daysArray.includes(dayName)) {
-                count++;
+                validDaysPassed++;
             }
-
-            // Next day
             current.setDate(current.getDate() + 1);
         }
 
-        const backlogItems = count * freq;
+        const targetItems = validDaysPassed * freq;
+        let backlogItems = targetItems - totalWatched;
+        if (backlogItems < 0) backlogItems = 0;
+
+        // Days of Atraso = How many days worth of backlog do we have?
+        const daysAtraso = Math.ceil(backlogItems / freq);
+
         const unit = freq > 1 ? (type === 'video' ? 'Capitulos' : 'Items') : (type === 'video' ? 'Capitulo' : 'Item');
 
-        return { diffDays: count, backlogItems, unit };
+        return { diffDays: daysAtraso, backlogItems, unit };
     };
 
     const renderItem = ({ item }) => {
@@ -308,7 +307,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail }) {
             return dayObj ? dayObj.label : '';
         }).join(', ');
 
-        const calc = calculateBacklog(item.start_date, item.frequency, item.days_of_week);
+        const calc = calculateBacklog(item.start_date, item.frequency, item.days_of_week, item.totalWatched);
 
         return (
             <TouchableOpacity
