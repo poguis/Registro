@@ -36,6 +36,10 @@ export default function HomeScreen({ user, onLogout, onNavigate }) {
             onNavigate('SERIES_ANIME');
             return;
         }
+        if (module === 'Deudas y Préstamos') {
+            onNavigate('DEUDAS_PRESTAMOS');
+            return;
+        }
         Alert.alert('Próximamente', `El módulo de ${module} estará disponible pronto.`);
     };
 
@@ -73,10 +77,10 @@ export default function HomeScreen({ user, onLogout, onNavigate }) {
                 />
 
                 <MenuButton
-                    title="Pendiente"
-                    icon="📋"
+                    title="Préstamos / Deudas"
+                    icon="💸"
                     color="#FF9800"
-                    onPress={() => handlePress('Pendientes')}
+                    onPress={() => handlePress('Deudas y Préstamos')}
                 />
             </View>
         </SafeAreaView>

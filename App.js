@@ -66,6 +66,14 @@ export default function App() {
               <DineroScreen
                 user={user}
                 onBack={() => setCurrentView('HOME')}
+                onNavigate={(view) => setCurrentView(view)}
+              />
+            );
+          case 'DEUDAS_PRESTAMOS':
+            return (
+              <DeudasPrestamosScreen
+                user={user}
+                onBack={() => setCurrentView('HOME')}
               />
             );
           case 'SERIES_ANIME':
