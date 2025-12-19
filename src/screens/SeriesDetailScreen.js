@@ -21,6 +21,10 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
     const [currentEpisode, setCurrentEpisode] = useState(1);
     const [backlogInfo, setBacklogInfo] = useState(null);
 
+    // Edit State
+    const [isEditing, setIsEditing] = useState(false);
+    const [editingSeriesId, setEditingSeriesId] = useState(null);
+
     const fetchSeries = async () => {
         if (category?.id) {
             try {
@@ -148,6 +152,77 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         setSeasons(newSeasons);
     };
 
+    const handleEdit = (series) => {
+        setIsEditing(true);
+        setEditingSeriesId(series.id);
+        setName(series.name);
+        setDescription(series.description || '');
+        setStatus(series.status);
+        setCurrentSeason(series.current_season);
+        setCurrentEpisode(series.current_episode);
+
+        // Map seasons data to form state
+        if (series.seasons && series.seasons.length > 0) {
+            setSeasons(series.seasons.map(s => ({
+                number: s.season_number,
+                episodes: String(s.episode_count)
+            })));
+        } else {
+            setSeasons([{ number: 1, episodes: '' }]);
+        }
+
+        setModalVisible(true);
+    };
+
+    const moveUp = async (index) => {
+        if (index === 0) return;
+        const newList = [...seriesList];
+        const [movedItem] = newList.splice(index, 1);
+        newList.splice(index - 1, 0, movedItem);
+
+        // Update all sort_orders sequentially to be safe
+        await Promise.all(newList.map((item, idx) =>
+            db.updateSeriesSortOrder(item.id, idx + 1)
+        ));
+
+        fetchSeries();
+    };
+
+    const moveDown = async (index) => {
+        if (index === seriesList.length - 1) return;
+        const newList = [...seriesList];
+        const [movedItem] = newList.splice(index, 1);
+        newList.splice(index + 1, 0, movedItem);
+
+        // Update all sort_orders sequentially
+        await Promise.all(newList.map((item, idx) =>
+            db.updateSeriesSortOrder(item.id, idx + 1)
+        ));
+
+        fetchSeries();
+    };
+
+    const handleDelete = (seriesId) => {
+        Alert.alert(
+            'Eliminar Serie',
+            '¿Estás seguro de que quieres eliminar esta serie? Se borrarán también sus temporadas y progreso.',
+            [
+                { text: 'Cancelar', style: 'cancel' },
+                {
+                    text: 'Eliminar',
+                    style: 'destructive',
+                    onPress: async () => {
+                        const result = await db.deleteSeries(seriesId);
+                        if (result.success) {
+                            fetchSeries();
+                            Alert.alert('Éxito', 'Serie eliminada');
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
     const handleSave = async () => {
         if (!name.trim()) return Alert.alert('Error', 'El nombre es obligatorio');
 
@@ -177,33 +252,45 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
             return Alert.alert('Límite Alcanzado', `Solo puedes agregar hasta ${category.series_count} series en esta categoría.`);
         }
 
-        const seriesData = {
-            category_id: category.id,
-            name,
-            description,
-            status: 'Mirando',
-            current_season: status === 'Nueva' ? 1 : parseInt(currentSeason),
-            current_episode: status === 'Nueva' ? 1 : parseInt(currentEpisode),
-            total_seasons: validSeasons.length
-        };
-
         const seasonsData = validSeasons.map(s => ({
             season_number: s.number,
             episode_count: parseInt(s.episodes)
         }));
 
-        const result = await db.addSeriesWithSeasons(seriesData, seasonsData);
+        let result;
+        if (isEditing) {
+            const seriesData = {
+                name,
+                description,
+                total_seasons: validSeasons.length
+            };
+            result = await db.updateSeriesWithSeasons(editingSeriesId, seriesData, seasonsData);
+        } else {
+            const seriesData = {
+                category_id: category.id,
+                name,
+                description,
+                status: 'Mirando',
+                current_season: status === 'Nueva' ? 1 : parseInt(currentSeason),
+                current_episode: status === 'Nueva' ? 1 : parseInt(currentEpisode),
+                total_seasons: validSeasons.length
+            };
+            result = await db.addSeriesWithSeasons(seriesData, seasonsData);
+        }
+
         if (result.success) {
             setModalVisible(false);
             fetchSeries();
             resetForm();
-            Alert.alert('Éxito', 'Serie agregada correctamente');
+            Alert.alert('Éxito', isEditing ? 'Serie actualizada' : 'Serie agregada');
         } else {
             Alert.alert('Error', 'No se pudo guardar la serie');
         }
     };
 
     const resetForm = () => {
+        setIsEditing(false);
+        setEditingSeriesId(null);
         setName('');
         setDescription('');
         setStatus('Nueva');
@@ -212,17 +299,35 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         setCurrentEpisode(1);
     };
 
-    const renderSeriesItem = ({ item }) => (
+    const renderSeriesItem = ({ item, index }) => (
         <View style={styles.card}>
             <View style={styles.cardHeader}>
-                <Text style={styles.cardTitle}>{item.name}</Text>
-                <View style={[styles.badge, item.status === 'Nueva' ? styles.badgeNew : styles.badgeWatching]}>
-                    <Text style={styles.badgeText}>{item.status}</Text>
+                <View style={{ flex: 1 }}>
+                    <Text style={styles.cardTitle}>{item.name}</Text>
+                    <Text style={styles.cardProgress}>
+                        Progreso: T{item.current_season} - E{item.current_episode} / {item.total_seasons} Temporadas
+                    </Text>
+                </View>
+                <View style={styles.cardActions}>
+                    <View style={styles.orderButtons}>
+                        <TouchableOpacity onPress={() => moveUp(index)} style={styles.orderBtn}>
+                            <Text style={styles.orderBtnText}>↑</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => moveDown(index)} style={styles.orderBtn}>
+                            <Text style={styles.orderBtnText}>↓</Text>
+                        </TouchableOpacity>
+                    </View>
+                    <TouchableOpacity onPress={() => handleEdit(item)} style={styles.editBtn}>
+                        <Text style={{ fontSize: 16 }}>✏️</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => handleDelete(item.id)} style={styles.deleteBtn}>
+                        <Text style={{ fontSize: 16 }}>🗑️</Text>
+                    </TouchableOpacity>
+                    <View style={[styles.badge, item.status === 'Nueva' ? styles.badgeNew : styles.badgeWatching]}>
+                        <Text style={styles.badgeText}>{item.status}</Text>
+                    </View>
                 </View>
             </View>
-            <Text style={styles.cardProgress}>
-                Progreso: T{item.current_season} - E{item.current_episode} / {item.total_seasons} Temporadas
-            </Text>
             {item.description ? <Text style={styles.cardDesc}>{item.description}</Text> : null}
         </View>
     );
@@ -269,11 +374,11 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 ListEmptyComponent={<Text style={styles.emptyText}>No hay series registradas.</Text>}
             />
 
-            {/* MODAL ADD SERIES */}
+            {/* MODAL ADD/EDIT SERIES */}
             <Modal animationType="slide" visible={modalVisible} onRequestClose={() => setModalVisible(false)}>
                 <SafeAreaView style={styles.modalContainer}>
                     <View style={styles.modalHeader}>
-                        <Text style={styles.modalTitle}>Nueva Serie</Text>
+                        <Text style={styles.modalTitle}>{isEditing ? 'Editar Serie' : 'Nueva Serie'}</Text>
                         <TouchableOpacity onPress={() => setModalVisible(false)}>
                             <Text style={styles.closeText}>Cerrar</Text>
                         </TouchableOpacity>
@@ -301,6 +406,14 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                             </TouchableOpacity>
                         </View>
 
+                        {isEditing && (
+                            <View style={styles.editInfoBanner}>
+                                <Text style={styles.editInfoText}>
+                                    Nota: Solo puedes editar nombre, descripción y temporadas. El progreso se actualiza desde el registro.
+                                </Text>
+                            </View>
+                        )}
+
                         <Text style={styles.sectionTitle}>Temporadas</Text>
                         {seasons.map((season, index) => (
                             <View key={index} style={styles.seasonRow}>
@@ -323,9 +436,9 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                             </TouchableOpacity>
                         </View>
 
-                        {status === 'Mirando' && (
+                        {!isEditing && status === 'Mirando' && (
                             <View>
-                                <Text style={styles.sectionTitle}>Progreso Actual</Text>
+                                <Text style={styles.sectionTitle}>Progreso Inicial</Text>
                                 <View style={styles.row}>
                                     <View style={{ flex: 1, marginRight: 5 }}>
                                         <Text style={styles.label}>Temporada</Text>
@@ -350,7 +463,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                         )}
 
                         <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-                            <Text style={styles.saveButtonText}>Guardar Serie</Text>
+                            <Text style={styles.saveButtonText}>{isEditing ? 'Actualizar' : 'Guardar Serie'}</Text>
                         </TouchableOpacity>
                         <View style={{ height: 50 }} />
                     </ScrollView>
@@ -421,6 +534,16 @@ const styles = StyleSheet.create({
 
     row: { flexDirection: 'row' },
     saveButton: { backgroundColor: '#4CAF50', padding: 15, borderRadius: 10, alignItems: 'center', marginTop: 30 },
-    saveButtonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' }
+    saveButtonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+
+    cardActions: { flexDirection: 'row', alignItems: 'center' },
+    orderButtons: { flexDirection: 'row', marginRight: 10 },
+    orderBtn: { backgroundColor: '#F5F5F5', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 5, marginHorizontal: 2, borderWidth: 1, borderColor: '#ddd' },
+    orderBtnText: { fontSize: 16, color: '#666', fontWeight: 'bold' },
+    editBtn: { backgroundColor: '#E3F2FD', padding: 6, borderRadius: 8, marginRight: 8 },
+    deleteBtn: { backgroundColor: '#FFEBEE', padding: 6, borderRadius: 8, marginRight: 8 },
+
+    editInfoBanner: { backgroundColor: '#FFF9C4', padding: 10, borderRadius: 8, marginTop: 15 },
+    editInfoText: { fontSize: 12, color: '#827717', textAlign: 'center' }
 }
 );

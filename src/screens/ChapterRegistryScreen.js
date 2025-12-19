@@ -5,7 +5,8 @@ import {
     TouchableOpacity,
     StyleSheet,
     FlatList,
-    ActivityIndicator
+    ActivityIndicator,
+    Alert
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -14,7 +15,8 @@ import db from '../services/db';
 export default function ChapterRegistryScreen({ user, category, onBack }) {
     const [loading, setLoading] = useState(true);
     const [items, setItems] = useState([]); // The interleaved list
-    const [tab, setTab] = useState('pending'); // 'pending' | 'all' | 'watched'
+    const [tab, setTab] = useState('pending'); // 'pending' | 'watched'
+    const [counts, setCounts] = useState({ pending: 0, watched: 0 });
     const [rawSeries, setRawSeries] = useState([]);
     const [headerBacklog, setHeaderBacklog] = useState(null);
 
@@ -30,8 +32,17 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
         if (result.success) {
             setRawSeries(result.data);
             calculateGlobalBacklog(result.data);
-            const generatedItems = generateInterleavedList(result.data, tab);
-            setItems(generatedItems);
+
+            // Generate both lists to get counts
+            const pendingList = generateInterleavedList(result.data, 'pending');
+            const watchedList = generateInterleavedList(result.data, 'watched');
+
+            setCounts({
+                pending: pendingList.length,
+                watched: watchedList.length
+            });
+
+            setItems(tab === 'pending' ? pendingList : watchedList);
         }
         setLoading(false);
     };
@@ -119,22 +130,41 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
     };
 
     const generateInterleavedList = (seriesList, currentTab) => {
-        const allSeriesLists = seriesList.map(series => {
-            return generateEpisodesForSeries(series, currentTab);
+        let allEpisodes = [];
+
+        seriesList.forEach(series => {
+            const seriesEpisodes = generateEpisodesForSeries(series, currentTab);
+
+            // Calculamos el rango base según el tipo de tab
+            // Para 'pending', el primer item es el progreso actual.
+            // Para 'watched', el primer item es el inicio (capítulo 1).
+            const baseOffset = currentTab === 'pending' ? getWatchedCountSinceStart(series) : 0;
+            const cycleOffset = series.cycle_offset || 0;
+
+            seriesEpisodes.forEach((ep, index) => {
+                // Asignamos el rango global para poder intercalar series
+                ep.globalRank = baseOffset + cycleOffset + index;
+                ep.sortOrder = series.sort_order || 0;
+                allEpisodes.push(ep);
+            });
         });
 
-        let maxLength = 0;
-        allSeriesLists.forEach(list => {
-            if (list.length > maxLength) maxLength = list.length;
-        });
-
-        const result = [];
-        for (let i = 0; i < maxLength; i++) {
-            for (let list of allSeriesLists) {
-                if (list[i]) result.push(list[i]);
-            }
+        if (currentTab === 'pending') {
+            // Pendientes: El que tiene menor rango (el más viejo/atrasado) va primero
+            allEpisodes.sort((a, b) => {
+                if (a.globalRank !== b.globalRank) return a.globalRank - b.globalRank;
+                return a.sortOrder - b.sortOrder;
+            });
+        } else {
+            // Vistos: El que tiene mayor rango (el más reciente/adelantado) va primero
+            // Dentro del mismo turno de ciclo, el de mayor prioridad va arriba (fue el último del ciclo)
+            allEpisodes.sort((a, b) => {
+                if (a.globalRank !== b.globalRank) return b.globalRank - a.globalRank;
+                return b.sortOrder - a.sortOrder;
+            });
         }
-        return result;
+
+        return allEpisodes;
     };
 
     const generateEpisodesForSeries = (series, currentTab) => {
@@ -169,7 +199,7 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
                 }
                 loopCount++;
             }
-            return episodes.reverse();
+            return episodes; // NO REVERSE AQUÍ, el sort global se encarga
         }
 
         let limit = Infinity;
@@ -221,6 +251,17 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
         const series = rawSeries.find(s => s.s_id === item.seriesId);
         if (!series) return;
 
+        // VALIDACIÓN: Verificar si este item es el PRIMER episodio pendiente de ESTA serie en la lista actual
+        const firstOccurrenceOfThisSeries = items.find(i => i.seriesId === item.seriesId && i.status === 'pending');
+
+        if (firstOccurrenceOfThisSeries && firstOccurrenceOfThisSeries.uniqueId !== item.uniqueId) {
+            Alert.alert(
+                'Orden incorrecto',
+                `Para ${item.seriesName}, debes ver primero el capítulo T${firstOccurrenceOfThisSeries.season} - E${firstOccurrenceOfThisSeries.episode}.`
+            );
+            return;
+        }
+
         const currentSeasonObj = series.seasons.find(s => s.season_number === item.season);
         const maxEpisodes = currentSeasonObj ? currentSeasonObj.episode_count : 999;
 
@@ -245,21 +286,31 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
         }
     };
 
-    const renderItem = ({ item }) => {
+    const renderItem = ({ item, index }) => {
         const isWatched = item.status === 'watched';
+        // Determinar si este ítem es parte del atraso (solo en pestaña pendientes)
+        const isBacklogItem = !isWatched && headerBacklog && index < headerBacklog.items;
+
         return (
-            <View style={styles.card}>
+            <View style={[styles.card, isBacklogItem && styles.backlogCard]}>
                 <View style={styles.cardContent}>
-                    <Text style={styles.seriesName}>{item.seriesName}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Text style={styles.seriesName}>{item.seriesName}</Text>
+                        {isBacklogItem && (
+                            <View style={styles.backlogBadge}>
+                                <Text style={styles.backlogBadgeText}>ATRASO</Text>
+                            </View>
+                        )}
+                    </View>
                     <Text style={styles.episodeInfo}>T{item.season} - E{item.episode}</Text>
                     {isWatched && <Text style={styles.watchedLabel}>Visto</Text>}
                 </View>
                 {!isWatched ? (
                     <TouchableOpacity
-                        style={styles.checkButton}
+                        style={[styles.checkButton, isBacklogItem && { backgroundColor: '#FFF3E0' }]}
                         onPress={() => onMarkWatched(item)}
                     >
-                        <Text style={styles.checkText}>✓</Text>
+                        <Text style={[styles.checkText, isBacklogItem && { color: '#EF6C00' }]}>✓</Text>
                     </TouchableOpacity>
                 ) : (
                     <TouchableOpacity
@@ -297,19 +348,17 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
                     style={[styles.tab, tab === 'pending' && styles.tabActive]}
                     onPress={() => setTab('pending')}
                 >
-                    <Text style={[styles.tabText, tab === 'pending' && styles.tabTextActive]}>Pendientes</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={[styles.tab, tab === 'all' && styles.tabActive]}
-                    onPress={() => setTab('all')}
-                >
-                    <Text style={[styles.tabText, tab === 'all' && styles.tabTextActive]}>Todos</Text>
+                    <Text style={[styles.tabText, tab === 'pending' && styles.tabTextActive]}>
+                        Pendientes ({counts.pending})
+                    </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                     style={[styles.tab, tab === 'watched' && styles.tabActive]}
                     onPress={() => setTab('watched')}
                 >
-                    <Text style={[styles.tabText, tab === 'watched' && styles.tabTextActive]}>Vistos</Text>
+                    <Text style={[styles.tabText, tab === 'watched' && styles.tabTextActive]}>
+                        Vistos ({counts.watched})
+                    </Text>
                 </TouchableOpacity>
             </View>
 
@@ -352,7 +401,24 @@ const styles = StyleSheet.create({
     card: {
         backgroundColor: '#fff', padding: 15, borderRadius: 12, marginBottom: 10,
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        shadowColor: '#000', shadowOffset: { height: 2 }, shadowOpacity: 0.1, elevation: 2
+        shadowColor: '#000', shadowOffset: { height: 2 }, shadowOpacity: 0.1, elevation: 2,
+        borderLeftWidth: 5, borderLeftColor: 'transparent'
+    },
+    backlogCard: {
+        backgroundColor: '#FFFDE7', // Un amarillo muy tenue
+        borderLeftColor: '#EF6C00', // El naranja de atraso en el borde izquierdo
+    },
+    backlogBadge: {
+        backgroundColor: '#EF6C00',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 4,
+        marginLeft: 8
+    },
+    backlogBadgeText: {
+        color: '#fff',
+        fontSize: 10,
+        fontWeight: 'bold'
     },
     cardContent: { flex: 1 },
     seriesName: { fontSize: 16, fontWeight: 'bold', color: '#333' },

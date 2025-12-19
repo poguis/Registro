@@ -104,6 +104,11 @@ class DatabaseService {
         );
       `);
 
+            // Migration for cycle_offset column
+            try {
+                await this.db.execAsync(`ALTER TABLE series ADD COLUMN cycle_offset INTEGER DEFAULT 0;`);
+            } catch (e) { }
+
             console.log('Database v3 initialized successfully');
             return true;
         } catch (error) {
@@ -432,7 +437,7 @@ class DatabaseService {
         if (!this.db) await this.init();
         try {
             const series = await this.db.getAllAsync(
-                'SELECT * FROM series WHERE category_id = ? ORDER BY id DESC',
+                'SELECT * FROM series WHERE category_id = ? ORDER BY sort_order ASC, id DESC',
                 [categoryId]
             );
             return { success: true, series };
@@ -457,16 +462,43 @@ class DatabaseService {
     async addSeriesWithSeasons(seriesData, seasonsData) {
         if (!this.db) await this.init();
         try {
-            // Start Transaction logic (simulated with standard async calls for now as explicit transaction API might vary)
-            // Ideally use this.db.withTransactionAsync() if available in this version of expo-sqlite, 
-            // but standard sequential execution is often sufficient for this simple use case if we don't strictly need rollback.
-
             const { category_id, name, description, status, current_season, current_episode, total_seasons } = seriesData;
+
+            // Get max sort_order to put it at the end
+            const maxOrderRes = await this.db.getFirstAsync(
+                'SELECT MAX(sort_order) as maxOrder FROM series WHERE category_id = ?',
+                [category_id]
+            );
+            const nextOrder = (maxOrderRes?.maxOrder || 0) + 1;
+
+            // Calculate cycle_offset for "acoplamiento"
+            // We find the MAX (watchedSinceStart + cycle_offset) currently in the category
+            const seriesInCategory = await this.db.getAllAsync(
+                'SELECT id, current_season, current_episode, initial_season, initial_episode, cycle_offset FROM series WHERE category_id = ?',
+                [category_id]
+            );
+
+            let maxCycle = 0;
+            for (const s of seriesInCategory) {
+                // We need seasons to calculate watchedCount
+                const seasons = await this.db.getAllAsync('SELECT * FROM seasons WHERE series_id = ?', [s.id]);
+                const getAbs = (sn, en) => {
+                    let c = 0;
+                    for (let i = 1; i < sn; i++) {
+                        const sea = seasons.find(se => se.season_number === i);
+                        c += sea ? sea.episode_count : 0;
+                    }
+                    return c + en;
+                };
+                const watched = getAbs(s.current_season, s.current_episode) - getAbs(s.initial_season || 1, s.initial_episode || 1);
+                const totalCycle = (watched > 0 ? watched : 0) + (s.cycle_offset || 0);
+                if (totalCycle > maxCycle) maxCycle = totalCycle;
+            }
 
             // 1. Insert Series
             const result = await this.db.runAsync(
-                `INSERT INTO series (category_id, name, description, status, current_season, current_episode, initial_season, initial_episode, total_seasons) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [category_id, name, description, status, current_season, current_episode, current_season, current_episode, total_seasons]
+                `INSERT INTO series (category_id, name, description, status, current_season, current_episode, initial_season, initial_episode, total_seasons, sort_order, cycle_offset) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [category_id, name, description, status, current_season, current_episode, current_season, current_episode, total_seasons, nextOrder, maxCycle]
             );
             const seriesId = result.lastInsertRowId;
 
@@ -483,6 +515,44 @@ class DatabaseService {
             return { success: true };
         } catch (error) {
             console.error('Error adding series:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async updateSeriesWithSeasons(seriesId, seriesData, seasonsData) {
+        if (!this.db) await this.init();
+        try {
+            const { name, description, total_seasons } = seriesData;
+
+            // 1. Update Series
+            await this.db.runAsync(
+                `UPDATE series SET name = ?, description = ?, total_seasons = ? WHERE id = ?`,
+                [name, description, total_seasons, seriesId]
+            );
+
+            // 2. Update/Insert Seasons (Simple approach: delete and re-insert)
+            await this.db.runAsync(`DELETE FROM seasons WHERE series_id = ?`, [seriesId]);
+            if (seasonsData && seasonsData.length > 0) {
+                for (const season of seasonsData) {
+                    await this.db.runAsync(
+                        `INSERT INTO seasons (series_id, season_number, episode_count) VALUES (?, ?, ?)`,
+                        [seriesId, season.season_number, season.episode_count]
+                    );
+                }
+            }
+            return { success: true };
+        } catch (error) {
+            console.error('Error updating series:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async updateSeriesSortOrder(seriesId, newOrder) {
+        if (!this.db) await this.init();
+        try {
+            await this.db.runAsync('UPDATE series SET sort_order = ? WHERE id = ?', [newOrder, seriesId]);
+            return { success: true };
+        } catch (error) {
             return { success: false, error: error.message };
         }
     }
@@ -515,7 +585,7 @@ class DatabaseService {
             let query = `
                 SELECT 
                     s.id as s_id, s.name as s_name, s.status, s.current_season, s.current_episode, 
-                    s.initial_season, s.initial_episode, s.total_seasons,
+                    s.initial_season, s.initial_episode, s.total_seasons, s.sort_order, s.cycle_offset,
                     c.id as c_id, c.start_date, c.frequency, c.days_of_week, c.type
                 FROM series s
                 JOIN entertainment_categories c ON s.category_id = c.id
@@ -527,6 +597,7 @@ class DatabaseService {
                 query += ` AND c.id = ?`;
                 params.push(categoryId);
             }
+            query += ` ORDER BY s.sort_order ASC, s.id DESC`;
 
             // Get all active series
             const seriesRows = await this.db.getAllAsync(query, params);
