@@ -281,8 +281,9 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
             }
         }
 
-        if (originalList.length >= category.series_count) {
-            return Alert.alert('Límite Alcanzado', `Solo puedes agregar hasta ${category.series_count} series en esta categoría.`);
+        const activeCount = originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando').length;
+        if (!isEditing && activeCount >= category.series_count) {
+            return Alert.alert('Límite Alcanzado', `Solo puedes tener hasta ${category.series_count} series activas ("Viendo") en esta categoría.`);
         }
 
         const seasonsData = validSeasons.map(s => ({
@@ -473,7 +474,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 <View>
                     <Text style={styles.headerTitle}>{category?.name}</Text>
                     <Text style={styles.headerSubtitle}>
-                        Series: {originalList.length} / {category?.series_count || 0}
+                        Series: {originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando').length} / {category?.series_count || 0}
                     </Text>
                     {backlogInfo && (
                         <Text style={styles.headerBacklog}>
@@ -498,17 +499,30 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
             </View>
 
             <View style={styles.tabContainer}>
-                {['Viendo', 'En espera', 'Terminado'].map(tab => (
-                    <TouchableOpacity
-                        key={tab}
-                        style={[styles.tabButton, currentStatusTab === tab && styles.tabButtonActive]}
-                        onPress={() => setCurrentStatusTab(tab)}
-                    >
-                        <Text style={[styles.tabText, currentStatusTab === tab && styles.tabTextActive]}>
-                            {tab === 'Viendo' ? '📺 Viendo' : tab === 'En espera' ? '⏳ Espera' : '✅ Fin'}
-                        </Text>
-                    </TouchableOpacity>
-                ))}
+                <TouchableOpacity
+                    style={[styles.tabButton, currentStatusTab === 'Viendo' && styles.tabButtonActive]}
+                    onPress={() => setCurrentStatusTab('Viendo')}
+                >
+                    <Text style={[styles.tabText, currentStatusTab === 'Viendo' && styles.tabTextActive]}>
+                        📺 Viendo ({originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando').length})
+                    </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[styles.tabButton, currentStatusTab === 'En espera' && styles.tabButtonActive]}
+                    onPress={() => setCurrentStatusTab('En espera')}
+                >
+                    <Text style={[styles.tabText, currentStatusTab === 'En espera' && styles.tabTextActive]}>
+                        ⏳ Espera ({originalList.filter(s => s.status === 'En espera').length})
+                    </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    style={[styles.tabButton, currentStatusTab === 'Terminado' && styles.tabButtonActive]}
+                    onPress={() => setCurrentStatusTab('Terminado')}
+                >
+                    <Text style={[styles.tabText, currentStatusTab === 'Terminado' && styles.tabTextActive]}>
+                        ✅ Fin ({originalList.filter(s => s.status === 'Terminado').length})
+                    </Text>
+                </TouchableOpacity>
             </View>
 
             <FlatList
