@@ -115,8 +115,18 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
         const initS = series.initial_season || 1;
         const initE = series.initial_episode || 1;
         const initialAbsolute = getAbsoluteEpisodeCount(series, initS, initE);
+
         let diff = currentAbsolute - initialAbsolute;
-        return diff < 0 ? 0 : diff;
+
+        // Ajuste para series terminadas: el contador se queda en el último capítulo
+        if (series.status === 'Terminado') {
+            diff += 1;
+        }
+
+        const cycleBonus = series.cycle_offset || 0;
+        const totalWatched = diff + cycleBonus;
+
+        return totalWatched < 0 ? 0 : totalWatched;
     };
 
     const getAbsoluteEpisodeCount = (series, seasonNum, episodeNum) => {
@@ -125,7 +135,9 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
             const sobj = series.seasons.find(sea => sea.season_number === i);
             count += sobj ? sobj.episode_count : 0;
         }
-        count += episodeNum;
+        // Restamos 1 porque el puntero indica el SIGUIENTE a ver, no el total visto.
+        // Si estoy en T1 E1, he visto 0 capítulos de esta serie.
+        count += (episodeNum - 1);
         return count;
     };
 
@@ -142,8 +154,9 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
             const cycleOffset = series.cycle_offset || 0;
 
             seriesEpisodes.forEach((ep, index) => {
-                // Asignamos el rango global para poder intercalar series
-                ep.globalRank = baseOffset + cycleOffset + index;
+                // Para intercalar series, usamos el index (turno) como rango principal.
+                // Así sale el primer pendiente de cada serie, luego el segundo, etc.
+                ep.globalRank = index;
                 ep.sortOrder = series.sort_order || 0;
                 allEpisodes.push(ep);
             });
@@ -178,8 +191,11 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
             const endS = series.current_season;
             const endE = series.current_episode;
             let loopCount = 0;
+            const isTerminado = series.status === 'Terminado';
 
-            while ((s < endS || (s === endS && e < endE)) && loopCount < 5000) {
+            // Si está terminado, queremos llegar HASTA el capítulo actual incluido.
+            // Si NO está terminado, llegamos hasta el ANTERIOR al actual.
+            while ((s < endS || (s === endS && (isTerminado ? e <= endE : e < endE))) && loopCount < 5000) {
                 const seasonObj = series.seasons.find(sea => sea.season_number === s);
                 const maxEp = seasonObj ? seasonObj.episode_count : 999;
 
@@ -209,7 +225,14 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
             limit = backlogCalc;
         }
 
-        let { current_season, current_episode, total_seasons } = series;
+        let { current_season, current_episode, status, total_seasons } = series;
+
+        // Si la serie está terminada o en espera, no tiene capítulos "pendientes" por ver
+        // en este ciclo/momento.
+        if (currentTab === 'pending' && (status === 'Terminado' || status === 'En espera')) {
+            return [];
+        }
+
         let count = 0;
         let s = current_season;
         let e = current_episode;

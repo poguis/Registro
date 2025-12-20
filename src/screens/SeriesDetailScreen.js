@@ -131,7 +131,17 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         const initialAbsolute = getAbsoluteEpisodeCount(series, initS, initE);
 
         let diff = currentAbsolute - initialAbsolute;
-        return diff < 0 ? 0 : diff;
+
+        // IMPORTANTE: Si la serie está terminada, el puntero se queda en el último capítulo.
+        // Sumamos 1 para que cuente ese último capítulo como visto.
+        if (series.status === 'Terminado') {
+            diff += 1;
+        }
+
+        const cycleBonus = series.cycle_offset || 0;
+        const totalWatched = diff + cycleBonus;
+
+        return totalWatched < 0 ? 0 : totalWatched;
     };
 
     const getAbsoluteEpisodeCount = (series, seasonNum, episodeNum) => {
@@ -140,7 +150,9 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
             const sobj = series.seasons.find(sea => sea.season_number === i);
             count += sobj ? sobj.episode_count : 0;
         }
-        count += episodeNum;
+        // Restamos 1 porque el puntero indica el SIGUIENTE a ver.
+        // T1 E1 -> 0 vistos.
+        count += (episodeNum - 1);
         return count;
     };
 
@@ -280,18 +292,23 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
         let result;
         if (isEditing) {
+            const currentSeries = originalList.find(s => s.id === editingSeriesId);
             const seriesData = {
                 name,
                 description,
                 total_seasons: validSeasons.length
             };
+            // Si estaba en espera y guardamos (posiblemente con nuevos capítulos), vuelve a Mirando
+            if (currentSeries && currentSeries.status === 'En espera') {
+                seriesData.status = 'Mirando';
+            }
             result = await db.updateSeriesWithSeasons(editingSeriesId, seriesData, seasonsData);
         } else {
             const seriesData = {
                 category_id: category.id,
                 name,
                 description,
-                status: 'Mirando',
+                status: status, // Mantenemos 'Nueva' si el usuario eligió Nueva
                 current_season: status === 'Nueva' ? 1 : parseInt(currentSeason),
                 current_episode: status === 'Nueva' ? 1 : parseInt(currentEpisode),
                 total_seasons: validSeasons.length
@@ -351,6 +368,37 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
             }
             performUpdate(targetStatus);
         }
+    };
+
+    const handleRestart = async () => {
+        if (!activeSeries) return;
+
+        // Calculamos exactamente lo visto en este ciclo para no perder el registro del atraso
+        const currentAbsolute = getAbsoluteEpisodeCount(activeSeries, activeSeries.current_season, activeSeries.current_episode);
+        const initS = activeSeries.initial_season || 1;
+        const initE = activeSeries.initial_episode || 1;
+        const initialAbsolute = getAbsoluteEpisodeCount(activeSeries, initS, initE);
+
+        const watchedInThisCycle = Math.max(0, currentAbsolute - initialAbsolute);
+
+        Alert.alert(
+            'Reiniciar Serie',
+            `¿Quieres empezar ${activeSeries.name} desde cero? Los ${watchedInThisCycle} capítulos vistos se guardarán en tu historial y volverás a la Temporada 1.`,
+            [
+                { text: 'Cancelar', style: 'cancel' },
+                {
+                    text: 'Reiniciar',
+                    onPress: async () => {
+                        const result = await db.restartSeries(activeSeries.id, watchedInThisCycle);
+                        if (result.success) {
+                            fetchSeries();
+                            setProgressModalVisible(false);
+                            Alert.alert('Éxito', 'Serie reiniciada y movida a "Viendo"');
+                        }
+                    }
+                }
+            ]
+        );
     };
 
     const resetForm = () => {
@@ -575,8 +623,17 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                             <View style={{ flex: 1 }}>
                                 <Text style={styles.progressSeriesName}>{activeSeries?.name}</Text>
                                 <Text style={styles.progressStatus}>
-                                    Viendo: Temporada {activeSeries?.current_season}, Capítulo {activeSeries?.current_episode}
+                                    {activeSeries?.status === 'Terminado'
+                                        ? '✅ Serie Terminada'
+                                        : activeSeries?.status === 'En espera'
+                                            ? '⏳ En espera de contenido'
+                                            : `Viendo: Temporada ${activeSeries?.current_season}, Capítulo ${activeSeries?.current_episode}`}
                                 </Text>
+                                {activeSeries?.cycle_offset > 0 && (
+                                    <Text style={{ fontSize: 11, color: '#4CAF50', fontWeight: 'bold', marginTop: 2 }}>
+                                        🏁 {activeSeries.cycle_offset} capítulos completados anteriormente
+                                    </Text>
+                                )}
                             </View>
                             <TouchableOpacity onPress={() => setProgressModalVisible(false)} style={styles.closeGridBtn}>
                                 <Text style={styles.closeGridText}>✕</Text>
@@ -626,6 +683,12 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                                 <View style={[styles.legendBox, styles.episodeCurrent]} /><Text style={styles.legendText}>Siguiente</Text>
                                 <View style={[styles.legendBox]} /><Text style={styles.legendText}>Pendiente</Text>
                             </View>
+
+                            {activeSeries?.status === 'Terminado' && (
+                                <TouchableOpacity style={styles.restartBtn} onPress={handleRestart}>
+                                    <Text style={styles.restartBtnText}>🔄 Empezar de Nuevo</Text>
+                                </TouchableOpacity>
+                            )}
                         </View>
                     </View>
                 </View>
@@ -778,5 +841,20 @@ const styles = StyleSheet.create({
     },
     tabTextActive: {
         color: '#fff'
+    },
+    restartBtn: {
+        backgroundColor: '#E8F5E9',
+        paddingVertical: 10,
+        paddingHorizontal: 20,
+        borderRadius: 12,
+        marginTop: 15,
+        borderWidth: 1,
+        borderColor: '#C8E6C9',
+        alignItems: 'center'
+    },
+    restartBtnText: {
+        color: '#2E7D32',
+        fontWeight: 'bold',
+        fontSize: 14
     }
 });
