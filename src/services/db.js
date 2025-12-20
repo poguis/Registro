@@ -88,6 +88,7 @@ class DatabaseService {
           initial_season INTEGER DEFAULT 1, -- New field
           initial_episode INTEGER DEFAULT 1, -- New field
           total_seasons INTEGER DEFAULT 0,
+          sort_order INTEGER DEFAULT 0,
           created_at TEXT DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (category_id) REFERENCES entertainment_categories (id) ON DELETE CASCADE
         );
@@ -104,9 +105,12 @@ class DatabaseService {
         );
       `);
 
-            // Migration for cycle_offset column
+            // Migrations for missing columns
             try {
                 await this.db.execAsync(`ALTER TABLE series ADD COLUMN cycle_offset INTEGER DEFAULT 0;`);
+            } catch (e) { }
+            try {
+                await this.db.execAsync(`ALTER TABLE series ADD COLUMN sort_order INTEGER DEFAULT 0;`);
             } catch (e) { }
 
             console.log('Database v3 initialized successfully');
@@ -557,13 +561,20 @@ class DatabaseService {
         }
     }
 
-    async updateSeriesProgress(seriesId, currentSeason, currentEpisode) {
+    async updateSeriesProgress(seriesId, currentSeason, currentEpisode, status = null) {
         if (!this.db) await this.init();
         try {
-            await this.db.runAsync(
-                `UPDATE series SET current_season = ?, current_episode = ? WHERE id = ?`,
-                [currentSeason, currentEpisode, seriesId]
-            );
+            if (status) {
+                await this.db.runAsync(
+                    `UPDATE series SET current_season = ?, current_episode = ?, status = ? WHERE id = ?`,
+                    [currentSeason, currentEpisode, status, seriesId]
+                );
+            } else {
+                await this.db.runAsync(
+                    `UPDATE series SET current_season = ?, current_episode = ? WHERE id = ?`,
+                    [currentSeason, currentEpisode, seriesId]
+                );
+            }
             return { success: true };
         } catch (error) {
             return { success: false, error: error.message };

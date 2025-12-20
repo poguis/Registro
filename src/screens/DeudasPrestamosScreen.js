@@ -154,7 +154,7 @@ export default function DeudasPrestamosScreen({ user, onBack }) {
                             <View key={t.id} style={styles.transactionRow}>
                                 <View style={{ flex: 1 }}>
                                     <Text style={styles.date}>
-                                        {new Date(t.created_at).toLocaleDateString()}
+                                        {new Date(t.created_at.replace(' ', 'T') + 'Z').toLocaleDateString('es-ES', { timeZone: 'America/Guayaquil' })} • {new Date(t.created_at.replace(' ', 'T') + 'Z').toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/Guayaquil' })}
                                     </Text>
                                     {t.description ? (
                                         <Text style={styles.desc}>{t.description}</Text>

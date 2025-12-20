@@ -267,15 +267,39 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
 
         let nextS = item.season;
         let nextE = item.episode + 1;
+        let isFinalEpisode = false;
 
         if (nextE > maxEpisodes) {
-            nextE = 1;
-            nextS++;
+            if (item.season >= series.total_seasons) {
+                // Era el último capítulo de la última temporada
+                isFinalEpisode = true;
+                nextE = item.episode;
+                nextS = item.season;
+            } else {
+                nextE = 1;
+                nextS++;
+            }
         }
 
-        const result = await db.updateSeriesProgress(item.seriesId, nextS, nextE);
-        if (result.success) {
-            loadData();
+        const performUpdate = async (newStatus = 'Mirando') => {
+            const result = await db.updateSeriesProgress(item.seriesId, nextS, nextE, newStatus);
+            if (result.success) {
+                loadData();
+            }
+        };
+
+        if (isFinalEpisode) {
+            Alert.alert(
+                '¡Serie Completada!',
+                'Has llegado al final de esta serie. ¿A dónde quieres moverla?',
+                [
+                    { text: 'En espera (Próx. temp)', onPress: () => performUpdate('En espera') },
+                    { text: 'Terminado (Fin total)', onPress: () => performUpdate('Terminado') },
+                    { text: 'Cancelar', style: 'cancel' }
+                ]
+            );
+        } else {
+            performUpdate('Mirando');
         }
     };
 

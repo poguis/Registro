@@ -14,7 +14,8 @@ import ChapterRegistryScreen from './src/screens/ChapterRegistryScreen';
 export default function App() {
   const [isReady, setIsReady] = useState(false);
   const [user, setUser] = useState(null);
-  const [currentView, setCurrentView] = useState('LOGIN'); // LOGIN, HOME, DINERO, DEUDAS_PRESTAMOS
+  const [currentView, setCurrentView] = useState('LOGIN'); // LOGIN, HOME, DINERO, DEUDAS_PRESTAMOS, PENDIENTE
+  const [lastView, setLastView] = useState('HOME');
   const [selectedCategory, setSelectedCategory] = useState(null);
 
   useEffect(() => {
@@ -37,6 +38,7 @@ export default function App() {
   };
 
   const handleNavigate = (view) => {
+    setLastView(currentView);
     setCurrentView(view);
   };
 
@@ -66,15 +68,30 @@ export default function App() {
               <DineroScreen
                 user={user}
                 onBack={() => setCurrentView('HOME')}
-                onNavigate={(view) => setCurrentView(view)}
+                onNavigate={handleNavigate}
               />
             );
           case 'DEUDAS_PRESTAMOS':
             return (
               <DeudasPrestamosScreen
                 user={user}
-                onBack={() => setCurrentView('HOME')}
+                onBack={() => setCurrentView(lastView === 'DINERO' ? 'DINERO' : 'HOME')}
               />
+            );
+          case 'PENDIENTE':
+            return (
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                <ActivityIndicator size="large" />
+                <HomeScreen user={user} onNavigate={setCurrentView} onLogout={handleLogout} />
+                {/* Temporary placeholder to show something */}
+                <View style={{ position: 'absolute', top: '50%', backgroundColor: 'white', padding: 20, borderRadius: 10, elevation: 5 }}>
+                  <Text style={{ fontWeight: 'bold', fontSize: 18 }}>Módulo Pendiente</Text>
+                  <Text style={{ color: '#666', marginTop: 10 }}>Próximamente estaremos trabajando aquí...</Text>
+                  <TouchableOpacity onPress={() => setCurrentView('HOME')} style={{ backgroundColor: '#007AFF', padding: 10, borderRadius: 5, marginTop: 15, alignItems: 'center' }}>
+                    <Text style={{ color: 'white' }}>Volver</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             );
           case 'SERIES_ANIME':
             return (
@@ -109,7 +126,7 @@ export default function App() {
             return (
               <HomeScreen
                 user={user}
-                onNavigate={setCurrentView}
+                onNavigate={handleNavigate}
                 onLogout={handleLogout}
               />
             );

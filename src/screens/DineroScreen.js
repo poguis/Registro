@@ -103,6 +103,9 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                 groups[finalKey] = { title: finalKey, data: [], total: 0 };
             }
             groups[finalKey].data.push(item);
+
+            // For the daily total, we use the amount directly. 
+            // Note: If we invert 'Me deben' logic, 'finalAmount' in executeTransaction already handles the sign.
             groups[finalKey].total += item.amount;
         });
 
@@ -208,13 +211,27 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
             let dbType = transCategory === 'Me deben' ? 'loan' : 'debt';
             let dbAmount = 0;
 
-            // Logic matrix
+            // Logic strictly aligned with UI Buttons:
+            // ADD (+) button -> Money IN to my wallet (+val)
+            // SUBTRACT (-) button -> Money OUT from my wallet (-val)
+
             if (actionType === 'add') {
-                if (transCategory === 'Me deben') dbAmount = -val; // Payback
-                if (transCategory === 'Préstamos') dbAmount = val; // Borrow
+                if (transCategory === 'Me deben') {
+                    // I'm getting money back from someone
+                    dbAmount = isNewContact ? val : -val;
+                } else {
+                    // I'm borrowing money (Préstamos)
+                    dbAmount = val;
+                }
             } else {
-                if (transCategory === 'Préstamos') dbAmount = -val; // Pay debt
-                if (transCategory === 'Me deben') dbAmount = val; // Lend
+                if (transCategory === 'Me deben') {
+                    // I'm lending money to someone (Me deben)
+                    dbAmount = val;
+                } else {
+                    // I'm paying my debt (Préstamos)
+                    // If it's a new contact, we initialize the debt as positive (+)
+                    dbAmount = isNewContact ? val : -val;
+                }
             }
 
             let finalId = selectedContactId;
@@ -249,17 +266,30 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
     };
 
     // Render Items
-    const renderHistoryItem = ({ item }) => (
-        <View style={styles.historyRow}>
-            <View style={styles.historyLeft}>
-                <Text style={styles.histCat}>{item.category}</Text>
-                {item.description ? <Text style={styles.histDesc}>{item.description}</Text> : null}
+    const renderHistoryItem = ({ item }) => {
+        // Parse time from created_at (SQLite format: YYYY-MM-DD HH:MM:SS)
+        const timeStr = new Date(item.created_at.replace(' ', 'T') + 'Z').toLocaleTimeString('es-ES', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true,
+            timeZone: 'America/Guayaquil'
+        });
+
+        return (
+            <View style={styles.historyRow}>
+                <View style={styles.historyLeft}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Text style={styles.histCat}>{item.category}</Text>
+                        <Text style={styles.histTime}> • {timeStr}</Text>
+                    </View>
+                    {item.description ? <Text style={styles.histDesc}>{item.description}</Text> : null}
+                </View>
+                <Text style={[styles.histAmount, item.amount >= 0 ? styles.green : styles.red]}>
+                    {item.amount >= 0 ? '+' : ''}{item.amount.toFixed(2)}
+                </Text>
             </View>
-            <Text style={[styles.histAmount, item.amount >= 0 ? styles.green : styles.red]}>
-                {item.amount >= 0 ? '+' : ''}{item.amount.toFixed(2)}
-            </Text>
-        </View>
-    );
+        );
+    };
 
     const renderSectionHeader = ({ section: { title, total } }) => {
         const isExpanded = !!expandedSections[title];
@@ -402,13 +432,24 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                                                     const current = contact ? contact.total : 0;
 
                                                     let msg = '';
-                                                    // Logic Matrix
+                                                    // Logic Matrix updated for intuition
+                                                    // Logic Matrix 100% Aligned with user feedback
                                                     if (actionType === 'add') {
-                                                        if (transCategory === 'Me deben') msg = `Te pagan. La deuda de ${contact?.name} bajará.`;
-                                                        if (transCategory === 'Préstamos') msg = `Pides prestado. Tu deuda con ${contact?.name} subirá.`;
+                                                        if (transCategory === 'Me deben') {
+                                                            msg = isNewContact
+                                                                ? `INICIALIZANDO. Se creará la deuda de ${contactName || 'la persona'} (+), y subirá tu dinero actual (+).`
+                                                                : `COBRANDO. La deuda de ${contact?.name || 'la persona'} bajará (-), y tu dinero actual subirá (+).`;
+                                                        }
+                                                        if (transCategory === 'Préstamos') {
+                                                            msg = `PIDIENDO PRESTADO. Tu deuda con ${contact?.name || 'la persona'} subirá (+), y tu dinero actual subirá (+).`;
+                                                        }
                                                     } else {
-                                                        if (transCategory === 'Préstamos') msg = `Pagas. Tu deuda con ${contact?.name} bajará.`;
-                                                        if (transCategory === 'Me deben') msg = `Prestas. La deuda de ${contact?.name} subirá.`;
+                                                        if (transCategory === 'Me deben') {
+                                                            msg = `PRESTANDO. La deuda de ${contact?.name || 'la persona'} subirá (+), y tu dinero actual bajará (-).`;
+                                                        }
+                                                        if (transCategory === 'Préstamos') {
+                                                            msg = `PAGANDO DEUDA. Tu deuda con ${contact?.name || 'la persona'} bajará (-), y tu dinero actual bajará (-).`;
+                                                        }
                                                     }
 
                                                     return (
@@ -504,8 +545,9 @@ const styles = StyleSheet.create({
         paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#eee'
     },
     historyLeft: { flex: 1 },
-    histCat: { fontSize: 15, fontWeight: '500', color: '#333' },
-    histDesc: { fontSize: 13, color: '#888' },
+    histCat: { fontSize: 15, fontWeight: 'bold', color: '#1A237E' },
+    histTime: { fontSize: 12, color: '#7986CB', fontWeight: '500' },
+    histDesc: { fontSize: 13, color: '#5C6BC0', marginTop: 2 },
     histAmount: { fontSize: 15, fontWeight: 'bold' },
     green: { color: '#4CAF50' },
     red: { color: '#F44336' },
