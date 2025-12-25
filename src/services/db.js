@@ -398,14 +398,15 @@ class DatabaseService {
                     const initialAbs = getAbs(initS, initE);
 
                     let diff = currentAbs - initialAbs;
+                    // Ajuste para el último capítulo solo si está CERRADA (Terminado/En espera).
+                    // Si está MIRANDO, diff ya es correcto porque el puntero está en el siguiente.
+                    if (s.status === 'Terminado' || s.status === 'En espera') diff += 1;
 
-                    // Si está terminado, el último capítulo debe contar
-                    if (s.status === 'Terminado') {
-                        diff += 1;
-                    }
-
-                    const cycleBonus = s.cycle_offset || 0;
-                    totalWatched += (diff + cycleBonus > 0 ? diff + cycleBonus : 0);
+                    // INCLUIMOS cycle_offset:
+                    // - Para series NUEVAS, es 0 (no afecta).
+                    // - Para series REINICIADAS, contiene el historial de lo visto anteriormente.
+                    const val = (diff > 0 ? diff : 0) + (s.cycle_offset || 0);
+                    totalWatched += val;
                 }
 
                 return {
@@ -491,11 +492,35 @@ class DatabaseService {
             );
             const nextOrder = (maxOrderRes?.maxOrder || 0) + 1;
 
+            // --- ACOPLAMIENTO DE CICLOS ---
+            // Buscamos el máximo de (capítulos_vistos + cycle_offset) en la categoría
+            // para que la serie nueva se una al ritmo actual.
+            const seriesInCategory = await this.db.getAllAsync(
+                'SELECT id, current_season, current_episode, initial_season, initial_episode, cycle_offset FROM series WHERE category_id = ?',
+                [category_id]
+            );
+
+            let maxCycle = 0;
+            for (const s of seriesInCategory) {
+                const seasons = await this.db.getAllAsync('SELECT * FROM seasons WHERE series_id = ?', [s.id]);
+                const getAbs = (sn, en) => {
+                    let c = 0;
+                    for (let i = 1; i < sn; i++) {
+                        const sea = seasons.find(se => se.season_number === i);
+                        c += sea ? sea.episode_count : 0;
+                    }
+                    return c + (en - 1);
+                };
+                const watched = getAbs(s.current_season, s.current_episode) - getAbs(s.initial_season || 1, s.initial_episode || 1);
+                const totalCycle = (watched > 0 ? watched : 0) + (s.cycle_offset || 0);
+                if (totalCycle > maxCycle) maxCycle = totalCycle;
+            }
+
             // 1. Insert Series
             const result = await this.db.runAsync(
                 `INSERT INTO series (category_id, name, description, status, current_season, current_episode, initial_season, initial_episode, total_seasons, sort_order, cycle_offset) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-                [category_id, name, description, status, current_season, current_episode, current_season, current_episode, total_seasons, nextOrder]
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [category_id, name, description, status, current_season, current_episode, current_season, current_episode, total_seasons, nextOrder, 0]
             );
             const seriesId = result.lastInsertRowId;
 
@@ -563,16 +588,17 @@ class DatabaseService {
 
     async updateSeriesProgress(seriesId, currentSeason, currentEpisode, status = null) {
         if (!this.db) await this.init();
+        const newOrder = Date.now();
         try {
             if (status) {
                 await this.db.runAsync(
-                    `UPDATE series SET current_season = ?, current_episode = ?, status = ? WHERE id = ?`,
-                    [currentSeason, currentEpisode, status, seriesId]
+                    `UPDATE series SET current_season = ?, current_episode = ?, status = ?, sort_order = ? WHERE id = ?`,
+                    [currentSeason, currentEpisode, status, newOrder, seriesId]
                 );
             } else {
                 await this.db.runAsync(
-                    `UPDATE series SET current_season = ?, current_episode = ? WHERE id = ?`,
-                    [currentSeason, currentEpisode, seriesId]
+                    `UPDATE series SET current_season = ?, current_episode = ?, sort_order = ? WHERE id = ?`,
+                    [currentSeason, currentEpisode, newOrder, seriesId]
                 );
             }
             return { success: true };
@@ -603,8 +629,11 @@ class DatabaseService {
             return { success: false, error: error.message };
         }
     }
-    async getFullWatchlist(userId, categoryId = null) {
+    async getFullWatchlist(categoryId = null) {
         if (!this.db) await this.init();
+        // Fallback user ID for now if not passed, or use hardcoded 1
+        const userId = 1;
+
         try {
             let query = `
                 SELECT 

@@ -90,8 +90,8 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         const backlogDays = Math.ceil(backlogValue / freq);
 
         setBacklogInfo({
-            diffDays: backlogDays,
-            backlogItems: backlogValue
+            days: backlogDays,
+            items: backlogValue
         });
     };
 
@@ -132,16 +132,16 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
         let diff = currentAbsolute - initialAbsolute;
 
-        // IMPORTANTE: Si la serie está terminada, el puntero se queda en el último capítulo.
-        // Sumamos 1 para que cuente ese último capítulo como visto.
-        if (series.status === 'Terminado') {
+        // IMPORTANTE: Si la serie está terminada o en espera (al final), el puntero se queda en el último capítulo.
+        // PERO si vuelve a 'Mirando', ya NO debemos sumar 1 porque el puntero ahora sí apunta al SIGUIENTE.
+        if (series.status === 'Terminado' || series.status === 'En espera') {
             diff += 1;
         }
 
-        const cycleBonus = series.cycle_offset || 0;
-        const totalWatched = diff + cycleBonus;
-
-        return totalWatched < 0 ? 0 : totalWatched;
+        // INCLUIMOS cycle_offset porque ahora almacena historial de reinicios.
+        // Para series nuevas es 0, así que no rompe nada.
+        const cleanDiff = diff < 0 ? 0 : diff;
+        return cleanDiff + (series.cycle_offset || 0);
     };
 
     const getAbsoluteEpisodeCount = (series, seasonNum, episodeNum) => {
@@ -299,9 +299,37 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 description,
                 total_seasons: validSeasons.length
             };
-            // Si estaba en espera y guardamos (posiblemente con nuevos capítulos), vuelve a Mirando
-            if (currentSeries && currentSeries.status === 'En espera') {
+            // Si estaba en espera o terminado y guardamos (posiblemente con nuevos capítulos), vuelve a Mirando
+            // y AVANZAMOS el puntero si estaba "trabado" en el final.
+            if (currentSeries && (currentSeries.status === 'En espera' || currentSeries.status === 'Terminado')) {
                 seriesData.status = 'Mirando';
+
+                // Lógica para avanzar puntero si añadimos contenido
+                let nextS = currentSeries.current_season;
+                let nextE = currentSeries.current_episode;
+
+                // Obtenemos los episodios previos para comparar
+                const prevSeasonObj = currentSeries.seasons.find(s => s.season_number === nextS);
+                const prevMax = prevSeasonObj ? prevSeasonObj.episode_count : 0;
+
+                // Si el puntero estaba al final de la temporada
+                if (nextE >= prevMax) {
+                    // Verificamos si en la NUEVA configuración hay más caps en esta temporada
+                    const newSeasonObj = seasonsData.find(s => s.season_number === nextS);
+                    const newMax = newSeasonObj ? newSeasonObj.episode_count : 0;
+
+                    if (newMax > prevMax) {
+                        // Caso 1: Se añadieron caps a la misma temporada (de 10 a 12) -> Apuntar a 11
+                        nextE += 1;
+                    } else if (seasonsData.length > currentSeries.total_seasons && nextS < seasonsData.length) {
+                        // Caso 2: Se añadió una nueva temporada (T1 llena, ahora hay T2) -> Apuntar a T2 E1
+                        nextS += 1;
+                        nextE = 1;
+                    }
+                }
+
+                seriesData.current_season = nextS;
+                seriesData.current_episode = nextE;
             }
             result = await db.updateSeriesWithSeasons(editingSeriesId, seriesData, seasonsData);
         } else {
@@ -380,7 +408,12 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         const initE = activeSeries.initial_episode || 1;
         const initialAbsolute = getAbsoluteEpisodeCount(activeSeries, initS, initE);
 
-        const watchedInThisCycle = Math.max(0, currentAbsolute - initialAbsolute);
+        let watchedInThisCycle = Math.max(0, currentAbsolute - initialAbsolute);
+
+        // Si la serie está terminada, el puntero está en el último capítulo, así que sumamos 1
+        if (activeSeries.status === 'Terminado') {
+            watchedInThisCycle += 1;
+        }
 
         Alert.alert(
             'Reiniciar Serie',
@@ -471,14 +504,16 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 <TouchableOpacity onPress={onBack} style={styles.backButton}>
                     <Text style={styles.backButtonText}>←</Text>
                 </TouchableOpacity>
-                <View>
-                    <Text style={styles.headerTitle}>{category?.name}</Text>
+                <View style={{ marginLeft: 10 }}>
+                    <Text style={styles.headerTitle}>{category.name}</Text>
                     <Text style={styles.headerSubtitle}>
                         Series: {originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando').length} / {category?.series_count || 0}
                     </Text>
                     {backlogInfo && (
-                        <Text style={styles.headerBacklog}>
-                            Atraso: {backlogInfo.diffDays} días, {backlogInfo.backlogItems} Caps
+                        <Text style={[styles.headerSubtitle, { marginTop: 2 }, (backlogInfo.days <= 0 && backlogInfo.items <= 0) ? { color: '#4CAF50', fontWeight: 'bold' } : { color: '#EF6C00', fontWeight: 'bold' }]}>
+                            {(backlogInfo.days <= 0 && backlogInfo.items <= 0)
+                                ? '¡Estás al día! 🎉'
+                                : `Atraso: ${backlogInfo.days} días, ${backlogInfo.items} Caps`}
                         </Text>
                     )}
                 </View>
@@ -643,7 +678,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                                             ? '⏳ En espera de contenido'
                                             : `Viendo: Temporada ${activeSeries?.current_season}, Capítulo ${activeSeries?.current_episode}`}
                                 </Text>
-                                {activeSeries?.cycle_offset > 0 && (
+                                {activeSeries?.cycle_offset > 0 && activeSeries?.status !== 'Nueva' && (
                                     <Text style={{ fontSize: 11, color: '#4CAF50', fontWeight: 'bold', marginTop: 2 }}>
                                         🏁 {activeSeries.cycle_offset} capítulos completados anteriormente
                                     </Text>

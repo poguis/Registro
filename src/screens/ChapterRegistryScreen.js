@@ -118,15 +118,15 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
 
         let diff = currentAbsolute - initialAbsolute;
 
-        // Ajuste para series terminadas: el contador se queda en el último capítulo
-        if (series.status === 'Terminado') {
+        // Ajuste para series terminadas/espera: el contador se queda en el último capítulo
+        // PERO si vuelve a 'Mirando', ya NO debemos sumar 1 porque el puntero ahora sí apunta al SIGUIENTE.
+        if (series.status === 'Terminado' || series.status === 'En espera') {
             diff += 1;
         }
 
-        const cycleBonus = series.cycle_offset || 0;
-        const totalWatched = diff + cycleBonus;
-
-        return totalWatched < 0 ? 0 : totalWatched;
+        // INCLUIMOS cycle_offset porque ahora almacena historial de reinicios.
+        const cleanDiff = diff < 0 ? 0 : diff;
+        return cleanDiff + (series.cycle_offset || 0);
     };
 
     const getAbsoluteEpisodeCount = (series, seasonNum, episodeNum) => {
@@ -143,36 +143,57 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
 
     const generateInterleavedList = (seriesList, currentTab) => {
         let allEpisodes = [];
+        const activeSeriesCount = seriesList.length || 1;
 
-        seriesList.forEach(series => {
+        seriesList.forEach((series, sIndex) => {
             const seriesEpisodes = generateEpisodesForSeries(series, currentTab);
 
-            // Calculamos el rango base según el tipo de tab
-            // Para 'pending', el primer item es el progreso actual.
-            // Para 'watched', el primer item es el inicio (capítulo 1).
-            const baseOffset = currentTab === 'pending' ? getWatchedCountSinceStart(series) : 0;
-            const cycleOffset = series.cycle_offset || 0;
+            // watchedTotal representa el progreso real (solo relevante para PENDIENTES)
+            const watchedTotal = getWatchedCountSinceStart(series);
+            // El ciclo actual de la categoría
+            const sortingOffset = series.cycle_offset || 0;
 
             seriesEpisodes.forEach((ep, index) => {
-                // Para intercalar series, usamos el index (turno) como rango principal.
-                // Así sale el primer pendiente de cada serie, luego el segundo, etc.
-                ep.globalRank = index;
+                // Cálculo de Ranking:
+                // PENDIENTES: Ignoramos el historial (watchedTotal y sortingOffset) para asegurar
+                // un intercalado puro 1-a-1. Todos compiten por el turno "siguiente".
+                // VISTOS: Usamos sortingOffset para reflejar la antigüedad en ciclos.
+
+                // BATCH_SIZE asegura que el índice del capítulo (0, 1, 2...) sea el factor dominante.
+                // Batch 0: Todos los "siguientes capítulos" de todas las series.
+                // Batch 1: Todos los "segundos capítulos".
+                // De esta forma, garantizamos A1, B1, C1 -> A2, B2, C2...
+                const BATCH_SIZE = 1000000;
+
+                let orderScore = 0;
+                if (currentTab === 'pending') {
+                    // Solo importa el índice local para intercalado perfecto
+                    orderScore = index;
+                } else {
+                    // EN VISTOS: Usamos el Timestamp de la serie (sort_order) para que salga ARRIBA lo más reciente.
+                    // Al ser un timestamp enorme, domina sobre el índice.
+                    // Sumamos index (muy pequeño) solo para ordenar caps dentro de la misma serie.
+                    // NOTA: interleavedOrder se ordena DESC en la pestaña vistos (b - a).
+                    orderScore = (series.sort_order || 0) + (index * 0.0001);
+                }
+
+                ep.interleavedOrder = currentTab === 'pending' ? (orderScore * BATCH_SIZE + sIndex) : orderScore;
                 ep.sortOrder = series.sort_order || 0;
                 allEpisodes.push(ep);
             });
         });
 
         if (currentTab === 'pending') {
-            // Pendientes: El que tiene menor rango (el más viejo/atrasado) va primero
             allEpisodes.sort((a, b) => {
-                if (a.globalRank !== b.globalRank) return a.globalRank - b.globalRank;
+                // 1. Prioridad absoluta al orden intercalado
+                if (a.interleavedOrder !== b.interleavedOrder) return a.interleavedOrder - b.interleavedOrder;
+                // 2. Orden manual
                 return a.sortOrder - b.sortOrder;
             });
         } else {
-            // Vistos: El que tiene mayor rango (el más reciente/adelantado) va primero
-            // Dentro del mismo turno de ciclo, el de mayor prioridad va arriba (fue el último del ciclo)
+            // VISTOS: Orden descendente (Mayor Score = Más Reciente)
             allEpisodes.sort((a, b) => {
-                if (a.globalRank !== b.globalRank) return b.globalRank - a.globalRank;
+                if (a.interleavedOrder !== b.interleavedOrder) return b.interleavedOrder - a.interleavedOrder;
                 return b.sortOrder - a.sortOrder;
             });
         }
@@ -218,26 +239,22 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
             return episodes; // NO REVERSE AQUÍ, el sort global se encarga
         }
 
-        let limit = Infinity;
-        if (currentTab === 'pending') {
-            const backlogCalc = calculateBacklogCount(series);
-            if (backlogCalc <= 0) return [];
-            limit = backlogCalc;
-        }
-
         let { current_season, current_episode, status, total_seasons } = series;
 
         // Si la serie está terminada o en espera, no tiene capítulos "pendientes" por ver
-        // en este ciclo/momento.
         if (currentTab === 'pending' && (status === 'Terminado' || status === 'En espera')) {
             return [];
         }
 
         let count = 0;
-        let s = current_season;
-        let e = current_episode;
+        let s = current_season || 1;
+        let e = current_episode || 1;
 
-        while (s <= total_seasons && count < limit) {
+        // Fallback para total_seasons si no viene de la BD
+        const maxSeason = total_seasons || (series.seasons && series.seasons.length > 0 ? series.seasons[series.seasons.length - 1].season_number : 1);
+
+        // Mostramos TODO lo que queda pendiente de la serie (máximo 5000 por seguridad)
+        while (s <= maxSeason && count < 5000) {
             const seasonObj = series.seasons.find(sea => sea.season_number === s);
             const maxEp = seasonObj ? seasonObj.episode_count : 999;
 
@@ -382,8 +399,10 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
                     <View style={{ marginLeft: 10 }}>
                         <Text style={styles.headerTitle}>Registro - {category ? category.name : 'Global'}</Text>
                         {headerBacklog && (
-                            <Text style={styles.headerSubtitle}>
-                                Atraso: {headerBacklog.days} días, {headerBacklog.items} Caps
+                            <Text style={[styles.headerSubtitle, (headerBacklog.days <= 0 && headerBacklog.items <= 0) && { color: '#4CAF50' }]}>
+                                {(headerBacklog.days <= 0 && headerBacklog.items <= 0)
+                                    ? '¡Estás al día! 🎉'
+                                    : `Atraso: ${headerBacklog.days} días, ${headerBacklog.items} Caps`}
                             </Text>
                         )}
                     </View>
@@ -418,9 +437,21 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
                     renderItem={renderItem}
                     contentContainerStyle={styles.list}
                     ListEmptyComponent={
-                        <Text style={styles.emptyText}>
-                            {tab === 'watched' ? 'No has visto ningún capítulo aún.' : 'No hay capítulos pendientes.'}
-                        </Text>
+                        <View style={styles.emptyContainer}>
+                            {tab === 'pending' ? (
+                                (!headerBacklog || (headerBacklog.days <= 0 && headerBacklog.items <= 0)) ? (
+                                    <>
+                                        <Text style={[styles.emptyText, { fontSize: 32, marginBottom: 10 }]}>🎉</Text>
+                                        <Text style={[styles.emptyText, { fontWeight: 'bold', fontSize: 18, marginBottom: 5 }]}>¡Estás al día!</Text>
+                                        <Text style={[styles.emptyText, { fontSize: 14, opacity: 0.7 }]}>No tienes capítulos pendientes.</Text>
+                                    </>
+                                ) : (
+                                    <Text style={styles.emptyText}>No hay capítulos pendientes</Text>
+                                )
+                            ) : (
+                                <Text style={styles.emptyText}>No has visto ningún capítulo aún.</Text>
+                            )}
+                        </View>
                     }
                 />
             )}

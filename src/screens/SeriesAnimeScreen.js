@@ -329,8 +329,10 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                         {/* Calculation Result */}
                         {calc && (
                             <View style={styles.calcResult}>
-                                <Text style={styles.calcText}>
-                                    Atraso: {calc.diffDays} días, {calc.backlogItems} Caps
+                                <Text style={[styles.calcText, (calc.diffDays <= 0 && calc.backlogItems <= 0) && { color: '#4CAF50', fontWeight: 'bold' }]}>
+                                    {(calc.diffDays <= 0 && calc.backlogItems <= 0)
+                                        ? '¡Estás al día! 🎉'
+                                        : `Atraso: ${calc.diffDays} días, ${calc.backlogItems} Caps`}
                                 </Text>
                             </View>
                         )}
