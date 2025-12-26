@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import db from '../services/db';
 
-export default function SeriesDetailScreen({ user, category, onBack, onNavigateRegistry }) {
+export default function ReadingDetailScreen({ user, category, onBack, onNavigateRegistry }) {
     const [seriesList, setSeriesList] = useState([]);
     const [modalVisible, setModalVisible] = useState(false);
 
@@ -13,8 +13,41 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
     const [description, setDescription] = useState('');
     const [status, setStatus] = useState('Nueva'); // 'Nueva' | 'Mirando'
 
-    // Season State
-    const [seasons, setSeasons] = useState([{ number: 1, episodes: '' }]); // Array of {number, episodes}
+    // Volume State (Replacing Seasons)
+    // We retain the internal structure of "seasons" logic but map it to Volume logic
+    // We will assume 1 "Season" = 1 set of volumes if needed, or treated as Volumes directly.
+    // However, the user specifically mentioned "Tomos".
+    // Usually manga has "Volumes" and "Chapters".
+    // Based on user request "en serie puedes poner mejor Tomos", and frequency "-3: en 3 días 1 tomo".
+    // This implies we are tracking VOLUMES, not chapters within volumes. Or that "Season" concept maps to "Volume" and "Episodes" maps to 1?
+    // User said: "Agregar más capitulos a la última temporada. Agregar más temporadas obvio con sus respectivos capitulos."
+    // BUT for reading: "hare el registro de leer tomos, no capitulos."
+    // This implies the unit of progress is the Volume itself? Or pages?
+    // "3 días, 1 tomo".
+    // If I read "1 tomo", is that one tick?
+    // Let's assume the hierarchy is: Series -> Titles? No.
+    // Let's assume for Reading:
+    // Season -> "Año" or "Arco"?
+    // Episode -> "Tomo"?
+    // OR:
+    // Season 1 (only 1 season always?) -> Episode X = Tomo X?
+    // Let's look at the UI request. "Agregar más capitulos a la última temporada".
+    // In Reading context: "Agregar más tomos".
+    // So "Season" = Collection/Box Set? And "Episode" = Tomo?
+    // Or simpler: Just one list of Tomos?
+    // The user said: "en serie puedes poner mejor Tomos".
+    // Let's stick to the structure:
+    // Visual Label: "Temporada" -> "Colección" or Hidden?
+    // Visual Label: "Capítulo" -> "Tomo".
+
+    // Actually, looking at the standard manga structure: Users often track Chapters OR Volumes.
+    // The user said explicitly: "hare el registro de leer tomos".
+    // So "Chapter 1" in DB = "Tomo 1".
+    // "Season 1" in DB = "Main Series" (usually just 1 season).
+    // If the user adds "More seasons" for manga, maybe they mean "Part 2", "Part 3"? (e.g. Naruto vs Shippuden, or Jojo parts).
+    // Let's adapt labels: "Temporada" -> "Parte/Arco", "Capítulo" -> "Tomo".
+
+    const [seasons, setSeasons] = useState([{ number: 1, episodes: '' }]); // Array of {number, episodes (Tomos)}
 
     // Progress Grid Modal
     const [progressModalVisible, setProgressModalVisible] = useState(false);
@@ -37,12 +70,10 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
     const fetchSeries = async () => {
         if (category?.id) {
             try {
-                // Fetch all series for the category (Status: Nueva, Mirando, Finished)
                 const result = await db.getSeriesByCategory(category.id);
 
                 if (result.success) {
                     const list = result.series;
-                    // Enriched list with seasons
                     const enrichedList = await Promise.all(list.map(async (series) => {
                         const seasonsRes = await db.getSeasonsBySeries(series.id);
                         return {
@@ -52,8 +83,6 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                     }));
 
                     setOriginalList(enrichedList);
-
-                    // We still calculate backlog for the header based on everything
                     calculateHeaderBacklog(enrichedList);
                 }
             } catch (error) {
@@ -64,13 +93,9 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
     useEffect(() => {
         fetchSeries();
-        // We can call calculateHeaderBacklog here but it depends on seriesList state which might be empty initially.
-        // fetchSeries calls it with new data, so that covers it.
-        // But if we want to recalc on category change? fetchSeries does it.
     }, [category]);
 
-    const calculateHeaderBacklog = (currentSeriesList = seriesList) => {
-        if (!currentSeriesList || !currentSeriesList.length) return;
+    const calculateHeaderBacklog = (currentSeriesList = originalList) => {
         if (!category?.start_date || !category?.frequency) return;
 
         const startStr = category.start_date;
@@ -78,16 +103,29 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         const daysOfWeek = category.days_of_week;
 
         const scheduleCalc = calculateScheduleDays(startStr, daysOfWeek);
-        const targetTotal = scheduleCalc.validDays * freq;
+        const validDaysPassed = scheduleCalc.validDays;
+
+        let targetTotal = 0;
+        if (freq > 0) {
+            targetTotal = validDaysPassed * freq;
+        } else if (freq < 0) {
+            const daysPerItem = Math.abs(freq);
+            targetTotal = Math.floor(validDaysPassed / daysPerItem);
+        }
 
         let totalWatchedSinceStart = 0;
         currentSeriesList.forEach(s => {
             totalWatchedSinceStart += getWatchedCountSinceStart(s);
         });
 
-        const totalBacklogItems = targetTotal - totalWatchedSinceStart;
-        const backlogValue = totalBacklogItems < 0 ? 0 : totalBacklogItems;
-        const backlogDays = Math.ceil(backlogValue / freq);
+        const backlogValue = Math.max(0, targetTotal - totalWatchedSinceStart);
+
+        let backlogDays = 0;
+        if (freq > 0) {
+            backlogDays = Math.ceil(backlogValue / freq);
+        } else if (freq < 0) {
+            backlogDays = backlogValue * Math.abs(freq);
+        }
 
         setBacklogInfo({
             days: backlogDays,
@@ -95,7 +133,6 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         });
     };
 
-    // Helper Functions
     const calculateScheduleDays = (startStr, daysOfWeek) => {
         if (!startStr) return { validDays: 0 };
         let daysArray = [];
@@ -124,22 +161,14 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
     const getWatchedCountSinceStart = (series) => {
         if (!series.seasons || !Array.isArray(series.seasons)) return 0;
-
         const currentAbsolute = getAbsoluteEpisodeCount(series, series.current_season, series.current_episode);
         const initS = series.initial_season || 1;
         const initE = series.initial_episode || 1;
         const initialAbsolute = getAbsoluteEpisodeCount(series, initS, initE);
-
         let diff = currentAbsolute - initialAbsolute;
-
-        // IMPORTANTE: Si la serie está terminada o en espera (al final), el puntero se queda en el último capítulo.
-        // PERO si vuelve a 'Mirando', ya NO debemos sumar 1 porque el puntero ahora sí apunta al SIGUIENTE.
         if (series.status === 'Terminado' || series.status === 'En espera') {
             diff += 1;
         }
-
-        // INCLUIMOS cycle_offset porque ahora almacena historial de reinicios.
-        // Para series nuevas es 0, así que no rompe nada.
         const cleanDiff = diff < 0 ? 0 : diff;
         return cleanDiff + (series.cycle_offset || 0);
     };
@@ -150,8 +179,6 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
             const sobj = series.seasons.find(sea => sea.season_number === i);
             count += sobj ? sobj.episode_count : 0;
         }
-        // Restamos 1 porque el puntero indica el SIGUIENTE a ver.
-        // T1 E1 -> 0 vistos.
         count += (episodeNum - 1);
         return count;
     };
@@ -165,7 +192,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
             const newSeasons = seasons.slice(0, -1);
             setSeasons(newSeasons);
         } else {
-            Alert.alert('Aviso', 'Debe haber al menos una temporada.');
+            Alert.alert('Aviso', 'Debe haber al menos una parte/temporada.');
         }
     };
 
@@ -184,7 +211,6 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         setCurrentSeason(series.current_season);
         setCurrentEpisode(series.current_episode);
 
-        // Map seasons data to form state
         if (series.seasons && series.seasons.length > 0) {
             setSeasons(series.seasons.map(s => ({
                 number: s.season_number,
@@ -199,32 +225,25 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
     const moveUp = async (index) => {
         if (currentStatusTab !== 'Viendo' || index === 0) return;
-
         const filteredData = getFilteredSeries();
         const newList = [...filteredData];
         const [movedItem] = newList.splice(index, 1);
         newList.splice(index - 1, 0, movedItem);
-
-        // Update all sort_orders in DB based on the new order in this group
         await Promise.all(newList.map((item, idx) =>
             db.updateSeriesSortOrder(item.id, idx + 1)
         ));
-
         fetchSeries();
     };
 
     const moveDown = async (index) => {
         const filteredData = getFilteredSeries();
         if (currentStatusTab !== 'Viendo' || index === filteredData.length - 1) return;
-
         const newList = [...filteredData];
         const [movedItem] = newList.splice(index, 1);
         newList.splice(index + 1, 0, movedItem);
-
         await Promise.all(newList.map((item, idx) =>
             db.updateSeriesSortOrder(item.id, idx + 1)
         ));
-
         fetchSeries();
     };
 
@@ -237,8 +256,8 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
     const handleDelete = (seriesId) => {
         Alert.alert(
-            'Eliminar Serie',
-            '¿Estás seguro de que quieres eliminar esta serie? Se borrarán también sus temporadas y progreso.',
+            'Eliminar Lectura',
+            '¿Estás seguro de que quieres eliminar? Se borrarán también sus registros.',
             [
                 { text: 'Cancelar', style: 'cancel' },
                 {
@@ -248,7 +267,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                         const result = await db.deleteSeries(seriesId);
                         if (result.success) {
                             fetchSeries();
-                            Alert.alert('Éxito', 'Serie eliminada');
+                            Alert.alert('Éxito', 'Eliminado correctamente');
                         }
                     }
                 }
@@ -258,32 +277,21 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
     const handleSave = async () => {
         if (!name.trim()) return Alert.alert('Error', 'El nombre es obligatorio');
-
-        // Validate Seasons
         const validSeasons = seasons.filter(s => parseInt(s.episodes) > 0);
-        if (validSeasons.length === 0) return Alert.alert('Error', 'Debes añadir al menos una temporada con capítulos válidos');
+        if (validSeasons.length === 0) return Alert.alert('Error', 'Debes añadir al menos una parte con tomos válidos');
 
         if (status === 'Mirando') {
             const seasonNum = parseInt(currentSeason);
             const episodeNum = parseInt(currentEpisode);
-
-            if (isNaN(seasonNum) || isNaN(episodeNum)) {
-                return Alert.alert('Error', 'Temporada y Capítulo actuales deben ser números');
-            }
-
-            if (seasonNum < 1 || seasonNum > validSeasons.length) {
-                return Alert.alert('Error', `La temporada actual debe estar entre 1 y ${validSeasons.length}`);
-            }
-
+            if (isNaN(seasonNum) || isNaN(episodeNum)) return Alert.alert('Error', 'Valores inválidos');
+            if (seasonNum < 1 || seasonNum > validSeasons.length) return Alert.alert('Error', `La parte actual debe estar entre 1 y ${validSeasons.length}`);
             const maxEpisodes = parseInt(validSeasons[seasonNum - 1].episodes);
-            if (episodeNum < 1 || episodeNum > maxEpisodes) {
-                return Alert.alert('Error', `El capítulo actual debe estar entre 1 y ${maxEpisodes} para la temporada ${seasonNum}`);
-            }
+            if (episodeNum < 1 || episodeNum > maxEpisodes) return Alert.alert('Error', `El tomo actual debe estar entre 1 y ${maxEpisodes}`);
         }
 
         const activeCount = originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando').length;
         if (!isEditing && activeCount >= category.series_count) {
-            return Alert.alert('Límite Alcanzado', `Solo puedes tener hasta ${category.series_count} series activas ("Viendo") en esta categoría.`);
+            return Alert.alert('Límite Alcanzado', `Solo puedes tener hasta ${category.series_count} lecturas activas.`);
         }
 
         const seasonsData = validSeasons.map(s => ({
@@ -293,41 +301,26 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
         let result;
         if (isEditing) {
+            // Apply logic for adding content (same as SeriesDetailScreen but adapted context if needed)
             const currentSeries = originalList.find(s => s.id === editingSeriesId);
             const seriesData = {
                 name,
                 description,
                 total_seasons: validSeasons.length
             };
-            // Si estaba en espera o terminado y guardamos (posiblemente con nuevos capítulos), vuelve a Mirando
-            // y AVANZAMOS el puntero si estaba "trabado" en el final.
             if (currentSeries && (currentSeries.status === 'En espera' || currentSeries.status === 'Terminado')) {
                 seriesData.status = 'Mirando';
-
-                // Lógica para avanzar puntero si añadimos contenido
                 let nextS = currentSeries.current_season;
                 let nextE = currentSeries.current_episode;
-
-                // Obtenemos los episodios previos para comparar
                 const prevSeasonObj = currentSeries.seasons.find(s => s.season_number === nextS);
                 const prevMax = prevSeasonObj ? prevSeasonObj.episode_count : 0;
-
-                // Determinamos si el puntero estaba efectivamente al final de lo disponible
                 const wasAtEnd = (nextE >= prevMax) || (currentSeries.status === 'Terminado');
-
-                // Si estaba al final, intentamos avanzar
                 if (wasAtEnd) {
-                    // Verificamos si en la NUEVA configuración hay más caps en esta temporada
                     const newSeasonObj = seasonsData.find(s => s.season_number === nextS);
                     const newMax = newSeasonObj ? newSeasonObj.episode_count : 0;
-
                     if (newMax > prevMax) {
-                        // Caso 1: Se añadieron caps a la misma temporada
-                        // Si estaba en 10 (de 10), y ahora hay 12, pasa a 11.
                         nextE = prevMax + 1;
                     } else if (seasonsData.length > currentSeries.total_seasons || seasonsData.length > nextS) {
-                        // Caso 2: No hay más caps en esta temp, pero hay una NUEVA temporada siguiente
-                        // Verificamos si existe la temporada siguiente en los nuevos datos
                         const nextSeasonData = seasonsData.find(s => s.season_number === nextS + 1);
                         if (nextSeasonData) {
                             nextS += 1;
@@ -335,7 +328,6 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                         }
                     }
                 }
-
                 seriesData.current_season = nextS;
                 seriesData.current_episode = nextE;
             }
@@ -345,7 +337,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 category_id: category.id,
                 name,
                 description,
-                status: status, // Mantenemos 'Nueva' si el usuario eligió Nueva
+                status: status,
                 current_season: status === 'Nueva' ? 1 : parseInt(currentSeason),
                 current_episode: status === 'Nueva' ? 1 : parseInt(currentEpisode),
                 total_seasons: validSeasons.length
@@ -357,9 +349,9 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
             setModalVisible(false);
             fetchSeries();
             resetForm();
-            Alert.alert('Éxito', isEditing ? 'Serie actualizada' : 'Serie agregada');
+            Alert.alert('Éxito', isEditing ? 'Actualizado' : 'Agregado');
         } else {
-            Alert.alert('Error', 'No se pudo guardar la serie');
+            Alert.alert('Error', 'No se pudo guardar');
         }
     };
 
@@ -371,8 +363,6 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
     const updateToChapter = async (seriesId, sNum, eNum) => {
         const series = activeSeries || originalList.find(x => x.id === seriesId);
         if (!series) return;
-
-        // Check if it's the last episode of the last season
         const lastSeason = series.seasons.find(s => s.season_number === series.total_seasons);
         const isLastPossible = (sNum === series.total_seasons && eNum === (lastSeason?.episode_count || 0));
 
@@ -389,16 +379,15 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
         if (isLastPossible) {
             Alert.alert(
-                '¡Serie Completada!',
-                'Has llegado al final. ¿A dónde quieres enviar esta serie?',
+                '¡Lectura Completada!',
+                'Has llegado al final. ¿A dónde quieres enviar esto?',
                 [
-                    { text: 'En espera (Próx. temp)', onPress: () => performUpdate('En espera') },
+                    { text: 'En espera (Próx. contenido)', onPress: () => performUpdate('En espera') },
                     { text: 'Terminado (Fin total)', onPress: () => performUpdate('Terminado') },
                     { text: 'Cancelar', style: 'cancel' }
                 ]
             );
         } else {
-            // Normal update (if it was En espera/Terminado and we touch a grid item, maybe it goes back to Mirando?)
             let targetStatus = series.status;
             if (series.status === 'En espera' || series.status === 'Terminado') {
                 targetStatus = 'Mirando';
@@ -409,23 +398,18 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
     const handleRestart = async () => {
         if (!activeSeries) return;
-
-        // Calculamos exactamente lo visto en este ciclo para no perder el registro del atraso
         const currentAbsolute = getAbsoluteEpisodeCount(activeSeries, activeSeries.current_season, activeSeries.current_episode);
         const initS = activeSeries.initial_season || 1;
         const initE = activeSeries.initial_episode || 1;
         const initialAbsolute = getAbsoluteEpisodeCount(activeSeries, initS, initE);
-
         let watchedInThisCycle = Math.max(0, currentAbsolute - initialAbsolute);
-
-        // Si la serie está terminada, el puntero está en el último capítulo, así que sumamos 1
         if (activeSeries.status === 'Terminado') {
             watchedInThisCycle += 1;
         }
 
         Alert.alert(
-            'Reiniciar Serie',
-            `¿Quieres empezar ${activeSeries.name} desde cero? Los ${watchedInThisCycle} capítulos vistos se guardarán en tu historial y volverás a la Temporada 1.`,
+            'Reiniciar Lectura',
+            `¿Quieres empezar desde cero? Los ${watchedInThisCycle} tomos leídos se guardarán en tu historial.`,
             [
                 { text: 'Cancelar', style: 'cancel' },
                 {
@@ -435,7 +419,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                         if (result.success) {
                             fetchSeries();
                             setProgressModalVisible(false);
-                            Alert.alert('Éxito', 'Serie reiniciada y movida a "Viendo"');
+                            Alert.alert('Éxito', 'Reiniciado y movido a "Viendo"');
                         }
                     }
                 }
@@ -469,11 +453,13 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4, flexWrap: 'wrap' }}>
                             <Text style={styles.cardTitle}>{item.name}</Text>
                             <View style={[styles.badge, badgeStyle]}>
-                                <Text style={styles.badgeText}>{item.status}</Text>
+                                <Text style={styles.badgeText}>
+                                    {item.status === 'Mirando' ? 'Leyendo' : (item.status === 'Nueva' ? 'Nuevo Tomo' : item.status)}
+                                </Text>
                             </View>
                         </View>
                         <Text style={styles.cardProgress}>
-                            T{item.current_season} - E{item.current_episode} <Text style={{ fontWeight: 'normal', color: '#999' }}>de {item.total_seasons} Temp.</Text>
+                            {item.total_seasons > 1 ? `Parte ${item.current_season} -` : ''} Tomo {item.current_episode} <Text style={{ fontWeight: 'normal', color: '#999' }}>de {item.total_seasons} Partes</Text>
                         </Text>
                     </View>
                     <View style={styles.cardActions}>
@@ -515,18 +501,18 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 <View style={{ marginLeft: 10 }}>
                     <Text style={styles.headerTitle}>{category.name}</Text>
                     <Text style={styles.headerSubtitle}>
-                        Series: {originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando').length} / {category?.series_count || 0}
+                        Lecturas: {originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando').length} / {category?.series_count || 0}
                     </Text>
                     {backlogInfo && (
                         <Text style={[styles.headerSubtitle, { marginTop: 2 }, (backlogInfo.days <= 0 && backlogInfo.items <= 0) ? { color: '#4CAF50', fontWeight: 'bold' } : { color: '#EF6C00', fontWeight: 'bold' }]}>
                             {(backlogInfo.days <= 0 && backlogInfo.items <= 0)
                                 ? '¡Estás al día! 🎉'
-                                : `Atraso: ${backlogInfo.days} días, ${backlogInfo.items} Caps`}
+                                : `Atraso: ${backlogInfo.days} días, ${backlogInfo.items} Tomos`}
                         </Text>
                     )}
                 </View>
                 <View style={{ flexDirection: 'row' }}>
-                    <TouchableOpacity onPress={onNavigateRegistry} style={[styles.addButton, { backgroundColor: '#FFF3E0', marginRight: 10 }]}>
+                    <TouchableOpacity onPress={() => onNavigateRegistry('READING_REGISTRY')} style={[styles.addButton, { backgroundColor: '#FFF3E0', marginRight: 10 }]}>
                         <Text style={{ fontSize: 20 }}>📋</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
@@ -547,7 +533,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                     onPress={() => setCurrentStatusTab('Viendo')}
                 >
                     <Text style={[styles.tabText, currentStatusTab === 'Viendo' && styles.tabTextActive]}>
-                        📺 Viendo ({originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando').length})
+                        📖 Leyendo ({originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando').length})
                     </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -573,24 +559,24 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 keyExtractor={item => item.id.toString()}
                 renderItem={renderSeriesItem}
                 contentContainerStyle={styles.listContent}
-                ListEmptyComponent={<Text style={styles.emptyText}>No hay series en esta sección.</Text>}
+                ListEmptyComponent={<Text style={styles.emptyText}>No hay lecturas en esta sección.</Text>}
             />
 
-            {/* MODAL ADD/EDIT SERIES */}
+            {/* MODAL ADD/EDIT */}
             <Modal animationType="slide" visible={modalVisible} onRequestClose={() => setModalVisible(false)}>
                 <SafeAreaView style={styles.modalContainer}>
                     <View style={styles.modalHeader}>
-                        <Text style={styles.modalTitle}>{isEditing ? 'Editar Serie' : 'Nueva Serie'}</Text>
+                        <Text style={styles.modalTitle}>{isEditing ? 'Editar Lectura' : 'Nueva Lectura'}</Text>
                         <TouchableOpacity onPress={() => setModalVisible(false)}>
                             <Text style={styles.closeText}>Cerrar</Text>
                         </TouchableOpacity>
                     </View>
                     <ScrollView style={styles.modalForm}>
-                        <Text style={styles.label}>Nombre de la Serie</Text>
-                        <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Ej: Breaking Bad" />
+                        <Text style={styles.label}>Nombre</Text>
+                        <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Ej: One Piece" />
 
                         <Text style={styles.label}>Descripción (Opcional)</Text>
-                        <TextInput style={styles.input} value={description} onChangeText={setDescription} placeholder="Ej: Serie de crimen..." />
+                        <TextInput style={styles.input} value={description} onChangeText={setDescription} placeholder="Notas..." />
 
                         <Text style={styles.label}>Estado</Text>
                         <View style={styles.statusContainer}>
@@ -598,31 +584,24 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                                 style={[styles.statusOption, status === 'Nueva' && styles.statusSelected]}
                                 onPress={() => setStatus('Nueva')}
                             >
-                                <Text style={[styles.statusText, status === 'Nueva' && styles.statusTextSelected]}>Nueva</Text>
+                                <Text style={[styles.statusText, status === 'Nueva' && styles.statusTextSelected]}>Nuevo Tomo</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
                                 style={[styles.statusOption, status === 'Mirando' && styles.statusSelected]}
                                 onPress={() => setStatus('Mirando')}
                             >
-                                <Text style={[styles.statusText, status === 'Mirando' && styles.statusTextSelected]}>Mirando</Text>
+                                <Text style={[styles.statusText, status === 'Mirando' && styles.statusTextSelected]}>Leyendo</Text>
                             </TouchableOpacity>
                         </View>
 
-                        {isEditing && (
-                            <View style={styles.editInfoBanner}>
-                                <Text style={styles.editInfoText}>
-                                    Nota: Solo puedes editar nombre, descripción y temporadas. El progreso se actualiza desde el registro.
-                                </Text>
-                            </View>
-                        )}
-
-                        <Text style={styles.sectionTitle}>Temporadas</Text>
+                        <Text style={styles.sectionTitle}>Estructura (Partes/Tomos)</Text>
+                        <Text style={{ fontSize: 12, color: '#888', marginBottom: 10 }}>Puedes usar "Parte 1" si solo tienes una secuencia de tomos.</Text>
                         {seasons.map((season, index) => (
                             <View key={index} style={styles.seasonRow}>
-                                <Text style={styles.seasonLabel}>Temporada {season.number}:</Text>
+                                <Text style={styles.seasonLabel}>Parte {season.number}:</Text>
                                 <TextInput
                                     style={styles.seasonInput}
-                                    placeholder="N° Caps"
+                                    placeholder="N° Tomos"
                                     keyboardType="numeric"
                                     value={season.episodes}
                                     onChangeText={(text) => updateSeasonEpisodes(index, text)}
@@ -631,10 +610,10 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                         ))}
                         <View style={styles.seasonActions}>
                             <TouchableOpacity style={styles.addSeasonBtn} onPress={handleAddSeason}>
-                                <Text style={styles.addSeasonText}>+ Agregar Temporada</Text>
+                                <Text style={styles.addSeasonText}>+ Agregar Parte</Text>
                             </TouchableOpacity>
                             <TouchableOpacity style={styles.removeSeasonBtn} onPress={handleRemoveSeason}>
-                                <Text style={styles.removeSeasonText}>- Quitar Temporada</Text>
+                                <Text style={styles.removeSeasonText}>- Quitar</Text>
                             </TouchableOpacity>
                         </View>
 
@@ -643,7 +622,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                                 <Text style={styles.sectionTitle}>Progreso Inicial</Text>
                                 <View style={styles.row}>
                                     <View style={{ flex: 1, marginRight: 5 }}>
-                                        <Text style={styles.label}>Temporada</Text>
+                                        <Text style={styles.label}>Parte</Text>
                                         <TextInput
                                             style={styles.input}
                                             keyboardType="numeric"
@@ -652,7 +631,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                                         />
                                     </View>
                                     <View style={{ flex: 1, marginLeft: 5 }}>
-                                        <Text style={styles.label}>Capítulo</Text>
+                                        <Text style={styles.label}>Tomo</Text>
                                         <TextInput
                                             style={styles.input}
                                             keyboardType="numeric"
@@ -665,7 +644,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                         )}
 
                         <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-                            <Text style={styles.saveButtonText}>{isEditing ? 'Actualizar' : 'Guardar Serie'}</Text>
+                            <Text style={styles.saveButtonText}>{isEditing ? 'Actualizar' : 'Guardar'}</Text>
                         </TouchableOpacity>
                         <View style={{ height: 50 }} />
                     </ScrollView>
@@ -681,16 +660,11 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                                 <Text style={styles.progressSeriesName}>{activeSeries?.name}</Text>
                                 <Text style={styles.progressStatus}>
                                     {activeSeries?.status === 'Terminado'
-                                        ? '✅ Serie Terminada'
+                                        ? '✅ Lectura Terminada'
                                         : activeSeries?.status === 'En espera'
                                             ? '⏳ En espera de contenido'
-                                            : `Viendo: Temporada ${activeSeries?.current_season}, Capítulo ${activeSeries?.current_episode}`}
+                                            : `Leyendo: Parte ${activeSeries?.current_season}, Tomo ${activeSeries?.current_episode}`}
                                 </Text>
-                                {activeSeries?.cycle_offset > 0 && activeSeries?.status !== 'Nueva' && (
-                                    <Text style={{ fontSize: 11, color: '#4CAF50', fontWeight: 'bold', marginTop: 2 }}>
-                                        🏁 {activeSeries.cycle_offset} capítulos completados anteriormente
-                                    </Text>
-                                )}
                             </View>
                             <TouchableOpacity onPress={() => setProgressModalVisible(false)} style={styles.closeGridBtn}>
                                 <Text style={styles.closeGridText}>✕</Text>
@@ -700,7 +674,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                         <ScrollView style={{ padding: 15 }}>
                             {activeSeries?.seasons.map(season => (
                                 <View key={season.season_number} style={styles.seasonGroup}>
-                                    <Text style={styles.seasonTitle}>Temporada {season.season_number}</Text>
+                                    <Text style={styles.seasonTitle}>Parte {season.season_number}</Text>
                                     <View style={styles.episodeGrid}>
                                         {Array.from({ length: season.episode_count }).map((_, i) => {
                                             const epNum = i + 1;
@@ -717,10 +691,6 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                                                         isCurrent && styles.episodeCurrent
                                                     ]}
                                                     onPress={() => {
-                                                        // When clicking, we want to update progress to NEXT chapter.
-                                                        // Actually, common UX is: click chapter X to MARK X AS SEEN (meaning progress becomes X+1)
-                                                        // Or: click chapter X to SET progress TO X.
-                                                        // Let's go with: click X to mark as CURRENT.
                                                         updateToChapter(activeSeries.id, season.season_number, epNum);
                                                     }}
                                                 >
@@ -736,14 +706,14 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
                         <View style={styles.gridFooter}>
                             <View style={styles.legend}>
-                                <View style={[styles.legendBox, styles.episodeWatched]} /><Text style={styles.legendText}>Visto</Text>
+                                <View style={[styles.legendBox, styles.episodeWatched]} /><Text style={styles.legendText}>Leído</Text>
                                 <View style={[styles.legendBox, styles.episodeCurrent]} /><Text style={styles.legendText}>Siguiente</Text>
                                 <View style={[styles.legendBox]} /><Text style={styles.legendText}>Pendiente</Text>
                             </View>
 
                             {activeSeries?.status === 'Terminado' && (
                                 <TouchableOpacity style={styles.restartBtn} onPress={handleRestart}>
-                                    <Text style={styles.restartBtnText}>🔄 Empezar de Nuevo</Text>
+                                    <Text style={styles.restartBtnText}>🔄 Releer</Text>
                                 </TouchableOpacity>
                             )}
                         </View>
@@ -798,120 +768,58 @@ const styles = StyleSheet.create({
     statusOption: { flex: 1, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: '#E8EAF6', borderRadius: 10, backgroundColor: '#fff' },
     statusSelected: { backgroundColor: '#3F51B5', borderColor: '#3F51B5' },
     statusText: { color: '#7986CB', fontWeight: '600' },
-    statusTextSelected: { color: '#fff', fontWeight: 'bold' },
+    statusTextSelected: { color: '#fff' },
 
-    sectionTitle: { fontSize: 18, fontWeight: 'bold', marginTop: 25, marginBottom: 15, color: '#1A237E' },
-    seasonRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, backgroundColor: '#F8F9FE', padding: 10, borderRadius: 10 },
-    seasonLabel: { flex: 1, fontSize: 15, color: '#333', fontWeight: '500' },
-    seasonInput: { width: 90, borderWidth: 1, borderColor: '#E1E4F3', borderRadius: 8, padding: 8, textAlign: 'center', backgroundColor: '#fff' },
+    editInfoBanner: { marginTop: 15, padding: 10, backgroundColor: '#E8EAF6', borderRadius: 8 },
+    editInfoText: { fontSize: 12, color: '#3F51B5' },
 
-    seasonActions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 15 },
-    addSeasonBtn: { padding: 10 },
+    sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#1A237E', marginTop: 25, marginBottom: 10 },
+    seasonRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+    seasonLabel: { fontSize: 16, marginRight: 10, width: 100, color: '#333' },
+    seasonInput: { flex: 1, borderWidth: 1, borderColor: '#E8EAF6', borderRadius: 8, padding: 10, backgroundColor: '#F5F5F7' },
+    seasonActions: { flexDirection: 'row', marginTop: 10, gap: 10 },
+    addSeasonBtn: { padding: 10, backgroundColor: '#E8EAF6', borderRadius: 8 },
     addSeasonText: { color: '#3F51B5', fontWeight: 'bold' },
-    removeSeasonBtn: { padding: 10 },
-    removeSeasonText: { color: '#FF5252', fontWeight: 'bold' },
+    removeSeasonBtn: { padding: 10, backgroundColor: '#FFEBEE', borderRadius: 8 },
+    removeSeasonText: { color: '#F44336', fontWeight: 'bold' },
 
     row: { flexDirection: 'row' },
-    saveButton: { backgroundColor: '#3F51B5', padding: 18, borderRadius: 12, alignItems: 'center', marginTop: 35, elevation: 4 },
+    saveButton: { backgroundColor: '#2196F3', padding: 16, borderRadius: 12, alignItems: 'center', marginTop: 30, elevation: 4 },
     saveButtonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
 
     cardActions: { flexDirection: 'row', alignItems: 'center' },
-    gridBtn: { backgroundColor: '#E8EAF6', padding: 8, borderRadius: 10, marginRight: 8 },
-    orderButtons: { flexDirection: 'row', marginRight: 8 },
-    orderBtn: { backgroundColor: '#F5F5F7', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, marginHorizontal: 2, borderWidth: 1, borderColor: '#E8EAF6' },
-    orderBtnText: { fontSize: 14, color: '#3F51B5', fontWeight: 'bold' },
-    editBtn: { backgroundColor: '#E3F2FD', padding: 8, borderRadius: 10, marginRight: 8 },
-    deleteBtn: { backgroundColor: '#FFEBEE', padding: 8, borderRadius: 10 },
+    gridBtn: { padding: 8, marginRight: 5, backgroundColor: '#E3F2FD', borderRadius: 20 },
+    editBtn: { padding: 8, marginRight: 5 },
+    deleteBtn: { padding: 8 },
 
-    editInfoBanner: { backgroundColor: '#E3F2FD', padding: 12, borderRadius: 10, marginTop: 20, borderLeftWidth: 4, borderLeftColor: '#3F51B5' },
-    editInfoText: { fontSize: 12, color: '#3F51B5', textAlign: 'left', fontWeight: '500' },
+    orderButtons: { flexDirection: 'row', marginRight: 5 },
+    orderBtn: { padding: 8, backgroundColor: '#F5F5F5', borderRadius: 15, marginHorizontal: 2 },
+    orderBtnText: { fontSize: 16, fontWeight: 'bold', color: '#555' },
 
-    // Progress Grid Styles
-    overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-    progressModalContent: { backgroundColor: '#fff', borderTopLeftRadius: 30, borderTopRightRadius: 30, height: '85%' },
-    progressHeader: { flexDirection: 'row', padding: 25, borderBottomWidth: 1, borderColor: '#f0f0f0', alignItems: 'center' },
-    progressSeriesName: { fontSize: 22, fontWeight: 'bold', color: '#1A237E' },
-    progressStatus: { fontSize: 14, color: '#7986CB', marginTop: 4 },
-    closeGridBtn: { backgroundColor: '#F5F5F7', width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-    closeGridText: { fontSize: 18, color: '#333' },
+    tabContainer: { flexDirection: 'row', paddingHorizontal: 15, marginBottom: 15, marginTop: 10, gap: 8 },
+    tabButton: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 20, backgroundColor: '#F0F0F0', borderWidth: 1, borderColor: '#E0E0E0' },
+    tabButtonActive: { backgroundColor: '#E8EAF6', borderColor: '#3F51B5' },
+    tabText: { fontSize: 13, color: '#757575', fontWeight: '500' },
+    tabTextActive: { color: '#3F51B5', fontWeight: 'bold' },
 
-    seasonGroup: { marginBottom: 25 },
-    seasonTitle: { fontSize: 16, fontWeight: 'bold', color: '#1A237E', marginBottom: 12, marginLeft: 5 },
+    overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', padding: 20 },
+    progressModalContent: { backgroundColor: '#fff', borderRadius: 20, maxHeight: '85%', overflow: 'hidden' },
+    progressHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 20, backgroundColor: '#FAFAFA', borderBottomWidth: 1, borderBottomColor: '#eee' },
+    progressSeriesName: { fontSize: 20, fontWeight: 'bold', color: '#333' },
+    progressStatus: { fontSize: 14, color: '#666', marginTop: 4 },
+    closeGridBtn: { padding: 5 },
+    closeGridText: { fontSize: 24, color: '#999' },
+    seasonGroup: { marginBottom: 20 },
+    seasonTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 10, color: '#555' },
     episodeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    episodeBox: {
-        width: 42, height: 42, borderRadius: 10, backgroundColor: '#F5F5F7',
-        alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#E8EAF6'
-    },
-    episodeWatched: { backgroundColor: '#4CAF50', borderColor: '#43A047' },
-    episodeCurrent: { backgroundColor: '#3F51B5', borderColor: '#3949AB' },
-    episodeNum: { fontSize: 14, fontWeight: 'bold', color: '#5C6BC0' },
-
-    gridFooter: { padding: 20, borderTopWidth: 1, borderColor: '#f0f0f0', backgroundColor: '#FAFAFA' },
-    legend: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 15 },
-    legendBox: { width: 14, height: 14, borderRadius: 4, backgroundColor: '#F5F5F7', borderWidth: 1, borderColor: '#E8EAF6' },
-    legendText: { fontSize: 12, color: '#666', fontWeight: '500' },
-
-    sectionHeader: {
-        backgroundColor: '#E8EAF6',
-        paddingVertical: 10,
-        paddingHorizontal: 15,
-        marginTop: 20,
-        marginBottom: 10,
-        borderRadius: 12,
-        flexDirection: 'row',
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-        elevation: 2
-    },
-    sectionHeaderText: { fontSize: 16, fontWeight: 'bold', color: '#3F51B5', letterSpacing: 0.5 },
-
-    // Tabs Styles
-    tabContainer: {
-        flexDirection: 'row',
-        backgroundColor: '#fff',
-        paddingHorizontal: 15,
-        paddingVertical: 10,
-        borderBottomWidth: 1,
-        borderBottomColor: '#f0f0f0',
-        gap: 10
-    },
-    tabButton: {
-        flex: 1,
-        paddingVertical: 8,
-        borderRadius: 12,
-        backgroundColor: '#F5F5F7',
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: '#f0f0f0'
-    },
-    tabButtonActive: {
-        backgroundColor: '#3F51B5',
-        borderColor: '#3F51B5',
-    },
-    tabText: {
-        fontSize: 13,
-        fontWeight: 'bold',
-        color: '#7986CB'
-    },
-    tabTextActive: {
-        color: '#fff'
-    },
-    restartBtn: {
-        backgroundColor: '#E8F5E9',
-        paddingVertical: 10,
-        paddingHorizontal: 20,
-        borderRadius: 12,
-        marginTop: 15,
-        borderWidth: 1,
-        borderColor: '#C8E6C9',
-        alignItems: 'center'
-    },
-    restartBtnText: {
-        color: '#2E7D32',
-        fontWeight: 'bold',
-        fontSize: 14
-    }
+    episodeBox: { width: 45, height: 45, borderRadius: 12, backgroundColor: '#F0F0F0', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#eee' },
+    episodeWatched: { backgroundColor: '#4CAF50', borderColor: '#4CAF50' },
+    episodeCurrent: { backgroundColor: '#2196F3', borderColor: '#2196F3', transform: [{ scale: 1.1 }] },
+    episodeNum: { fontSize: 16, fontWeight: 'bold', color: '#555' },
+    gridFooter: { padding: 20, borderTopWidth: 1, borderTopColor: '#eee', backgroundColor: '#FAFAFA' },
+    legend: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 15, marginBottom: 15 },
+    legendBox: { width: 15, height: 15, borderRadius: 4, backgroundColor: '#F0F0F0', borderWidth: 1, borderColor: '#ccc' },
+    legendText: { fontSize: 12, color: '#666' },
+    restartBtn: { backgroundColor: '#FF5722', padding: 12, borderRadius: 10, alignItems: 'center' },
+    restartBtnText: { color: '#fff', fontWeight: 'bold' }
 });

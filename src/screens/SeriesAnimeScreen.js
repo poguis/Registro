@@ -250,7 +250,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
         );
     };
 
-    const calculateBacklog = (startStr, freq, daysOfWeek, totalWatched = 0) => {
+    const calculateBacklog = (startStr, freq, daysOfWeek, totalWatched = 0, type = 'video') => {
         if (!startStr || !freq) return null;
 
         let daysArray = [];
@@ -282,16 +282,36 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
             current.setDate(current.getDate() + 1);
         }
 
-        const targetItems = validDaysPassed * freq;
+        let targetItems = 0;
+
+        if (freq > 0) {
+            // Lógica normal: X items por día
+            targetItems = validDaysPassed * freq;
+        } else if (freq < 0) {
+            // Lógica Lectura (inversa): 1 item cada X días
+            // Usamos Math.floor para que el item solo "venza" cuando se cumple el ciclo completo
+            // Ej: Freq -3. Día 1, 2 = 0 items. Día 3 = 1 item.
+            const daysPerItem = Math.abs(freq);
+            targetItems = Math.floor(validDaysPassed / daysPerItem);
+        }
+
         let backlogItems = targetItems - totalWatched;
         if (backlogItems < 0) backlogItems = 0;
 
-        // Days of Atraso = How many days worth of backlog do we have?
-        const daysAtraso = Math.ceil(backlogItems / freq);
+        // Days of Atraso calculation
+        let daysAtraso = 0;
+        if (freq > 0) {
+            daysAtraso = Math.ceil(backlogItems / freq);
+        } else if (freq < 0) {
+            // Si debo 2 tomos, y leo 1 cada 3 días, necesito 6 días para ponerme al día.
+            daysAtraso = backlogItems * Math.abs(freq);
+        }
 
-        const unit = freq > 1 ? (type === 'video' ? 'Capitulos' : 'Items') : (type === 'video' ? 'Capitulo' : 'Item');
+        let unitLabel = 'Items';
+        if (type === 'video') unitLabel = 'Caps';
+        if (type === 'reading') unitLabel = 'Tomos';
 
-        return { diffDays: daysAtraso, backlogItems, unit };
+        return { diffDays: daysAtraso, backlogItems, unit: unitLabel };
     };
 
     const renderItem = ({ item }) => {
@@ -307,7 +327,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
             return dayObj ? dayObj.label : '';
         }).join(', ');
 
-        const calc = calculateBacklog(item.start_date, item.frequency, item.days_of_week, item.totalWatched);
+        const calc = calculateBacklog(item.start_date, item.frequency, item.days_of_week, item.totalWatched, item.type);
 
         return (
             <TouchableOpacity
@@ -324,7 +344,9 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                         {/* Info Rows */}
                         <Text style={styles.cardInfoRow}>📅 Inicio: {item.start_date}</Text>
                         <Text style={styles.cardInfoRow}>📆 Días: {dayLabels || 'No definido'}</Text>
-                        <Text style={styles.cardInfoRow}>⏱️ Frecuencia: {item.frequency || 0} / día</Text>
+                        <Text style={styles.cardInfoRow}>
+                            ⏱️ Frecuencia: {item.frequency < 0 ? `1 cada ${Math.abs(item.frequency)} días` : `${item.frequency} / día`}
+                        </Text>
 
                         {/* Calculation Result */}
                         {calc && (
@@ -332,7 +354,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                                 <Text style={[styles.calcText, (calc.diffDays <= 0 && calc.backlogItems <= 0) && { color: '#4CAF50', fontWeight: 'bold' }]}>
                                     {(calc.diffDays <= 0 && calc.backlogItems <= 0)
                                         ? '¡Estás al día! 🎉'
-                                        : `Atraso: ${calc.diffDays} días, ${calc.backlogItems} Caps`}
+                                        : `Atraso: ${calc.diffDays} días, ${calc.backlogItems} ${calc.unit}`}
                                 </Text>
                             </View>
                         )}
@@ -381,18 +403,33 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                 </TouchableOpacity>
             </View>
 
-            <FlatList
-                data={categories}
-                keyExtractor={item => item.id.toString()}
-                renderItem={renderItem}
-                contentContainerStyle={styles.listContent}
-                ListEmptyComponent={
-                    <View style={styles.emptyContainer}>
-                        <Text style={styles.emptyText}>No tienes categorías registradas.</Text>
-                        <Text style={styles.emptySubText}>Toca el + para agregar una.</Text>
-                    </View>
-                }
-            />
+            <ScrollView contentContainerStyle={styles.scrollContent}>
+                {/* VIDEO SECTION */}
+                <View style={styles.sectionHeaderContainer}>
+                    <Text style={styles.sectionHeaderTitle}>🎬 Video</Text>
+                </View>
+                {categories.filter(c => c.type === 'video').length > 0 ? (
+                    categories.filter(c => c.type === 'video').map(item => (
+                        <View key={item.id}>{renderItem({ item })}</View>
+                    ))
+                ) : (
+                    <Text style={styles.emptySectionText}>No hay listas de video</Text>
+                )}
+
+                {/* READING SECTION */}
+                <View style={[styles.sectionHeaderContainer, { marginTop: 25 }]}>
+                    <Text style={styles.sectionHeaderTitle}>📚 Lectura</Text>
+                </View>
+                {categories.filter(c => c.type === 'reading').length > 0 ? (
+                    categories.filter(c => c.type === 'reading').map(item => (
+                        <View key={item.id}>{renderItem({ item })}</View>
+                    ))
+                ) : (
+                    <Text style={styles.emptySectionText}>No hay listas de lectura</Text>
+                )}
+
+                <View style={{ height: 100 }} />
+            </ScrollView>
 
             {/* Modal */}
             <Modal
@@ -476,14 +513,14 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                                     <Text style={styles.label}>Frecuencia</Text>
                                     <TextInput
                                         style={styles.input}
-                                        placeholder="0"
-                                        keyboardType="numeric"
+                                        placeholder={type === 'reading' ? "Ej: -3 (1/3 días)" : "Ej: 2 (2/día)"}
+                                        keyboardType="numbers-and-punctuation"
                                         value={frequency}
                                         onChangeText={setFrequency}
                                     />
                                 </View>
                                 <View style={styles.halfInput}>
-                                    <Text style={styles.label}>Series</Text>
+                                    <Text style={styles.label}>{type === 'reading' ? 'Tomos' : 'Series'}</Text>
                                     <TextInput
                                         style={styles.input}
                                         placeholder="0"
@@ -582,6 +619,27 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.05,
         shadowRadius: 5,
         elevation: 2,
+    },
+    scrollContent: {
+        padding: 20,
+    },
+    sectionHeaderContainer: {
+        marginBottom: 10,
+        borderBottomWidth: 1,
+        borderBottomColor: '#eee',
+        paddingBottom: 5
+    },
+    sectionHeaderTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#555',
+    },
+    emptySectionText: {
+        textAlign: 'center',
+        color: '#999',
+        fontStyle: 'italic',
+        marginBottom: 10,
+        marginTop: 5
     },
     cardHeader: {
         flexDirection: 'row',

@@ -27,15 +27,31 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
     const loadData = async () => {
         setLoading(true);
         // Pass category ID if available
-        const result = await db.getFullWatchlist(user.id, category ? category.id : null);
+        const [watchlistResult, historyResult] = await Promise.all([
+            db.getFullWatchlist(user.id, category ? category.id : null),
+            db.getHistory(category ? category.id : null)
+        ]);
 
-        if (result.success) {
-            setRawSeries(result.data);
-            calculateGlobalBacklog(result.data);
+        if (watchlistResult.success) {
+            setRawSeries(watchlistResult.data);
+            calculateGlobalBacklog(watchlistResult.data);
 
-            // Generate both lists to get counts
-            const pendingList = generateInterleavedList(result.data, 'pending');
-            const watchedList = generateInterleavedList(result.data, 'watched');
+            // Generate pending list (interleaved)
+            const pendingList = generateInterleavedList(watchlistResult.data);
+
+            // Generate watched list directly from history
+            let watchedList = [];
+            if (historyResult.success) {
+                watchedList = historyResult.data.map(h => ({
+                    uniqueId: `${h.series_id}-s${h.season_number}-e${h.episode_number}-w${h.id}`,
+                    seriesId: h.series_id,
+                    seriesName: h.s_name,
+                    season: h.season_number,
+                    episode: h.episode_number,
+                    status: 'watched',
+                    watchedAt: h.watched_at
+                }));
+            }
 
             setCounts({
                 pending: pendingList.length,
@@ -141,108 +157,41 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
         return count;
     };
 
-    const generateInterleavedList = (seriesList, currentTab) => {
+    const generateInterleavedList = (seriesList) => {
         let allEpisodes = [];
         const activeSeriesCount = seriesList.length || 1;
 
         seriesList.forEach((series, sIndex) => {
-            const seriesEpisodes = generateEpisodesForSeries(series, currentTab);
-
-            // watchedTotal representa el progreso real (solo relevante para PENDIENTES)
-            const watchedTotal = getWatchedCountSinceStart(series);
-            // El ciclo actual de la categoría
-            const sortingOffset = series.cycle_offset || 0;
+            const seriesEpisodes = generateEpisodesForSeries(series);
 
             seriesEpisodes.forEach((ep, index) => {
-                // Cálculo de Ranking:
-                // PENDIENTES: Ignoramos el historial (watchedTotal y sortingOffset) para asegurar
-                // un intercalado puro 1-a-1. Todos compiten por el turno "siguiente".
-                // VISTOS: Usamos sortingOffset para reflejar la antigüedad en ciclos.
-
-                // BATCH_SIZE asegura que el índice del capítulo (0, 1, 2...) sea el factor dominante.
-                // Batch 0: Todos los "siguientes capítulos" de todas las series.
-                // Batch 1: Todos los "segundos capítulos".
-                // De esta forma, garantizamos A1, B1, C1 -> A2, B2, C2...
+                // Cálculo de Ranking PENDIENTES:
+                // Solo importa el índice local para intercalado perfecto.
+                // Todos compiten por el turno "siguiente".
                 const BATCH_SIZE = 1000000;
+                let orderScore = index;
 
-                let orderScore = 0;
-                if (currentTab === 'pending') {
-                    // Solo importa el índice local para intercalado perfecto
-                    orderScore = index;
-                } else {
-                    // EN VISTOS: Usamos el Timestamp de la serie (sort_order) para que salga ARRIBA lo más reciente.
-                    // Al ser un timestamp enorme, domina sobre el índice.
-                    // Sumamos index (muy pequeño) solo para ordenar caps dentro de la misma serie.
-                    // NOTA: interleavedOrder se ordena DESC en la pestaña vistos (b - a).
-                    orderScore = (series.sort_order || 0) + (index * 0.0001);
-                }
-
-                ep.interleavedOrder = currentTab === 'pending' ? (orderScore * BATCH_SIZE + sIndex) : orderScore;
+                ep.interleavedOrder = (orderScore * BATCH_SIZE + sIndex);
                 ep.sortOrder = series.sort_order || 0;
                 allEpisodes.push(ep);
             });
         });
 
-        if (currentTab === 'pending') {
-            allEpisodes.sort((a, b) => {
-                // 1. Prioridad absoluta al orden intercalado
-                if (a.interleavedOrder !== b.interleavedOrder) return a.interleavedOrder - b.interleavedOrder;
-                // 2. Orden manual
-                return a.sortOrder - b.sortOrder;
-            });
-        } else {
-            // VISTOS: Orden descendente (Mayor Score = Más Reciente)
-            allEpisodes.sort((a, b) => {
-                if (a.interleavedOrder !== b.interleavedOrder) return b.interleavedOrder - a.interleavedOrder;
-                return b.sortOrder - a.sortOrder;
-            });
-        }
+        // PENDIENTES: Orden intercalado + manual
+        allEpisodes.sort((a, b) => {
+            if (a.interleavedOrder !== b.interleavedOrder) return a.interleavedOrder - b.interleavedOrder;
+            return a.sortOrder - b.sortOrder;
+        });
 
         return allEpisodes;
     };
 
-    const generateEpisodesForSeries = (series, currentTab) => {
+    const generateEpisodesForSeries = (series) => {
         const episodes = [];
-
-        if (currentTab === 'watched') {
-            const initS = series.initial_season || 1;
-            const initE = series.initial_episode || 1;
-            let s = initS;
-            let e = initE;
-            const endS = series.current_season;
-            const endE = series.current_episode;
-            let loopCount = 0;
-            const isTerminado = series.status === 'Terminado';
-
-            // Si está terminado, queremos llegar HASTA el capítulo actual incluido.
-            // Si NO está terminado, llegamos hasta el ANTERIOR al actual.
-            while ((s < endS || (s === endS && (isTerminado ? e <= endE : e < endE))) && loopCount < 5000) {
-                const seasonObj = series.seasons.find(sea => sea.season_number === s);
-                const maxEp = seasonObj ? seasonObj.episode_count : 999;
-
-                episodes.push({
-                    uniqueId: `${series.s_id}-s${s}-e${e}-watched`,
-                    seriesId: series.s_id,
-                    seriesName: series.s_name,
-                    season: s,
-                    episode: e,
-                    status: 'watched'
-                });
-
-                e++;
-                if (e > maxEp) {
-                    e = 1;
-                    s++;
-                }
-                loopCount++;
-            }
-            return episodes; // NO REVERSE AQUÍ, el sort global se encarga
-        }
-
         let { current_season, current_episode, status, total_seasons } = series;
 
         // Si la serie está terminada o en espera, no tiene capítulos "pendientes" por ver
-        if (currentTab === 'pending' && (status === 'Terminado' || status === 'En espera')) {
+        if (status === 'Terminado' || status === 'En espera') {
             return [];
         }
 
@@ -250,7 +199,7 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
         let s = current_season || 1;
         let e = current_episode || 1;
 
-        // Fallback para total_seasons si no viene de la BD
+        // Fallback para total_seasons
         const maxSeason = total_seasons || (series.seasons && series.seasons.length > 0 ? series.seasons[series.seasons.length - 1].season_number : 1);
 
         // Mostramos TODO lo que queda pendiente de la serie (máximo 5000 por seguridad)
@@ -322,6 +271,8 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
         }
 
         const performUpdate = async (newStatus = 'Mirando') => {
+            // Guardamos historial primero
+            await db.addHistory(item.seriesId, item.season, item.episode);
             const result = await db.updateSeriesProgress(item.seriesId, nextS, nextE, newStatus);
             if (result.success) {
                 loadData();
@@ -344,7 +295,10 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
     };
 
     const onUnmarkWatched = async (item) => {
-        const result = await db.updateSeriesProgress(item.seriesId, item.season, item.episode);
+        // Borramos historial
+        await db.removeHistory(item.seriesId, item.season, item.episode);
+        // Al desmarcar, forzamos que la serie "salte" al principio de la lista de pendientes (sort_order = 1)
+        const result = await db.updateSeriesProgress(item.seriesId, item.season, item.episode, null, 1);
         if (result.success) {
             loadData();
         }
@@ -367,7 +321,7 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
                         )}
                     </View>
                     <Text style={styles.episodeInfo}>T{item.season} - E{item.episode}</Text>
-                    {isWatched && <Text style={styles.watchedLabel}>Visto</Text>}
+                    {isWatched && <Text style={styles.watchedLabel}>Visto el {new Date(item.watchedAt).toLocaleDateString()}</Text>}
                 </View>
                 {!isWatched ? (
                     <TouchableOpacity
@@ -377,12 +331,17 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
                         <Text style={[styles.checkText, isBacklogItem && { color: '#EF6C00' }]}>✓</Text>
                     </TouchableOpacity>
                 ) : (
-                    <TouchableOpacity
-                        style={[styles.checkButton, { backgroundColor: '#FFEBEE' }]}
-                        onPress={() => onUnmarkWatched(item)}
-                    >
-                        <Text style={[styles.checkText, { color: '#F44336' }]}>✕</Text>
-                    </TouchableOpacity>
+                    // Solo permitimos quitar el visto al PRIMERO de la lista (index 0)
+                    index === 0 ? (
+                        <TouchableOpacity
+                            style={[styles.checkButton, { backgroundColor: '#FFEBEE' }]}
+                            onPress={() => onUnmarkWatched(item)}
+                        >
+                            <Text style={[styles.checkText, { color: '#F44336' }]}>✕</Text>
+                        </TouchableOpacity>
+                    ) : (
+                        <View style={{ width: 40 }} /> // Espaciador para mantener alineación visual
+                    )
                 )}
             </View>
         );

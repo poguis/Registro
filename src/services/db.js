@@ -105,6 +105,30 @@ class DatabaseService {
         );
       `);
 
+            // Create WATCH HISTORY table
+            await this.db.execAsync(`
+                CREATE TABLE IF NOT EXISTS watch_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    series_id INTEGER NOT NULL,
+                    season_number INTEGER NOT NULL,
+                    episode_number INTEGER NOT NULL,
+                    watched_at INTEGER NOT NULL,
+                    FOREIGN KEY (series_id) REFERENCES series (id) ON DELETE CASCADE
+                );
+            `);
+
+            // Create READING HISTORY table
+            await this.db.execAsync(`
+                CREATE TABLE IF NOT EXISTS reading_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    series_id INTEGER NOT NULL,
+                    season_number INTEGER NOT NULL,
+                    episode_number INTEGER NOT NULL,
+                    read_at INTEGER NOT NULL,
+                    FOREIGN KEY (series_id) REFERENCES series (id) ON DELETE CASCADE
+                );
+            `);
+
             // Migrations for missing columns
             const migrations = [
                 `ALTER TABLE series ADD COLUMN cycle_offset INTEGER DEFAULT 0;`,
@@ -120,6 +144,9 @@ class DatabaseService {
                     // Column already exists or other non-critical error
                 }
             }
+
+            // Check and backfill history if needed
+            await this.checkAndBackfillHistory();
 
             console.log('Database v3 initialized successfully');
             return true;
@@ -547,17 +574,26 @@ class DatabaseService {
             const { name, description, total_seasons, status } = seriesData;
 
             // 1. Update Series
+            let query = `UPDATE series SET name = ?, description = ?, total_seasons = ?`;
+            let params = [name, description, total_seasons];
+
             if (status) {
-                await this.db.runAsync(
-                    `UPDATE series SET name = ?, description = ?, total_seasons = ?, status = ? WHERE id = ?`,
-                    [name, description, total_seasons, status, seriesId]
-                );
-            } else {
-                await this.db.runAsync(
-                    `UPDATE series SET name = ?, description = ?, total_seasons = ? WHERE id = ?`,
-                    [name, description, total_seasons, seriesId]
-                );
+                query += `, status = ?`;
+                params.push(status);
             }
+            if (seriesData.current_season !== undefined) {
+                query += `, current_season = ?`;
+                params.push(seriesData.current_season);
+            }
+            if (seriesData.current_episode !== undefined) {
+                query += `, current_episode = ?`;
+                params.push(seriesData.current_episode);
+            }
+
+            query += ` WHERE id = ?`;
+            params.push(seriesId);
+
+            await this.db.runAsync(query, params);
 
             // 2. Update/Insert Seasons (Simple approach: delete and re-insert)
             await this.db.runAsync(`DELETE FROM seasons WHERE series_id = ?`, [seriesId]);
@@ -586,9 +622,9 @@ class DatabaseService {
         }
     }
 
-    async updateSeriesProgress(seriesId, currentSeason, currentEpisode, status = null) {
+    async updateSeriesProgress(seriesId, currentSeason, currentEpisode, status = null, customSortOrder = null) {
         if (!this.db) await this.init();
-        const newOrder = Date.now();
+        const newOrder = customSortOrder !== null ? customSortOrder : Date.now();
         try {
             if (status) {
                 await this.db.runAsync(
@@ -687,6 +723,201 @@ class DatabaseService {
 
             return { success: true, data };
         } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    // --- WATCH HISTORY METHODS ---
+
+    async checkAndBackfillHistory() {
+        try {
+            const result = await this.db.getFirstAsync('SELECT count(*) as c FROM watch_history');
+            if (result && result.c > 0) return; // Already has data
+
+            console.log('Backfilling watch history...');
+            const allSeries = await this.db.getAllAsync('SELECT * FROM series');
+
+            for (const s of allSeries) {
+                const seasons = await this.db.getAllAsync('SELECT * FROM seasons WHERE series_id = ? ORDER BY season_number ASC', [s.id]);
+
+                const isTerminado = s.status === 'Terminado' || s.status === 'En espera';
+                const targetS = s.current_season;
+                const targetE = s.current_episode;
+
+                let currentS = s.initial_season || 1;
+                let currentE = s.initial_episode || 1;
+
+                // Para ordenar internamente los antiguos, usaremos sort_order menos un offset
+                // Calculamos cuantos episodios hay en total para dar timestamps escalonados
+                // Pero para simplificar, usaremos un loop counter.
+                const baseTime = s.sort_order || Date.now();
+
+                let loop = 0;
+                while (loop < 5000) { // Safety break
+                    if (currentS > targetS) break;
+                    if (currentS === targetS) {
+                        if (isTerminado) {
+                            if (currentE > targetE) break;
+                        } else {
+                            if (currentE >= targetE) break;
+                        }
+                    }
+
+                    // Insert record
+                    // Timestamp: baseTime - (large_number) + loop * 1000
+                    // Así los episodios finales quedan cerca del baseTime, y los iniciales más lejos en el pasado.
+                    const timestamp = baseTime - 10000000 + (loop * 1000);
+
+                    await this.db.runAsync(
+                        'INSERT INTO watch_history (series_id, season_number, episode_number, watched_at) VALUES (?, ?, ?, ?)',
+                        [s.id, currentS, currentE, timestamp]
+                    );
+
+                    // Next episode
+                    const seasonObj = seasons.find(sea => sea.season_number === currentS);
+                    const maxEp = seasonObj ? seasonObj.episode_count : 999;
+                    currentE++;
+                    if (currentE > maxEp) {
+                        currentE = 1;
+                        currentS++;
+                    }
+                    loop++;
+                }
+            }
+            console.log('Backfill complete.');
+        } catch (e) {
+            console.error('Error backfilling history:', e);
+        }
+    }
+
+    async addHistory(seriesId, season, episode, timestamp = Date.now()) {
+        if (!this.db) await this.init();
+        try {
+            await this.db.runAsync(
+                'INSERT INTO watch_history (series_id, season_number, episode_number, watched_at) VALUES (?, ?, ?, ?)',
+                [seriesId, season, episode, timestamp]
+            );
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async removeHistory(seriesId, season, episode) {
+        if (!this.db) await this.init();
+        try {
+            await this.db.runAsync(
+                `DELETE FROM watch_history 
+                 WHERE id = (
+                    SELECT id FROM watch_history 
+                    WHERE series_id = ? AND season_number = ? AND episode_number = ? 
+                    ORDER BY watched_at DESC 
+                    LIMIT 1
+                 )`,
+                [seriesId, season, episode]
+            );
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async getHistory(categoryId = null) {
+        if (!this.db) await this.init();
+        const userId = 1; // Fallback
+
+        try {
+            let query = `
+                SELECT 
+                    wh.*, 
+                    s.name as s_name, 
+                    s.status as s_status,
+                    s.sort_order as s_sort_order
+                FROM watch_history wh
+                JOIN series s ON wh.series_id = s.id
+                JOIN entertainment_categories ec ON s.category_id = ec.id
+                WHERE ec.user_id = ?
+            `;
+
+            const params = [userId];
+            if (categoryId) {
+                query += " AND ec.id = ?";
+                params.push(categoryId);
+            }
+
+            query += " ORDER BY wh.watched_at DESC";
+
+            const rows = await this.db.getAllAsync(query, params);
+            return { success: true, data: rows };
+        } catch (error) {
+            console.error('Error getHistory:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    // --- READING HISTORY METHODS ---
+
+    async addReadingHistory(seriesId, season, episode, timestamp = Date.now()) {
+        if (!this.db) await this.init();
+        try {
+            await this.db.runAsync(
+                'INSERT INTO reading_history (series_id, season_number, episode_number, read_at) VALUES (?, ?, ?, ?)',
+                [seriesId, season, episode, timestamp]
+            );
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async removeReadingHistory(seriesId, season, episode) {
+        if (!this.db) await this.init();
+        try {
+            await this.db.runAsync(
+                `DELETE FROM reading_history 
+                 WHERE id = (
+                    SELECT id FROM reading_history 
+                    WHERE series_id = ? AND season_number = ? AND episode_number = ? 
+                    ORDER BY read_at DESC 
+                    LIMIT 1
+                 )`,
+                [seriesId, season, episode]
+            );
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async getReadingHistory(categoryId = null) {
+        if (!this.db) await this.init();
+        const userId = 1;
+
+        try {
+            let query = `
+                SELECT 
+                    rh.*, 
+                    s.name as s_name, 
+                    s.status as s_status,
+                    s.sort_order as s_sort_order
+                FROM reading_history rh
+                JOIN series s ON rh.series_id = s.id
+                JOIN entertainment_categories ec ON s.category_id = ec.id
+                WHERE ec.user_id = ?
+            `;
+
+            const params = [userId];
+            if (categoryId) {
+                query += " AND ec.id = ?";
+                params.push(categoryId);
+            }
+
+            query += " ORDER BY rh.read_at DESC";
+
+            const rows = await this.db.getAllAsync(query, params);
+            return { success: true, data: rows };
+        } catch (error) {
+            console.error('Error getReadingHistory:', error);
             return { success: false, error: error.message };
         }
     }

@@ -9,7 +9,9 @@ import DeudasPrestamosScreen from './src/screens/DeudasPrestamosScreen';
 import db from './src/services/db';
 
 import SeriesDetailScreen from './src/screens/SeriesDetailScreen';
+import ReadingDetailScreen from './src/screens/ReadingDetailScreen';
 import ChapterRegistryScreen from './src/screens/ChapterRegistryScreen';
+import ReadingRegistryScreen from './src/screens/ReadingRegistryScreen';
 
 export default function App() {
   const [isReady, setIsReady] = useState(false);
@@ -100,7 +102,11 @@ export default function App() {
                 onBack={() => setCurrentView('HOME')}
                 onNavigateDetail={(category) => {
                   setSelectedCategory(category);
-                  setCurrentView('SERIES_DETAIL');
+                  if (category.type === 'reading') {
+                    setCurrentView('READING_DETAIL');
+                  } else {
+                    setCurrentView('SERIES_DETAIL');
+                  }
                 }}
               />
             );
@@ -113,12 +119,29 @@ export default function App() {
                 onNavigateRegistry={() => setCurrentView('CHAPTER_REGISTRY')}
               />
             );
+          case 'READING_DETAIL':
+            return (
+              <ReadingDetailScreen
+                user={user}
+                category={selectedCategory}
+                onBack={() => setCurrentView('SERIES_ANIME')}
+                onNavigateRegistry={() => setCurrentView('READING_REGISTRY')}
+              />
+            );
           case 'CHAPTER_REGISTRY':
             return (
               <ChapterRegistryScreen
                 user={user}
                 category={selectedCategory}
                 onBack={() => setCurrentView('SERIES_DETAIL')}
+              />
+            );
+          case 'READING_REGISTRY':
+            return (
+              <ReadingRegistryScreen
+                user={user}
+                category={selectedCategory}
+                onBack={() => setCurrentView('READING_DETAIL')}
               />
             );
           case 'HOME':
