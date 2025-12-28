@@ -474,11 +474,27 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                             <View style={[styles.row, { gap: 10, marginTop: 15 }]}>
                                 <View style={{ flex: 1 }}>
                                     <Text style={[styles.label, { color: theme.accent }]}>Temporada</Text>
-                                    <TextInput style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]} keyboardType="numeric" value={String(currentSeason)} onChangeText={(v) => setCurrentSeason(parseInt(v) || 1)} />
+                                    <TextInput
+                                        style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                        keyboardType="numeric"
+                                        value={String(currentSeason)}
+                                        onChangeText={(v) => {
+                                            const num = parseInt(v);
+                                            setCurrentSeason(isNaN(num) ? '' : num);
+                                        }}
+                                    />
                                 </View>
                                 <View style={{ flex: 1 }}>
                                     <Text style={[styles.label, { color: theme.accent }]}>Capítulo</Text>
-                                    <TextInput style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]} keyboardType="numeric" value={String(currentEpisode)} onChangeText={(v) => setCurrentEpisode(parseInt(v) || 1)} />
+                                    <TextInput
+                                        style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                        keyboardType="numeric"
+                                        value={String(currentEpisode)}
+                                        onChangeText={(v) => {
+                                            const num = parseInt(v);
+                                            setCurrentEpisode(isNaN(num) ? '' : num);
+                                        }}
+                                    />
                                 </View>
                             </View>
                         )}

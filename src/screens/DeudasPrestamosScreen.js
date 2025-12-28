@@ -200,7 +200,7 @@ export default function DeudasPrestamosScreen({ user, onBack }) {
                     onPress={() => setActiveTab('deudas')}
                 >
                     <Text style={[styles.tabText, activeTab === 'deudas' && { color: theme.text, fontWeight: 'bold' }]}>
-                        Me deben
+                        Préstamos
                     </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -212,7 +212,7 @@ export default function DeudasPrestamosScreen({ user, onBack }) {
                     onPress={() => setActiveTab('prestamos')}
                 >
                     <Text style={[styles.tabText, activeTab === 'prestamos' && { color: theme.text, fontWeight: 'bold' }]}>
-                        Préstamos
+                        Me deben
                     </Text>
                 </TouchableOpacity>
             </View>
@@ -237,22 +237,34 @@ export default function DeudasPrestamosScreen({ user, onBack }) {
                 <View style={[styles.modalOverlay, { backgroundColor: theme.modalOverlay }]}>
                     <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
                         <Text style={[styles.modalTitle, { color: theme.text }]}>
-                            Agregar {activeTab === 'deudas' ? 'Deuda' : 'Préstamo'}
+                            Agregar {activeTab === 'deudas' ? 'Préstamo' : 'Deuda'}
                         </Text>
 
                         {/* Contact Selector */}
-                        <View style={[styles.switchRow, { borderColor: theme.border }]}>
+                        <View style={[styles.switchRow, { borderColor: theme.border, backgroundColor: theme.inputBackground }]}>
                             <TouchableOpacity
-                                style={[styles.switchBtn, !isNewContact && styles.switchActive, !isNewContact && { backgroundColor: theme.border }]}
+                                style={[
+                                    styles.switchBtn,
+                                    !isNewContact ? { backgroundColor: theme.accent } : null
+                                ]}
                                 onPress={() => setIsNewContact(false)}
                             >
-                                <Text style={[styles.switchText, !isNewContact && { color: theme.text, fontWeight: 'bold' }]}>Existente</Text>
+                                <Text style={[
+                                    styles.switchText,
+                                    { color: !isNewContact ? '#fff' : theme.subText, fontWeight: !isNewContact ? 'bold' : 'normal' }
+                                ]}>Existente</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
-                                style={[styles.switchBtn, isNewContact && styles.switchActive, isNewContact && { backgroundColor: theme.border }]}
+                                style={[
+                                    styles.switchBtn,
+                                    isNewContact ? { backgroundColor: theme.accent } : null
+                                ]}
                                 onPress={() => setIsNewContact(true)}
                             >
-                                <Text style={[styles.switchText, isNewContact && { color: theme.text, fontWeight: 'bold' }]}>Nuevo</Text>
+                                <Text style={[
+                                    styles.switchText,
+                                    { color: isNewContact ? '#fff' : theme.subText, fontWeight: isNewContact ? 'bold' : 'normal' }
+                                ]}>Nuevo</Text>
                             </TouchableOpacity>
                         </View>
 

@@ -176,6 +176,10 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
     const checkLinkedLogic = async (cat) => {
         // Only trigger layout change for specific keywords
         if (cat === 'Me deben' || cat === 'Préstamos') {
+            // Restrict "Nuevo" for collections and repayments
+            if ((actionType === 'add' && cat === 'Me deben') || (actionType === 'subtract' && cat === 'Préstamos')) {
+                setIsNewContact(false);
+            }
             await fetchLinkedContacts(cat);
         } else {
             setLinkedContacts([]);
@@ -308,11 +312,11 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
         );
     };
 
-    // Derived State for SectionList
+    // Derived State for SectionList to handle expansion
     const visibleSections = React.useMemo(() => {
         return historyGroups.map(section => ({
             ...section,
-            data: expandedSections[section.title] ? section.data : []
+            data: expandedSections[section.title] === false ? [] : section.data
         }));
     }, [historyGroups, expandedSections]);
 
@@ -351,12 +355,11 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
             <View style={{ flex: 1, paddingHorizontal: 15 }}>
                 <Text style={[styles.histTitle, { color: theme.text }]}>Historial</Text>
                 <SectionList
-                    sections={historyGroups}
+                    sections={visibleSections}
                     keyExtractor={(item) => item.id.toString()}
                     stickySectionHeadersEnabled={false}
-                    renderSectionHeader={({ section: { title, data } }) => {
+                    renderSectionHeader={({ section: { title, total } }) => {
                         const isExpanded = expandedSections[title] !== false;
-                        const dayTotal = data.reduce((acc, curr) => acc + (curr.type === 'add' ? curr.amount : -curr.amount), 0);
 
                         return (
                             <TouchableOpacity
@@ -366,30 +369,34 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                                 <Text style={[styles.sectionTitle, { color: theme.subText }]}>
                                     {isExpanded ? '▼ ' : '▶ '} {title}
                                 </Text>
-                                <Text style={[styles.sectionTotal, { color: dayTotal >= 0 ? '#4CAF50' : '#F44336' }]}>
-                                    {dayTotal >= 0 ? '+' : ''}{dayTotal.toFixed(2)}
+                                <Text style={[styles.sectionTotal, { color: total >= 0 ? '#4CAF50' : '#F44336' }]}>
+                                    {total >= 0 ? '+' : ''}{total.toFixed(2)}
                                 </Text>
                             </TouchableOpacity>
                         );
                     }}
                     renderItem={({ item, section }) => {
                         if (expandedSections[section.title] === false) return null;
+
+                        // Format time from created_at
+                        const timeStr = new Date(item.created_at.replace(' ', 'T') + 'Z').toLocaleTimeString('es-ES', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            hour12: true,
+                            timeZone: 'America/Guayaquil'
+                        });
+
                         return (
                             <View style={[styles.historyRow, { borderBottomColor: theme.border }]}>
                                 <View style={styles.historyLeft}>
-                                    <Text style={[styles.histCat, { color: theme.text }]}>{item.category}</Text>
                                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                        <Text style={[styles.histTime, { color: theme.subText }]}>{item.time}</Text>
-                                        {item.contact_id && (
-                                            <TouchableOpacity onPress={() => onNavigate('DEUDAS_PRESTAMOS')} style={{ marginLeft: 8 }}>
-                                                <Text style={{ fontSize: 11, color: theme.accent, fontWeight: 'bold' }}>• 👤 {item.contact_name}</Text>
-                                            </TouchableOpacity>
-                                        )}
+                                        <Text style={[styles.histCat, { color: theme.text }]}>{item.category}</Text>
+                                        <Text style={[styles.histTime, { color: theme.subText }]}> • {timeStr}</Text>
                                     </View>
                                     {item.description ? <Text style={[styles.histDesc, { color: theme.subText }]}>{item.description}</Text> : null}
                                 </View>
-                                <Text style={[styles.histAmount, item.type === 'add' ? styles.green : styles.red]}>
-                                    {item.type === 'add' ? '+' : '-'}${item.amount.toFixed(2)}
+                                <Text style={[styles.histAmount, item.amount >= 0 ? styles.green : styles.red]}>
+                                    {item.amount >= 0 ? '+' : ''}${item.amount.toFixed(2)}
                                 </Text>
                             </View>
                         );
@@ -443,12 +450,26 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                             <View style={[styles.linkedBox, { backgroundColor: theme.inputBackground }]}>
                                 <Text style={[styles.label, { color: theme.subText }]}>Vincular Contacto:</Text>
                                 <View style={styles.btnsRow}>
-                                    <TouchableOpacity style={[styles.tab, !isNewContact && styles.activeTab, !isNewContact && { backgroundColor: theme.border }]} onPress={() => setIsNewContact(false)}>
-                                        <Text style={{ fontSize: 12, color: theme.text }}>Existente</Text>
+                                    <TouchableOpacity
+                                        style={[
+                                            styles.tab,
+                                            !isNewContact ? { backgroundColor: theme.accent, borderColor: theme.accent } : { backgroundColor: theme.inputBackground, borderColor: theme.border }
+                                        ]}
+                                        onPress={() => setIsNewContact(false)}
+                                    >
+                                        <Text style={{ fontSize: 12, fontWeight: 'bold', color: !isNewContact ? '#fff' : theme.subText }}>Existente</Text>
                                     </TouchableOpacity>
-                                    <TouchableOpacity style={[styles.tab, isNewContact && styles.activeTab, isNewContact && { backgroundColor: theme.border }]} onPress={() => setIsNewContact(true)}>
-                                        <Text style={{ fontSize: 12, color: theme.text }}>Nuevo</Text>
-                                    </TouchableOpacity>
+                                    {!((actionType === 'add' && transCategory === 'Me deben') || (actionType === 'subtract' && transCategory === 'Préstamos')) && (
+                                        <TouchableOpacity
+                                            style={[
+                                                styles.tab,
+                                                isNewContact ? { backgroundColor: theme.accent, borderColor: theme.accent } : { backgroundColor: theme.inputBackground, borderColor: theme.border }
+                                            ]}
+                                            onPress={() => setIsNewContact(true)}
+                                        >
+                                            <Text style={{ fontSize: 12, fontWeight: 'bold', color: isNewContact ? '#fff' : theme.subText }}>Nuevo</Text>
+                                        </TouchableOpacity>
+                                    )}
                                 </View>
 
                                 {isNewContact ? (
@@ -470,7 +491,7 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                                                         onPress={() => setSelectedContactId(c.id)}
                                                     >
                                                         <Text style={{ fontSize: 13, color: theme.text }}>{c.name}</Text>
-                                                        <Text style={{ fontSize: 10, color: theme.subText }}>Bal: ${c.balance.toFixed(2)}</Text>
+                                                        <Text style={{ fontSize: 10, color: theme.subText }}>Bal: ${c.total.toFixed(2)}</Text>
                                                     </TouchableOpacity>
                                                 ))}
                                                 {linkedContacts.length === 0 && <Text style={{ color: theme.subText, fontStyle: 'italic', fontSize: 12 }}>No hay contactos aún</Text>}
@@ -481,7 +502,7 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                                             <View style={[styles.infoBox, { marginTop: 10, backgroundColor: isDarkMode ? '#1a237e' : '#E3F2FD' }]}>
                                                 {(() => {
                                                     const contact = linkedContacts.find(c => c.id === selectedContactId);
-                                                    const current = contact?.balance || 0;
+                                                    const current = contact?.total || 0;
                                                     let msg = "";
 
                                                     if (actionType === 'add') {
