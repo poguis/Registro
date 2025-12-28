@@ -129,6 +129,23 @@ class DatabaseService {
                 );
             `);
 
+            // Create BACKLOG table
+            await this.db.execAsync(`
+                CREATE TABLE IF NOT EXISTS backlog (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    type TEXT NOT NULL, -- 'movie', 'series', 'anime', 'reading'
+                    title TEXT NOT NULL,
+                    status TEXT DEFAULT 'Pendiente', -- 'Pendiente', 'Mirando', 'Terminado'
+                    year INTEGER, -- For movies
+                    format TEXT, -- For series: '24 min', '40 min'
+                    start_year INTEGER, -- For series, anime, reading
+                    end_year INTEGER, -- For series, anime
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
+            `);
+
             // Migrations for missing columns
             const migrations = [
                 `ALTER TABLE series ADD COLUMN cycle_offset INTEGER DEFAULT 0;`,
@@ -918,6 +935,74 @@ class DatabaseService {
             return { success: true, data: rows };
         } catch (error) {
             console.error('Error getReadingHistory:', error);
+            return { success: false, error: error.message };
+        }
+    }
+    // --- BACKLOG METHODS ---
+
+    async addBacklogItem(userId, data) {
+        if (!this.db) await this.init();
+        try {
+            const { type, title, year, format, start_year, end_year } = data;
+            await this.db.runAsync(
+                `INSERT INTO backlog (user_id, type, title, year, format, start_year, end_year) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [userId, type, title, year, format, start_year, end_year]
+            );
+            return { success: true };
+        } catch (error) {
+            console.error('Error addBacklogItem:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async getBacklogItems(userId, type, status = null, sortBy = 'title', order = 'ASC') {
+        if (!this.db) await this.init();
+        try {
+            // Determine the column to sort by for "year" based on type
+            let sortCol = sortBy;
+            if (sortBy === 'year_start') {
+                if (type === 'movie') sortCol = 'year';
+                else sortCol = 'start_year';
+            }
+
+            let query = `SELECT * FROM backlog WHERE user_id = ? AND type = ?`;
+            const params = [userId, type];
+
+            if (status) {
+                query += ` AND status = ?`;
+                params.push(status);
+            }
+
+            query += ` ORDER BY ${sortCol} ${order}`;
+
+            const rows = await this.db.getAllAsync(query, params);
+            return { success: true, data: rows };
+        } catch (error) {
+            console.error('Error getBacklogItems:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async updateBacklogStatus(id, status) {
+        if (!this.db) await this.init();
+        try {
+            await this.db.runAsync(
+                'UPDATE backlog SET status = ? WHERE id = ?',
+                [status, id]
+            );
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async deleteBacklogItem(id) {
+        if (!this.db) await this.init();
+        try {
+            await this.db.runAsync('DELETE FROM backlog WHERE id = ?', [id]);
+            return { success: true };
+        } catch (error) {
             return { success: false, error: error.message };
         }
     }

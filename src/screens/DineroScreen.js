@@ -14,9 +14,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import { useTheme } from '../contexts/ThemeContext';
 import db from '../services/db';
 
 export default function DineroScreen({ user, onBack, onNavigate }) {
+    const { theme, isDarkMode } = useTheme();
     const [balance, setBalance] = useState(0);
     const [historyGroups, setHistoryGroups] = useState([]);
     const [expandedSections, setExpandedSections] = useState({}); // { "Title": true/false }
@@ -315,130 +317,176 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
     }, [historyGroups, expandedSections]);
 
     return (
-        <SafeAreaView style={styles.container}>
-            <StatusBar style="dark" />
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+            <StatusBar style={isDarkMode ? "light" : "dark"} />
 
-            {/* Compact Header */}
-            <View style={styles.header}>
-                <TouchableOpacity onPress={onBack} style={{ padding: 5 }}>
-                    <Text style={{ fontSize: 16, color: '#007AFF' }}>← Volver</Text>
+            {/* Header */}
+            <View style={[styles.header, { backgroundColor: theme.header, borderBottomWidth: 1, borderBottomColor: theme.border }]}>
+                <TouchableOpacity onPress={onBack}>
+                    <Text style={{ fontSize: 24, color: theme.text }}>←</Text>
                 </TouchableOpacity>
 
-                <View style={styles.compactBalance}>
-                    <Text style={styles.labelSmall}>Dinero Actual</Text>
-                    <TouchableOpacity onPress={() => { setInputBalance(balance.toString()); setEditMode(true); }}>
-                        <Text style={styles.balanceSmall}>${balance.toFixed(2)}</Text>
-                    </TouchableOpacity>
-                </View>
+                <TouchableOpacity style={styles.compactBalance} onPress={() => {
+                    setInputBalance(balance.toString());
+                    setEditMode(true);
+                }}>
+                    <Text style={[styles.labelSmall, { color: theme.subText }]}>Dinero Actual</Text>
+                    <Text style={[styles.balanceSmall, { color: theme.text }]}>${balance.toFixed(2)}</Text>
+                </TouchableOpacity>
 
-                {/* Module Link (Icon Only) */}
-                <TouchableOpacity onPress={() => onNavigate('DEUDAS_PRESTAMOS')} style={{ padding: 5 }}>
-                    <Text style={{ fontSize: 24 }}>💸</Text>
+                <TouchableOpacity onPress={() => onNavigate('DEUDAS_PRESTAMOS')}>
+                    <Text style={{ fontSize: 22 }}>👥</Text>
                 </TouchableOpacity>
             </View>
 
-            {/* Action Buttons (Horizontal Strip) */}
             <View style={styles.actionStrip}>
-                <TouchableOpacity style={[styles.btnSmall, styles.btnIn]} onPress={() => openTransactionModal('add')}>
-                    <Text style={styles.btnTextSmall}>+ Agregar</Text>
+                <TouchableOpacity style={[styles.btnSmall, styles.btnIn, isDarkMode && { backgroundColor: '#1b3320', borderColor: '#2e7d32' }]} onPress={() => openTransactionModal('add')}>
+                    <Text style={[styles.btnTextSmall, { color: isDarkMode ? '#81c784' : '#2e7d32' }]}>+$ Ingreso</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.btnSmall, styles.btnOut]} onPress={() => openTransactionModal('subtract')}>
-                    <Text style={styles.btnTextSmall}>- Quitar</Text>
+                <TouchableOpacity style={[styles.btnSmall, styles.btnOut, isDarkMode && { backgroundColor: '#331b1b', borderColor: '#c62828' }]} onPress={() => openTransactionModal('subtract')}>
+                    <Text style={[styles.btnTextSmall, { color: isDarkMode ? '#e57373' : '#c62828' }]}>-$ Gasto</Text>
                 </TouchableOpacity>
             </View>
 
-            {/* History List */}
-            <View style={{ flex: 1, backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, marginTop: 10, padding: 15 }}>
-                <Text style={styles.histTitle}>Historial de Movimientos</Text>
+            <View style={{ flex: 1, paddingHorizontal: 15 }}>
+                <Text style={[styles.histTitle, { color: theme.text }]}>Historial</Text>
                 <SectionList
-                    sections={visibleSections}
+                    sections={historyGroups}
                     keyExtractor={(item) => item.id.toString()}
-                    renderItem={renderHistoryItem}
-                    renderSectionHeader={renderSectionHeader}
+                    stickySectionHeadersEnabled={false}
+                    renderSectionHeader={({ section: { title, data } }) => {
+                        const isExpanded = expandedSections[title] !== false;
+                        const dayTotal = data.reduce((acc, curr) => acc + (curr.type === 'add' ? curr.amount : -curr.amount), 0);
+
+                        return (
+                            <TouchableOpacity
+                                style={[styles.sectionHeader, { backgroundColor: theme.inputBackground }]}
+                                onPress={() => toggleSection(title)}
+                            >
+                                <Text style={[styles.sectionTitle, { color: theme.subText }]}>
+                                    {isExpanded ? '▼ ' : '▶ '} {title}
+                                </Text>
+                                <Text style={[styles.sectionTotal, { color: dayTotal >= 0 ? '#4CAF50' : '#F44336' }]}>
+                                    {dayTotal >= 0 ? '+' : ''}{dayTotal.toFixed(2)}
+                                </Text>
+                            </TouchableOpacity>
+                        );
+                    }}
+                    renderItem={({ item, section }) => {
+                        if (expandedSections[section.title] === false) return null;
+                        return (
+                            <View style={[styles.historyRow, { borderBottomColor: theme.border }]}>
+                                <View style={styles.historyLeft}>
+                                    <Text style={[styles.histCat, { color: theme.text }]}>{item.category}</Text>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                        <Text style={[styles.histTime, { color: theme.subText }]}>{item.time}</Text>
+                                        {item.contact_id && (
+                                            <TouchableOpacity onPress={() => onNavigate('DEUDAS_PRESTAMOS')} style={{ marginLeft: 8 }}>
+                                                <Text style={{ fontSize: 11, color: theme.accent, fontWeight: 'bold' }}>• 👤 {item.contact_name}</Text>
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
+                                    {item.description ? <Text style={[styles.histDesc, { color: theme.subText }]}>{item.description}</Text> : null}
+                                </View>
+                                <Text style={[styles.histAmount, item.type === 'add' ? styles.green : styles.red]}>
+                                    {item.type === 'add' ? '+' : '-'}${item.amount.toFixed(2)}
+                                </Text>
+                            </View>
+                        );
+                    }}
+                    ListEmptyComponent={<Text style={[styles.empty, { color: theme.subText }]}>No hay movimientos aún</Text>}
                     contentContainerStyle={{ paddingBottom: 20 }}
-                    ListEmptyComponent={<Text style={styles.empty}>No hay movimientos aún.</Text>}
-                    extraData={expandedSections} // Force update when state changes
                 />
             </View>
 
             {/* Transaction Modal */}
-            <Modal visible={showTransModal} transparent animationType="slide">
-                <View style={styles.overlay}>
-                    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>{actionType === 'add' ? 'Ingresar Dinero' : 'Retirar Dinero'}</Text>
+            <Modal visible={showTransModal} transparent animationType="slide" onRequestClose={() => setShowTransModal(false)}>
+                <View style={[styles.overlay, { backgroundColor: theme.modalOverlay }]}>
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[styles.modalContent, { backgroundColor: theme.card }]}>
+                        <Text style={[styles.modalTitle, { color: theme.text }]}>{actionType === 'add' ? 'Nuevo Ingreso' : 'Nuevo Gasto'}</Text>
 
-                        {/* Amount */}
                         <TextInput
-                            style={styles.inputBig}
-                            placeholder="$0.00"
+                            style={[styles.inputBig, { color: theme.text, borderColor: theme.border }]}
+                            autoFocus
+                            placeholder="0.00"
+                            placeholderTextColor={theme.subText}
                             keyboardType="numeric"
                             value={transAmount}
                             onChangeText={setTransAmount}
                         />
 
-                        {/* Category with Suggestions */}
-                        <View style={{ zIndex: 1000, width: '100%', marginBottom: 10 }}>
+                        <View style={{ zIndex: 10 }}>
                             <TextInput
-                                style={styles.input}
-                                placeholder="Categoría (ej. Comida, Sueldo)"
+                                style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                placeholder="Categoría (Ej: Comida)"
+                                placeholderTextColor={theme.subText}
                                 value={transCategory}
                                 onChangeText={handleCategoryChange}
+                                onFocus={() => transCategory.length > 0 && setShowCatSuggestions(true)}
+                                onBlur={() => setTimeout(() => setShowCatSuggestions(false), 200)}
                             />
+
                             {showCatSuggestions && filteredCategories.length > 0 && (
-                                <View style={styles.suggestionsBox}>
-                                    {filteredCategories.map(cat => (
-                                        <TouchableOpacity key={cat} style={styles.suggItem} onPress={() => selectCategory(cat)}>
-                                            <Text>{cat}</Text>
-                                        </TouchableOpacity>
-                                    ))}
+                                <View style={[styles.suggestionsBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                                    <ScrollView keyboardShouldPersistTaps="handled">
+                                        {filteredCategories.map(cat => (
+                                            <TouchableOpacity key={cat} style={[styles.suggItem, { borderBottomColor: theme.border }]} onPress={() => selectCategory(cat)}>
+                                                <Text style={{ color: theme.text }}>{cat}</Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </ScrollView>
                                 </View>
                             )}
                         </View>
 
-                        {/* Linked Person */}
-                        {(linkedContacts.length > 0 || transCategory === 'Me deben' || transCategory === 'Préstamos') && (
-                            <View style={styles.linkedBox}>
-                                <Text style={styles.label}>Persona asociada:</Text>
-                                <View style={{ flexDirection: 'row', marginBottom: 5 }}>
-                                    <TouchableOpacity onPress={() => setIsNewContact(false)} style={[styles.tab, !isNewContact && styles.activeTab]}>
-                                        <Text>Existente</Text>
+                        {(transCategory === 'Me deben' || transCategory === 'Préstamos') && (
+                            <View style={[styles.linkedBox, { backgroundColor: theme.inputBackground }]}>
+                                <Text style={[styles.label, { color: theme.subText }]}>Vincular Contacto:</Text>
+                                <View style={styles.btnsRow}>
+                                    <TouchableOpacity style={[styles.tab, !isNewContact && styles.activeTab, !isNewContact && { backgroundColor: theme.border }]} onPress={() => setIsNewContact(false)}>
+                                        <Text style={{ fontSize: 12, color: theme.text }}>Existente</Text>
                                     </TouchableOpacity>
-                                    <TouchableOpacity onPress={() => setIsNewContact(true)} style={[styles.tab, isNewContact && styles.activeTab]}>
-                                        <Text>Nuevo</Text>
+                                    <TouchableOpacity style={[styles.tab, isNewContact && styles.activeTab, isNewContact && { backgroundColor: theme.border }]} onPress={() => setIsNewContact(true)}>
+                                        <Text style={{ fontSize: 12, color: theme.text }}>Nuevo</Text>
                                     </TouchableOpacity>
                                 </View>
+
                                 {isNewContact ? (
-                                    <TextInput style={styles.input} placeholder="Nombre" value={contactName} onChangeText={setContactName} />
+                                    <TextInput
+                                        style={[styles.input, { marginTop: 10, backgroundColor: theme.card, color: theme.text, borderColor: theme.border }]}
+                                        placeholder="Nombre del contacto"
+                                        placeholderTextColor={theme.subText}
+                                        value={contactName}
+                                        onChangeText={setContactName}
+                                    />
                                 ) : (
-                                    <View>
-                                        <ScrollView style={{ height: 80, borderWidth: 1, borderColor: '#eee', borderRadius: 8, marginBottom: 10 }}>
-                                            {linkedContacts.map(c => (
-                                                <TouchableOpacity
-                                                    key={c.id}
-                                                    style={[styles.pItem, selectedContactId === c.id && styles.pItemSel]}
-                                                    onPress={() => setSelectedContactId(c.id)}
-                                                >
-                                                    <Text style={selectedContactId === c.id ? { fontWeight: 'bold', color: '#1976D2' } : { color: '#333' }}>
-                                                        {c.name} (${c.total.toFixed(2)})
-                                                    </Text>
-                                                </TouchableOpacity>
-                                            ))}
+                                    <View style={{ marginTop: 10 }}>
+                                        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                                            <View style={{ flexDirection: 'row' }}>
+                                                {linkedContacts.map(c => (
+                                                    <TouchableOpacity
+                                                        key={c.id}
+                                                        style={[styles.pItem, selectedContactId === c.id && styles.pItemSel, selectedContactId === c.id && { backgroundColor: theme.accent + '33' }]}
+                                                        onPress={() => setSelectedContactId(c.id)}
+                                                    >
+                                                        <Text style={{ fontSize: 13, color: theme.text }}>{c.name}</Text>
+                                                        <Text style={{ fontSize: 10, color: theme.subText }}>Bal: ${c.balance.toFixed(2)}</Text>
+                                                    </TouchableOpacity>
+                                                ))}
+                                                {linkedContacts.length === 0 && <Text style={{ color: theme.subText, fontStyle: 'italic', fontSize: 12 }}>No hay contactos aún</Text>}
+                                            </View>
                                         </ScrollView>
 
                                         {selectedContactId && (
-                                            <View style={styles.infoBox}>
+                                            <View style={[styles.infoBox, { marginTop: 10, backgroundColor: isDarkMode ? '#1a237e' : '#E3F2FD' }]}>
                                                 {(() => {
                                                     const contact = linkedContacts.find(c => c.id === selectedContactId);
-                                                    const current = contact ? contact.total : 0;
+                                                    const current = contact?.balance || 0;
+                                                    let msg = "";
 
-                                                    let msg = '';
-                                                    // Logic Matrix updated for intuition
-                                                    // Logic Matrix 100% Aligned with user feedback
                                                     if (actionType === 'add') {
                                                         if (transCategory === 'Me deben') {
-                                                            msg = isNewContact
-                                                                ? `INICIALIZANDO. Se creará la deuda de ${contactName || 'la persona'} (+), y subirá tu dinero actual (+).`
-                                                                : `COBRANDO. La deuda de ${contact?.name || 'la persona'} bajará (-), y tu dinero actual subirá (+).`;
+                                                            msg = `COBRANDO. La deuda de ${contact?.name || 'la persona'} bajará (-), y tu dinero actual subirá (+).`;
                                                         }
                                                         if (transCategory === 'Préstamos') {
                                                             msg = `PIDIENDO PRESTADO. Tu deuda con ${contact?.name || 'la persona'} subirá (+), y tu dinero actual subirá (+).`;
@@ -454,8 +502,8 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
 
                                                     return (
                                                         <>
-                                                            <Text style={styles.infoTitle}>Actual: ${current.toFixed(2)}</Text>
-                                                            <Text style={styles.infoMsg}>{msg}</Text>
+                                                            <Text style={[styles.infoTitle, { color: theme.infoText }]}>Actual: ${current.toFixed(2)}</Text>
+                                                            <Text style={[styles.infoMsg, { color: theme.infoText }]}>{msg}</Text>
                                                         </>
                                                     );
                                                 })()}
@@ -467,15 +515,16 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                         )}
 
                         <TextInput
-                            style={styles.input}
+                            style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
                             placeholder="Descripción (Opcional)"
+                            placeholderTextColor={theme.subText}
                             value={transDesc}
                             onChangeText={setTransDesc}
                         />
 
                         <View style={styles.btnsRow}>
-                            <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowTransModal(false)}>
-                                <Text>Cancelar</Text>
+                            <TouchableOpacity style={[styles.cancelBtn, { backgroundColor: theme.inputBackground }]} onPress={() => setShowTransModal(false)}>
+                                <Text style={{ color: theme.text }}>Cancelar</Text>
                             </TouchableOpacity>
                             <TouchableOpacity style={[styles.saveBtn, actionType === 'add' ? styles.bgGreen : styles.bgRed]} onPress={executeTransaction}>
                                 <Text style={{ color: '#fff', fontWeight: 'bold' }}>Guardar</Text>
@@ -488,21 +537,22 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
 
             {/* Manual Balance Edit Modal */}
             <Modal visible={editMode} transparent animationType="fade">
-                <View style={styles.overlay}>
-                    <View style={[styles.modalContent, { height: 200 }]}>
-                        <Text style={styles.modalTitle}>Ajuste Manual</Text>
+                <View style={[styles.overlay, { backgroundColor: theme.modalOverlay }]}>
+                    <View style={[styles.modalContent, { height: 200, backgroundColor: theme.card }]}>
+                        <Text style={[styles.modalTitle, { color: theme.text }]}>Ajuste Manual</Text>
                         <TextInput
-                            style={styles.inputBig}
+                            style={[styles.inputBig, { color: theme.text, borderColor: theme.border }]}
                             value={inputBalance}
                             onChangeText={setInputBalance}
                             keyboardType="numeric"
+                            placeholderTextColor={theme.subText}
                         />
                         <View style={styles.btnsRow}>
-                            <TouchableOpacity style={styles.cancelBtn} onPress={() => setEditMode(false)}>
-                                <Text>Cancelar</Text>
+                            <TouchableOpacity style={[styles.cancelBtn, { backgroundColor: theme.inputBackground }]} onPress={() => setEditMode(false)}>
+                                <Text style={{ color: theme.text }}>Cancelar</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={[styles.saveBtn, { backgroundColor: '#333' }]} onPress={handleUpdateBalance}>
-                                <Text style={{ color: '#fff' }}>Actualizar</Text>
+                            <TouchableOpacity style={[styles.saveBtn, { backgroundColor: theme.text }]} onPress={handleUpdateBalance}>
+                                <Text style={{ color: theme.card }}>Actualizar</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -556,9 +606,9 @@ const styles = StyleSheet.create({
     // Modal
     overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
     modalContent: { backgroundColor: '#fff', borderRadius: 15, padding: 20 },
-    modalTitle: { fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 15 },
-    inputBig: { fontSize: 30, textAlign: 'center', fontWeight: 'bold', marginBottom: 20, borderBottomWidth: 1, borderColor: '#eee' },
-    input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10, marginBottom: 10 },
+    modalTitle: { fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 15, color: '#000' },
+    inputBig: { fontSize: 30, textAlign: 'center', fontWeight: 'bold', marginBottom: 20, borderBottomWidth: 1, borderColor: '#eee', color: '#000' },
+    input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10, marginBottom: 10, color: '#000' },
 
     suggestionsBox: {
         position: 'absolute', top: 50, left: 0, right: 0,

@@ -9,24 +9,27 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import { useTheme } from '../contexts/ThemeContext';
 
 const { width } = Dimensions.get('window');
 
-const MenuButton = ({ title, icon, color, onPress }) => (
+const MenuButton = ({ title, icon, color, onPress, theme }) => (
     <TouchableOpacity
-        style={[styles.menuButton, { borderLeftColor: color }]}
+        style={[styles.menuButton, { borderLeftColor: color, backgroundColor: theme.card }]}
         onPress={onPress}
         activeOpacity={0.7}
     >
         <View style={[styles.iconContainer, { backgroundColor: color }]}>
             <Text style={styles.iconText}>{icon}</Text>
         </View>
-        <Text style={styles.menuButtonText}>{title}</Text>
+        <Text style={[styles.menuButtonText, { color: theme.text }]}>{title}</Text>
         <Text style={styles.arrow}>›</Text>
     </TouchableOpacity>
 );
 
 export default function HomeScreen({ user, onLogout, onNavigate }) {
+    const { isDarkMode, toggleTheme, theme } = useTheme();
+
     const handlePress = (module) => {
         if (module === 'Dinero') {
             onNavigate('DINERO');
@@ -44,29 +47,38 @@ export default function HomeScreen({ user, onLogout, onNavigate }) {
     };
 
     return (
-        <SafeAreaView style={styles.container}>
-            <StatusBar style="dark" />
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+            <StatusBar style={isDarkMode ? "light" : "dark"} />
 
             {/* Header */}
-            <View style={styles.header}>
+            <View style={[styles.header, { backgroundColor: theme.header }]}>
                 <View>
-                    <Text style={styles.greeting}>Hola,</Text>
-                    <Text style={styles.username}>{user?.username || 'Usuario'}</Text>
+                    <Text style={[styles.greeting, { color: theme.subText }]}>Hola,</Text>
+                    <Text style={[styles.username, { color: theme.text }]}>{user?.username || 'Usuario'}</Text>
                 </View>
-                <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
-                    <Text style={styles.logoutText}>Salir</Text>
-                </TouchableOpacity>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <TouchableOpacity
+                        style={[styles.themeButton, { backgroundColor: theme.inputBackground }]}
+                        onPress={toggleTheme}
+                    >
+                        <Text style={{ fontSize: 20 }}>{isDarkMode ? '🌞' : '🌙'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
+                        <Text style={styles.logoutText}>Salir</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
 
             {/* Main Content */}
             <View style={styles.content}>
-                <Text style={styles.sectionTitle}>Mi Panel</Text>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>Mi Panel</Text>
 
                 <MenuButton
                     title="Dinero"
                     icon="💰"
                     color="#4CAF50"
                     onPress={() => handlePress('Dinero')}
+                    theme={theme}
                 />
 
                 <MenuButton
@@ -74,13 +86,15 @@ export default function HomeScreen({ user, onLogout, onNavigate }) {
                     icon="📺"
                     color="#2196F3"
                     onPress={() => handlePress('Series y Anime')}
+                    theme={theme}
                 />
 
                 <MenuButton
                     title="Pendiente"
-                    icon="❓"
-                    color="#9E9E9E"
+                    icon="📋"
+                    color="#673AB7"
                     onPress={() => handlePress('Pendiente')}
+                    theme={theme}
                 />
             </View>
         </SafeAreaView>
@@ -119,13 +133,22 @@ const styles = StyleSheet.create({
     logoutButton: {
         paddingHorizontal: 15,
         paddingVertical: 8,
-        backgroundColor: '#f0f0f0',
+        backgroundColor: '#FFEBEE',
         borderRadius: 20,
+        marginLeft: 10,
     },
     logoutText: {
         color: '#FF5252',
         fontWeight: '600',
         fontSize: 14,
+    },
+    themeButton: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#f0f0f0',
     },
     content: {
         flex: 1,

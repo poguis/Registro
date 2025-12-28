@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import { useTheme } from '../contexts/ThemeContext';
 import db from '../services/db';
 
 const DAYS = [
@@ -28,6 +29,7 @@ const DAYS = [
 
 // --- Custom Calendar Component ---
 const CustomCalendar = ({ visible, onClose, onSelectDate, initialDate }) => {
+    const { theme } = useTheme();
     // Helper to parse date string "YYYY-MM-DD" safely as local date
     const parseDate = (dateStr) => {
         if (!dateStr) return new Date();
@@ -96,7 +98,7 @@ const CustomCalendar = ({ visible, onClose, onSelectDate, initialDate }) => {
                     style={[styles.calendarDay, isSelected && styles.calendarDaySelected]}
                     onPress={() => handleSelect(i)}
                 >
-                    <Text style={[styles.calendarDayText, isSelected && styles.calendarDayTextSelected]}>{i}</Text>
+                    <Text style={[styles.calendarDayText, { color: theme.text }, isSelected && styles.calendarDayTextSelected]}>{i}</Text>
                 </TouchableOpacity>
             );
         }
@@ -106,14 +108,14 @@ const CustomCalendar = ({ visible, onClose, onSelectDate, initialDate }) => {
     return (
         <Modal animationType="fade" transparent={true} visible={visible} onRequestClose={onClose}>
             <View style={styles.modalOverlay}>
-                <View style={[styles.modalContent, { height: 'auto', paddingBottom: 30 }]}>
+                <View style={[styles.modalContent, { height: 'auto', paddingBottom: 30, backgroundColor: theme.card }]}>
                     <View style={styles.calendarHeader}>
                         <TouchableOpacity onPress={() => changeMonth(-1)} style={styles.navButton}><Text style={styles.navButtonText}>‹</Text></TouchableOpacity>
-                        <Text style={styles.monthTitle}>{monthNames[viewDate.getMonth()]} {viewDate.getFullYear()}</Text>
+                        <Text style={[styles.monthTitle, { color: theme.text }]}>{monthNames[viewDate.getMonth()]} {viewDate.getFullYear()}</Text>
                         <TouchableOpacity onPress={() => changeMonth(1)} style={styles.navButton}><Text style={styles.navButtonText}>›</Text></TouchableOpacity>
                     </View>
                     <View style={styles.weekDays}>
-                        {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((d, i) => <Text key={i} style={styles.weekDayText}>{d}</Text>)}
+                        {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((d, i) => <Text key={i} style={[styles.weekDayText, { color: theme.subText }]}>{d}</Text>)}
                     </View>
                     <View style={styles.daysGrid}>{renderCalendar()}</View>
 
@@ -132,6 +134,7 @@ const CustomCalendar = ({ visible, onClose, onSelectDate, initialDate }) => {
 };
 
 export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNavigateRegistry }) {
+    const { theme, isDarkMode } = useTheme();
     const [categories, setCategories] = useState([]);
     const [modalVisible, setModalVisible] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
@@ -331,7 +334,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
 
         return (
             <TouchableOpacity
-                style={styles.card}
+                style={[styles.card, { backgroundColor: theme.card }]}
                 onPress={() => onNavigateDetail(item)}
             >
                 <View style={styles.cardHeader}>
@@ -339,18 +342,18 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                         <Text style={{ fontSize: 20 }}>{item.type === 'video' ? '🎬' : '📚'}</Text>
                     </View>
                     <View style={{ flex: 1, marginLeft: 10 }}>
-                        <Text style={styles.cardTitle}>{item.name}</Text>
+                        <Text style={[styles.cardTitle, { color: theme.text }]}>{item.name}</Text>
 
                         {/* Info Rows */}
-                        <Text style={styles.cardInfoRow}>📅 Inicio: {item.start_date}</Text>
-                        <Text style={styles.cardInfoRow}>📆 Días: {dayLabels || 'No definido'}</Text>
-                        <Text style={styles.cardInfoRow}>
+                        <Text style={[styles.cardInfoRow, { color: theme.subText }]}>📅 Inicio: {item.start_date}</Text>
+                        <Text style={[styles.cardInfoRow, { color: theme.subText }]}>📆 Días: {dayLabels || 'No definido'}</Text>
+                        <Text style={[styles.cardInfoRow, { color: theme.subText }]}>
                             ⏱️ Frecuencia: {item.frequency < 0 ? `1 cada ${Math.abs(item.frequency)} días` : `${item.frequency} / día`}
                         </Text>
 
                         {/* Calculation Result */}
                         {calc && (
-                            <View style={styles.calcResult}>
+                            <View style={[styles.calcResult, { backgroundColor: isDarkMode ? '#332b21' : '#FFF3E0' }]}>
                                 <Text style={[styles.calcText, (calc.diffDays <= 0 && calc.backlogItems <= 0) && { color: '#4CAF50', fontWeight: 'bold' }]}>
                                     {(calc.diffDays <= 0 && calc.backlogItems <= 0)
                                         ? '¡Estás al día! 🎉'
@@ -389,15 +392,15 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
     };
 
     return (
-        <SafeAreaView style={styles.container}>
-            <StatusBar style="dark" />
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+            <StatusBar style={isDarkMode ? "light" : "dark"} />
 
             {/* Header */}
-            <View style={styles.header}>
+            <View style={[styles.header, { backgroundColor: theme.header, borderBottomColor: theme.border }]}>
                 <TouchableOpacity onPress={onBack} style={styles.backButton}>
-                    <Text style={styles.backButtonText}>←</Text>
+                    <Text style={[styles.backButtonText, { color: theme.text }]}>←</Text>
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Mis Listas</Text>
+                <Text style={[styles.headerTitle, { color: theme.text }]}>Mis Listas</Text>
                 <TouchableOpacity onPress={() => openModal(null)} style={styles.addButton}>
                     <Text style={styles.addButtonText}>+</Text>
                 </TouchableOpacity>
@@ -406,7 +409,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
             <ScrollView contentContainerStyle={styles.scrollContent}>
                 {/* VIDEO SECTION */}
                 <View style={styles.sectionHeaderContainer}>
-                    <Text style={styles.sectionHeaderTitle}>🎬 Video</Text>
+                    <Text style={[styles.sectionHeaderTitle, { color: theme.text }]}>🎬 Video</Text>
                 </View>
                 {categories.filter(c => c.type === 'video').length > 0 ? (
                     categories.filter(c => c.type === 'video').map(item => (
@@ -418,7 +421,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
 
                 {/* READING SECTION */}
                 <View style={[styles.sectionHeaderContainer, { marginTop: 25 }]}>
-                    <Text style={styles.sectionHeaderTitle}>📚 Lectura</Text>
+                    <Text style={[styles.sectionHeaderTitle, { color: theme.text }]}>📚 Lectura</Text>
                 </View>
                 {categories.filter(c => c.type === 'reading').length > 0 ? (
                     categories.filter(c => c.type === 'reading').map(item => (
@@ -439,9 +442,9 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                 onRequestClose={() => setModalVisible(false)}
             >
                 <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
+                    <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
                         <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>
+                            <Text style={[styles.modalTitle, { color: theme.text }]}>
                                 {isEditing ? 'Editar Categoría' : 'Nueva Categoría'}
                             </Text>
                             <TouchableOpacity onPress={() => setModalVisible(false)}>
@@ -451,16 +454,17 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
 
                         <ScrollView>
                             {/* Name */}
-                            <Text style={styles.label}>Nombre</Text>
+                            <Text style={[styles.label, { color: theme.text }]}>Nombre</Text>
                             <TextInput
-                                style={styles.input}
+                                style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
                                 placeholder="Ej. Anime 2024"
+                                placeholderTextColor={theme.subText}
                                 value={name}
                                 onChangeText={setName}
                             />
 
                             {/* Type Selector */}
-                            <Text style={styles.label}>Tipo</Text>
+                            <Text style={[styles.label, { color: theme.text }]}>Tipo</Text>
                             <View style={styles.typeContainer}>
                                 <TouchableOpacity
                                     style={[styles.typeButton, type === 'video' && styles.typeButtonActive]}
@@ -477,16 +481,16 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                             </View>
 
                             {/* Start Date - Custom Calendar Trigger */}
-                            <Text style={styles.label}>Fecha de Inicio</Text>
+                            <Text style={[styles.label, { color: theme.text }]}>Fecha de Inicio</Text>
                             <TouchableOpacity
-                                style={styles.dateButton}
+                                style={[styles.dateButton, { backgroundColor: theme.inputBackground, borderColor: theme.border }]}
                                 onPress={() => setCalendarVisible(true)}
                             >
-                                <Text style={styles.dateButtonText}>📅 {startDate || 'Seleccionar Fecha'}</Text>
+                                <Text style={[styles.dateButtonText, { color: theme.text }]}>📅 {startDate || 'Seleccionar Fecha'}</Text>
                             </TouchableOpacity>
 
                             {/* Days of Week */}
-                            <Text style={styles.label}>Días</Text>
+                            <Text style={[styles.label, { color: theme.text }]}>Días</Text>
                             <View style={styles.daysContainer}>
                                 {DAYS.map((day) => (
                                     <TouchableOpacity
@@ -499,6 +503,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                                     >
                                         <Text style={[
                                             styles.dayText,
+                                            { color: theme.text },
                                             selectedDays.includes(day.key) && styles.dayTextActive
                                         ]}>
                                             {day.label}
@@ -510,10 +515,11 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                             {/* Frequency & Count Row */}
                             <View style={styles.row}>
                                 <View style={styles.halfInput}>
-                                    <Text style={styles.label}>Frecuencia</Text>
+                                    <Text style={[styles.label, { color: theme.text }]}>Frecuencia</Text>
                                     <TextInput
-                                        style={styles.input}
+                                        style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
                                         placeholder={type === 'reading' ? "Ej: -3 (1/3 días)" : "Ej: 2 (2/día)"}
+                                        placeholderTextColor={theme.subText}
                                         keyboardType="numbers-and-punctuation"
                                         value={frequency}
                                         onChangeText={setFrequency}
@@ -522,8 +528,9 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                                 <View style={styles.halfInput}>
                                     <Text style={styles.label}>{type === 'reading' ? 'Tomos' : 'Series'}</Text>
                                     <TextInput
-                                        style={styles.input}
+                                        style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
                                         placeholder="0"
+                                        placeholderTextColor={theme.subText}
                                         keyboardType="numeric"
                                         value={seriesCount}
                                         onChangeText={setSeriesCount}
@@ -532,10 +539,11 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                             </View>
 
                             {/* Description */}
-                            <Text style={styles.label}>Descripción</Text>
+                            <Text style={[styles.label, { color: theme.text }]}>Descripción</Text>
                             <TextInput
-                                style={[styles.input, styles.textArea]}
+                                style={[styles.input, styles.textArea, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
                                 placeholder="Notas..."
+                                placeholderTextColor={theme.subText}
                                 multiline
                                 numberOfLines={3}
                                 value={description}
@@ -733,6 +741,7 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: '#eee',
         marginBottom: 5,
+        color: '#333'
     },
     hintText: {
         fontSize: 11,

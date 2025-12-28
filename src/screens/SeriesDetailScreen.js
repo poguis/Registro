@@ -3,8 +3,10 @@ import { View, Text, TouchableOpacity, StyleSheet, FlatList, Modal, TextInput, A
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import db from '../services/db';
+import { useTheme } from '../contexts/ThemeContext';
 
 export default function SeriesDetailScreen({ user, category, onBack, onNavigateRegistry }) {
+    const { theme, isDarkMode } = useTheme();
     const [seriesList, setSeriesList] = useState([]);
     const [modalVisible, setModalVisible] = useState(false);
 
@@ -37,12 +39,9 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
     const fetchSeries = async () => {
         if (category?.id) {
             try {
-                // Fetch all series for the category (Status: Nueva, Mirando, Finished)
                 const result = await db.getSeriesByCategory(category.id);
-
                 if (result.success) {
                     const list = result.series;
-                    // Enriched list with seasons
                     const enrichedList = await Promise.all(list.map(async (series) => {
                         const seasonsRes = await db.getSeasonsBySeries(series.id);
                         return {
@@ -50,10 +49,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                             seasons: seasonsRes.success ? seasonsRes.seasons : []
                         };
                     }));
-
                     setOriginalList(enrichedList);
-
-                    // We still calculate backlog for the header based on everything
                     calculateHeaderBacklog(enrichedList);
                 }
             } catch (error) {
@@ -64,9 +60,6 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
     useEffect(() => {
         fetchSeries();
-        // We can call calculateHeaderBacklog here but it depends on seriesList state which might be empty initially.
-        // fetchSeries calls it with new data, so that covers it.
-        // But if we want to recalc on category change? fetchSeries does it.
     }, [category]);
 
     const calculateHeaderBacklog = (currentSeriesList = seriesList) => {
@@ -95,7 +88,6 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         });
     };
 
-    // Helper Functions
     const calculateScheduleDays = (startStr, daysOfWeek) => {
         if (!startStr) return { validDays: 0 };
         let daysArray = [];
@@ -124,22 +116,14 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
     const getWatchedCountSinceStart = (series) => {
         if (!series.seasons || !Array.isArray(series.seasons)) return 0;
-
         const currentAbsolute = getAbsoluteEpisodeCount(series, series.current_season, series.current_episode);
         const initS = series.initial_season || 1;
         const initE = series.initial_episode || 1;
         const initialAbsolute = getAbsoluteEpisodeCount(series, initS, initE);
-
         let diff = currentAbsolute - initialAbsolute;
-
-        // IMPORTANTE: Si la serie está terminada o en espera (al final), el puntero se queda en el último capítulo.
-        // PERO si vuelve a 'Mirando', ya NO debemos sumar 1 porque el puntero ahora sí apunta al SIGUIENTE.
         if (series.status === 'Terminado' || series.status === 'En espera') {
             diff += 1;
         }
-
-        // INCLUIMOS cycle_offset porque ahora almacena historial de reinicios.
-        // Para series nuevas es 0, así que no rompe nada.
         const cleanDiff = diff < 0 ? 0 : diff;
         return cleanDiff + (series.cycle_offset || 0);
     };
@@ -150,8 +134,6 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
             const sobj = series.seasons.find(sea => sea.season_number === i);
             count += sobj ? sobj.episode_count : 0;
         }
-        // Restamos 1 porque el puntero indica el SIGUIENTE a ver.
-        // T1 E1 -> 0 vistos.
         count += (episodeNum - 1);
         return count;
     };
@@ -162,8 +144,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
     const handleRemoveSeason = () => {
         if (seasons.length > 1) {
-            const newSeasons = seasons.slice(0, -1);
-            setSeasons(newSeasons);
+            setSeasons(seasons.slice(0, -1));
         } else {
             Alert.alert('Aviso', 'Debe haber al menos una temporada.');
         }
@@ -184,7 +165,6 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         setCurrentSeason(series.current_season);
         setCurrentEpisode(series.current_episode);
 
-        // Map seasons data to form state
         if (series.seasons && series.seasons.length > 0) {
             setSeasons(series.seasons.map(s => ({
                 number: s.season_number,
@@ -193,38 +173,26 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         } else {
             setSeasons([{ number: 1, episodes: '' }]);
         }
-
         setModalVisible(true);
     };
 
     const moveUp = async (index) => {
         if (currentStatusTab !== 'Viendo' || index === 0) return;
-
         const filteredData = getFilteredSeries();
         const newList = [...filteredData];
         const [movedItem] = newList.splice(index, 1);
         newList.splice(index - 1, 0, movedItem);
-
-        // Update all sort_orders in DB based on the new order in this group
-        await Promise.all(newList.map((item, idx) =>
-            db.updateSeriesSortOrder(item.id, idx + 1)
-        ));
-
+        await Promise.all(newList.map((item, idx) => db.updateSeriesSortOrder(item.id, idx + 1)));
         fetchSeries();
     };
 
     const moveDown = async (index) => {
         const filteredData = getFilteredSeries();
         if (currentStatusTab !== 'Viendo' || index === filteredData.length - 1) return;
-
         const newList = [...filteredData];
         const [movedItem] = newList.splice(index, 1);
         newList.splice(index + 1, 0, movedItem);
-
-        await Promise.all(newList.map((item, idx) =>
-            db.updateSeriesSortOrder(item.id, idx + 1)
-        ));
-
+        await Promise.all(newList.map((item, idx) => db.updateSeriesSortOrder(item.id, idx + 1)));
         fetchSeries();
     };
 
@@ -238,7 +206,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
     const handleDelete = (seriesId) => {
         Alert.alert(
             'Eliminar Serie',
-            '¿Estás seguro de que quieres eliminar esta serie? Se borrarán también sus temporadas y progreso.',
+            '¿Estás seguro?',
             [
                 { text: 'Cancelar', style: 'cancel' },
                 {
@@ -246,10 +214,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                     style: 'destructive',
                     onPress: async () => {
                         const result = await db.deleteSeries(seriesId);
-                        if (result.success) {
-                            fetchSeries();
-                            Alert.alert('Éxito', 'Serie eliminada');
-                        }
+                        if (result.success) fetchSeries();
                     }
                 }
             ]
@@ -258,32 +223,21 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
     const handleSave = async () => {
         if (!name.trim()) return Alert.alert('Error', 'El nombre es obligatorio');
-
-        // Validate Seasons
         const validSeasons = seasons.filter(s => parseInt(s.episodes) > 0);
-        if (validSeasons.length === 0) return Alert.alert('Error', 'Debes añadir al menos una temporada con capítulos válidos');
+        if (validSeasons.length === 0) return Alert.alert('Error', 'Capítulos inválidos');
 
         if (status === 'Mirando') {
             const seasonNum = parseInt(currentSeason);
             const episodeNum = parseInt(currentEpisode);
-
-            if (isNaN(seasonNum) || isNaN(episodeNum)) {
-                return Alert.alert('Error', 'Temporada y Capítulo actuales deben ser números');
-            }
-
-            if (seasonNum < 1 || seasonNum > validSeasons.length) {
-                return Alert.alert('Error', `La temporada actual debe estar entre 1 y ${validSeasons.length}`);
-            }
-
+            if (isNaN(seasonNum) || isNaN(episodeNum)) return Alert.alert('Error', 'Números inválidos');
+            if (seasonNum < 1 || seasonNum > validSeasons.length) return Alert.alert('Error', 'Temporada fuera de rango');
             const maxEpisodes = parseInt(validSeasons[seasonNum - 1].episodes);
-            if (episodeNum < 1 || episodeNum > maxEpisodes) {
-                return Alert.alert('Error', `El capítulo actual debe estar entre 1 y ${maxEpisodes} para la temporada ${seasonNum}`);
-            }
+            if (episodeNum < 1 || episodeNum > maxEpisodes) return Alert.alert('Error', 'Capítulo fuera de rango');
         }
 
         const activeCount = originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando').length;
         if (!isEditing && activeCount >= category.series_count) {
-            return Alert.alert('Límite Alcanzado', `Solo puedes tener hasta ${category.series_count} series activas ("Viendo") en esta categoría.`);
+            return Alert.alert('Límite Alcanzado', `Máximo ${category.series_count} series activas.`);
         }
 
         const seasonsData = validSeasons.map(s => ({
@@ -294,48 +248,23 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         let result;
         if (isEditing) {
             const currentSeries = originalList.find(s => s.id === editingSeriesId);
-            const seriesData = {
-                name,
-                description,
-                total_seasons: validSeasons.length
-            };
-            // Si estaba en espera o terminado y guardamos (posiblemente con nuevos capítulos), vuelve a Mirando
-            // y AVANZAMOS el puntero si estaba "trabado" en el final.
+            const seriesData = { name, description, total_seasons: validSeasons.length };
             if (currentSeries && (currentSeries.status === 'En espera' || currentSeries.status === 'Terminado')) {
                 seriesData.status = 'Mirando';
-
-                // Lógica para avanzar puntero si añadimos contenido
                 let nextS = currentSeries.current_season;
                 let nextE = currentSeries.current_episode;
-
-                // Obtenemos los episodios previos para comparar
                 const prevSeasonObj = currentSeries.seasons.find(s => s.season_number === nextS);
                 const prevMax = prevSeasonObj ? prevSeasonObj.episode_count : 0;
-
-                // Determinamos si el puntero estaba efectivamente al final de lo disponible
                 const wasAtEnd = (nextE >= prevMax) || (currentSeries.status === 'Terminado');
-
-                // Si estaba al final, intentamos avanzar
                 if (wasAtEnd) {
-                    // Verificamos si en la NUEVA configuración hay más caps en esta temporada
                     const newSeasonObj = seasonsData.find(s => s.season_number === nextS);
-                    const newMax = newSeasonObj ? newSeasonObj.episode_count : 0;
-
-                    if (newMax > prevMax) {
-                        // Caso 1: Se añadieron caps a la misma temporada
-                        // Si estaba en 10 (de 10), y ahora hay 12, pasa a 11.
+                    if ((newSeasonObj?.episode_count || 0) > prevMax) {
                         nextE = prevMax + 1;
-                    } else if (seasonsData.length > currentSeries.total_seasons || seasonsData.length > nextS) {
-                        // Caso 2: No hay más caps en esta temp, pero hay una NUEVA temporada siguiente
-                        // Verificamos si existe la temporada siguiente en los nuevos datos
-                        const nextSeasonData = seasonsData.find(s => s.season_number === nextS + 1);
-                        if (nextSeasonData) {
-                            nextS += 1;
-                            nextE = 1;
-                        }
+                    } else if (seasonsData.length > nextS) {
+                        nextS += 1;
+                        nextE = 1;
                     }
                 }
-
                 seriesData.current_season = nextS;
                 seriesData.current_episode = nextE;
             }
@@ -345,7 +274,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 category_id: category.id,
                 name,
                 description,
-                status: status, // Mantenemos 'Nueva' si el usuario eligió Nueva
+                status: status,
                 current_season: status === 'Nueva' ? 1 : parseInt(currentSeason),
                 current_episode: status === 'Nueva' ? 1 : parseInt(currentEpisode),
                 total_seasons: validSeasons.length
@@ -357,22 +286,25 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
             setModalVisible(false);
             fetchSeries();
             resetForm();
-            Alert.alert('Éxito', isEditing ? 'Serie actualizada' : 'Serie agregada');
         } else {
-            Alert.alert('Error', 'No se pudo guardar la serie');
+            Alert.alert('Error', 'No se pudo guardar');
         }
     };
 
-    const openProgressGrid = (series) => {
-        setActiveSeries(series);
-        setProgressModalVisible(true);
+    const resetForm = () => {
+        setIsEditing(false);
+        setEditingSeriesId(null);
+        setName('');
+        setDescription('');
+        setStatus('Nueva');
+        setSeasons([{ number: 1, episodes: '' }]);
+        setCurrentSeason(1);
+        setCurrentEpisode(1);
     };
 
     const updateToChapter = async (seriesId, sNum, eNum) => {
         const series = activeSeries || originalList.find(x => x.id === seriesId);
         if (!series) return;
-
-        // Check if it's the last episode of the last season
         const lastSeason = series.seasons.find(s => s.season_number === series.total_seasons);
         const isLastPossible = (sNum === series.total_seasons && eNum === (lastSeason?.episode_count || 0));
 
@@ -388,70 +320,38 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         };
 
         if (isLastPossible) {
-            Alert.alert(
-                '¡Serie Completada!',
-                'Has llegado al final. ¿A dónde quieres enviar esta serie?',
-                [
-                    { text: 'En espera (Próx. temp)', onPress: () => performUpdate('En espera') },
-                    { text: 'Terminado (Fin total)', onPress: () => performUpdate('Terminado') },
-                    { text: 'Cancelar', style: 'cancel' }
-                ]
-            );
+            Alert.alert('¡Serie Completada!', 'Elige destino:', [
+                { text: 'En espera', onPress: () => performUpdate('En espera') },
+                { text: 'Terminado', onPress: () => performUpdate('Terminado') },
+                { text: 'Cancelar', style: 'cancel' }
+            ]);
         } else {
-            // Normal update (if it was En espera/Terminado and we touch a grid item, maybe it goes back to Mirando?)
             let targetStatus = series.status;
-            if (series.status === 'En espera' || series.status === 'Terminado') {
-                targetStatus = 'Mirando';
-            }
+            if (series.status === 'En espera' || series.status === 'Terminado') targetStatus = 'Mirando';
             performUpdate(targetStatus);
         }
     };
 
     const handleRestart = async () => {
         if (!activeSeries) return;
-
-        // Calculamos exactamente lo visto en este ciclo para no perder el registro del atraso
         const currentAbsolute = getAbsoluteEpisodeCount(activeSeries, activeSeries.current_season, activeSeries.current_episode);
-        const initS = activeSeries.initial_season || 1;
-        const initE = activeSeries.initial_episode || 1;
-        const initialAbsolute = getAbsoluteEpisodeCount(activeSeries, initS, initE);
-
+        const initialAbsolute = getAbsoluteEpisodeCount(activeSeries, activeSeries.initial_season || 1, activeSeries.initial_episode || 1);
         let watchedInThisCycle = Math.max(0, currentAbsolute - initialAbsolute);
+        if (activeSeries.status === 'Terminado') watchedInThisCycle += 1;
 
-        // Si la serie está terminada, el puntero está en el último capítulo, así que sumamos 1
-        if (activeSeries.status === 'Terminado') {
-            watchedInThisCycle += 1;
-        }
-
-        Alert.alert(
-            'Reiniciar Serie',
-            `¿Quieres empezar ${activeSeries.name} desde cero? Los ${watchedInThisCycle} capítulos vistos se guardarán en tu historial y volverás a la Temporada 1.`,
-            [
-                { text: 'Cancelar', style: 'cancel' },
-                {
-                    text: 'Reiniciar',
-                    onPress: async () => {
-                        const result = await db.restartSeries(activeSeries.id, watchedInThisCycle);
-                        if (result.success) {
-                            fetchSeries();
-                            setProgressModalVisible(false);
-                            Alert.alert('Éxito', 'Serie reiniciada y movida a "Viendo"');
-                        }
+        Alert.alert('Reiniciar', `¿Empezar de cero? (${watchedInThisCycle} vistos)`, [
+            { text: 'Cancelar', style: 'cancel' },
+            {
+                text: 'Reiniciar',
+                onPress: async () => {
+                    const result = await db.restartSeries(activeSeries.id, watchedInThisCycle);
+                    if (result.success) {
+                        fetchSeries();
+                        setProgressModalVisible(false);
                     }
                 }
-            ]
-        );
-    };
-
-    const resetForm = () => {
-        setIsEditing(false);
-        setEditingSeriesId(null);
-        setName('');
-        setDescription('');
-        setStatus('Nueva');
-        setSeasons([{ number: 1, episodes: '' }]);
-        setCurrentSeason(1);
-        setCurrentEpisode(1);
+            }
+        ]);
     };
 
     const renderSeriesItem = ({ item, index }) => {
@@ -459,292 +359,178 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         if (item.status === 'Nueva') badgeStyle = styles.badgeNew;
         if (item.status === 'En espera') badgeStyle = styles.badgeHold;
         if (item.status === 'Terminado') badgeStyle = styles.badgeFinished;
-
         const isViendo = currentStatusTab === 'Viendo';
 
         return (
-            <TouchableOpacity style={styles.card} activeOpacity={0.9} onPress={() => openProgressGrid(item)}>
+            <TouchableOpacity style={[styles.card, { backgroundColor: theme.card }]} activeOpacity={0.9} onPress={() => { setActiveSeries(item); setProgressModalVisible(true); }}>
                 <View style={styles.cardHeader}>
                     <View style={{ flex: 1 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4, flexWrap: 'wrap' }}>
-                            <Text style={styles.cardTitle}>{item.name}</Text>
+                            <Text style={[styles.cardTitle, { color: theme.text }]}>{item.name}</Text>
                             <View style={[styles.badge, badgeStyle]}>
                                 <Text style={styles.badgeText}>{item.status}</Text>
                             </View>
                         </View>
-                        <Text style={styles.cardProgress}>
-                            T{item.current_season} - E{item.current_episode} <Text style={{ fontWeight: 'normal', color: '#999' }}>de {item.total_seasons} Temp.</Text>
+                        <Text style={[styles.cardProgress, { color: theme.accent }]}>
+                            T{item.current_season} - E{item.current_episode} <Text style={{ fontWeight: 'normal', color: theme.subText }}>de {item.total_seasons} T.</Text>
                         </Text>
                     </View>
                     <View style={styles.cardActions}>
-                        <TouchableOpacity onPress={() => openProgressGrid(item)} style={styles.gridBtn}>
+                        <TouchableOpacity onPress={() => { setActiveSeries(item); setProgressModalVisible(true); }} style={[styles.gridBtn, { backgroundColor: theme.inputBackground }]}>
                             <Text style={{ fontSize: 18 }}>👁️</Text>
                         </TouchableOpacity>
-
                         {isViendo && (
                             <View style={styles.orderButtons}>
-                                <TouchableOpacity onPress={(e) => { e.stopPropagation(); moveUp(index); }} style={styles.orderBtn}>
-                                    <Text style={styles.orderBtnText}>↑</Text>
+                                <TouchableOpacity onPress={() => moveUp(index)} style={[styles.orderBtn, { backgroundColor: theme.inputBackground, borderColor: theme.border }]}>
+                                    <Text style={[styles.orderBtnText, { color: theme.accent }]}>↑</Text>
                                 </TouchableOpacity>
-                                <TouchableOpacity onPress={(e) => { e.stopPropagation(); moveDown(index); }} style={styles.orderBtn}>
-                                    <Text style={styles.orderBtnText}>↓</Text>
+                                <TouchableOpacity onPress={() => moveDown(index)} style={[styles.orderBtn, { backgroundColor: theme.inputBackground, borderColor: theme.border }]}>
+                                    <Text style={[styles.orderBtnText, { color: theme.accent }]}>↓</Text>
                                 </TouchableOpacity>
                             </View>
                         )}
-
-                        <TouchableOpacity onPress={(e) => { e.stopPropagation(); handleEdit(item); }} style={styles.editBtn}>
+                        <TouchableOpacity onPress={() => handleEdit(item)} style={[styles.editBtn, { backgroundColor: theme.accent + '22' }]}>
                             <Text style={{ fontSize: 16 }}>✏️</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity onPress={(e) => { e.stopPropagation(); handleDelete(item.id); }} style={styles.deleteBtn}>
+                        <TouchableOpacity onPress={() => handleDelete(item.id)} style={[styles.deleteBtn, { backgroundColor: '#FFEBEE' }]}>
                             <Text style={{ fontSize: 16 }}>🗑️</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
-                {item.description ? <Text style={styles.cardDesc} numberOfLines={2}>{item.description}</Text> : null}
+                {item.description ? <Text style={[styles.cardDesc, { color: theme.subText }]} numberOfLines={2}>{item.description}</Text> : null}
             </TouchableOpacity>
         );
     };
 
     return (
-        <SafeAreaView style={styles.container}>
-            <StatusBar style="dark" />
-            <View style={styles.header}>
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+            <StatusBar style={isDarkMode ? "light" : "dark"} />
+            <View style={[styles.header, { backgroundColor: theme.header, borderBottomColor: theme.border }]}>
                 <TouchableOpacity onPress={onBack} style={styles.backButton}>
-                    <Text style={styles.backButtonText}>←</Text>
+                    <Text style={[styles.backButtonText, { color: theme.text }]}>←</Text>
                 </TouchableOpacity>
-                <View style={{ marginLeft: 10 }}>
-                    <Text style={styles.headerTitle}>{category.name}</Text>
-                    <Text style={styles.headerSubtitle}>
-                        Series: {originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando').length} / {category?.series_count || 0}
-                    </Text>
+                <View style={{ flex: 1, marginLeft: 10 }}>
+                    <Text style={[styles.headerTitle, { color: theme.text }]}>{category.name}</Text>
                     {backlogInfo && (
-                        <Text style={[styles.headerSubtitle, { marginTop: 2 }, (backlogInfo.days <= 0 && backlogInfo.items <= 0) ? { color: '#4CAF50', fontWeight: 'bold' } : { color: '#EF6C00', fontWeight: 'bold' }]}>
-                            {(backlogInfo.days <= 0 && backlogInfo.items <= 0)
-                                ? '¡Estás al día! 🎉'
-                                : `Atraso: ${backlogInfo.days} días, ${backlogInfo.items} Caps`}
+                        <Text style={[styles.headerSubtitle, (backlogInfo.days <= 0 && backlogInfo.items <= 0) ? { color: '#4CAF50' } : { color: '#EF6C00' }]}>
+                            {(backlogInfo.days <= 0 && backlogInfo.items <= 0) ? '¡Al día! 🎉' : `Atraso: ${backlogInfo.days}d, ${backlogInfo.items}c`}
                         </Text>
                     )}
                 </View>
-                <View style={{ flexDirection: 'row' }}>
-                    <TouchableOpacity onPress={onNavigateRegistry} style={[styles.addButton, { backgroundColor: '#FFF3E0', marginRight: 10 }]}>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                    <TouchableOpacity onPress={() => onNavigateRegistry('CHAPTER_REGISTRY', { categoryId: category.id })} style={[styles.addButton, { backgroundColor: theme.inputBackground }]}>
                         <Text style={{ fontSize: 20 }}>📋</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
-                        style={styles.addButton}
-                        onPress={() => {
-                            resetForm();
-                            setModalVisible(true);
-                        }}
-                    >
+                    <TouchableOpacity style={[styles.addButton, { backgroundColor: theme.accent }]} onPress={() => { resetForm(); setModalVisible(true); }}>
                         <Text style={styles.addButtonText}>+</Text>
                     </TouchableOpacity>
                 </View>
             </View>
 
-            <View style={styles.tabContainer}>
-                <TouchableOpacity
-                    style={[styles.tabButton, currentStatusTab === 'Viendo' && styles.tabButtonActive]}
-                    onPress={() => setCurrentStatusTab('Viendo')}
-                >
-                    <Text style={[styles.tabText, currentStatusTab === 'Viendo' && styles.tabTextActive]}>
-                        📺 Viendo ({originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando').length})
-                    </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={[styles.tabButton, currentStatusTab === 'En espera' && styles.tabButtonActive]}
-                    onPress={() => setCurrentStatusTab('En espera')}
-                >
-                    <Text style={[styles.tabText, currentStatusTab === 'En espera' && styles.tabTextActive]}>
-                        ⏳ Espera ({originalList.filter(s => s.status === 'En espera').length})
-                    </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={[styles.tabButton, currentStatusTab === 'Terminado' && styles.tabButtonActive]}
-                    onPress={() => setCurrentStatusTab('Terminado')}
-                >
-                    <Text style={[styles.tabText, currentStatusTab === 'Terminado' && styles.tabTextActive]}>
-                        ✅ Fin ({originalList.filter(s => s.status === 'Terminado').length})
-                    </Text>
-                </TouchableOpacity>
+            <View style={[styles.tabContainer, { backgroundColor: theme.header, borderBottomColor: theme.border }]}>
+                {['Viendo', 'En espera', 'Terminado'].map((tab) => (
+                    <TouchableOpacity
+                        key={tab}
+                        style={[styles.tabButton, { backgroundColor: theme.inputBackground, borderColor: theme.border }, currentStatusTab === tab && { backgroundColor: theme.accent, borderColor: theme.accent }]}
+                        onPress={() => setCurrentStatusTab(tab)}
+                    >
+                        <Text style={[styles.tabText, { color: theme.subText }, currentStatusTab === tab && { color: '#fff' }]}>
+                            {tab === 'Viendo' ? '📺 ' : tab === 'En espera' ? '⏳ ' : '✅ '}{tab}
+                        </Text>
+                    </TouchableOpacity>
+                ))}
             </View>
 
             <FlatList
                 data={getFilteredSeries()}
-                keyExtractor={item => item.id.toString()}
                 renderItem={renderSeriesItem}
+                keyExtractor={item => item.id.toString()}
                 contentContainerStyle={styles.listContent}
-                ListEmptyComponent={<Text style={styles.emptyText}>No hay series en esta sección.</Text>}
+                ListEmptyComponent={<Text style={[styles.emptyText, { color: theme.subText }]}>No hay series.</Text>}
             />
 
-            {/* MODAL ADD/EDIT SERIES */}
-            <Modal animationType="slide" visible={modalVisible} onRequestClose={() => setModalVisible(false)}>
-                <SafeAreaView style={styles.modalContainer}>
-                    <View style={styles.modalHeader}>
-                        <Text style={styles.modalTitle}>{isEditing ? 'Editar Serie' : 'Nueva Serie'}</Text>
+            <Modal visible={modalVisible} animationType="slide">
+                <SafeAreaView style={[styles.modalContainer, { backgroundColor: theme.background }]}>
+                    <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
+                        <Text style={[styles.modalTitle, { color: theme.text }]}>{isEditing ? 'Editar Serie' : 'Nueva Serie'}</Text>
                         <TouchableOpacity onPress={() => setModalVisible(false)}>
                             <Text style={styles.closeText}>Cerrar</Text>
                         </TouchableOpacity>
                     </View>
                     <ScrollView style={styles.modalForm}>
-                        <Text style={styles.label}>Nombre de la Serie</Text>
-                        <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="Ej: Breaking Bad" />
-
-                        <Text style={styles.label}>Descripción (Opcional)</Text>
-                        <TextInput style={styles.input} value={description} onChangeText={setDescription} placeholder="Ej: Serie de crimen..." />
-
-                        <Text style={styles.label}>Estado</Text>
+                        <Text style={[styles.label, { color: theme.accent }]}>Nombre</Text>
+                        <TextInput style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]} value={name} onChangeText={setName} placeholder="Ej: Breaking Bad" placeholderTextColor={theme.subText} />
+                        <Text style={[styles.label, { color: theme.accent }]}>Descripción</Text>
+                        <TextInput style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]} value={description} onChangeText={setDescription} placeholder="Opcional" placeholderTextColor={theme.subText} />
+                        <Text style={[styles.label, { color: theme.accent }]}>Estado</Text>
                         <View style={styles.statusContainer}>
-                            <TouchableOpacity
-                                style={[styles.statusOption, status === 'Nueva' && styles.statusSelected]}
-                                onPress={() => setStatus('Nueva')}
-                            >
-                                <Text style={[styles.statusText, status === 'Nueva' && styles.statusTextSelected]}>Nueva</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[styles.statusOption, status === 'Mirando' && styles.statusSelected]}
-                                onPress={() => setStatus('Mirando')}
-                            >
-                                <Text style={[styles.statusText, status === 'Mirando' && styles.statusTextSelected]}>Mirando</Text>
-                            </TouchableOpacity>
+                            {['Nueva', 'Mirando'].map(opt => (
+                                <TouchableOpacity key={opt} style={[styles.statusOption, { backgroundColor: theme.card, borderColor: theme.border }, status === opt && { backgroundColor: theme.accent, borderColor: theme.accent }]} onPress={() => setStatus(opt)}>
+                                    <Text style={[styles.statusText, { color: theme.subText }, status === opt && { color: '#fff' }]}>{opt}</Text>
+                                </TouchableOpacity>
+                            ))}
                         </View>
-
-                        {isEditing && (
-                            <View style={styles.editInfoBanner}>
-                                <Text style={styles.editInfoText}>
-                                    Nota: Solo puedes editar nombre, descripción y temporadas. El progreso se actualiza desde el registro.
-                                </Text>
-                            </View>
-                        )}
-
-                        <Text style={styles.sectionTitle}>Temporadas</Text>
-                        {seasons.map((season, index) => (
-                            <View key={index} style={styles.seasonRow}>
-                                <Text style={styles.seasonLabel}>Temporada {season.number}:</Text>
-                                <TextInput
-                                    style={styles.seasonInput}
-                                    placeholder="N° Caps"
-                                    keyboardType="numeric"
-                                    value={season.episodes}
-                                    onChangeText={(text) => updateSeasonEpisodes(index, text)}
-                                />
-                            </View>
-                        ))}
-                        <View style={styles.seasonActions}>
-                            <TouchableOpacity style={styles.addSeasonBtn} onPress={handleAddSeason}>
-                                <Text style={styles.addSeasonText}>+ Agregar Temporada</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.removeSeasonBtn} onPress={handleRemoveSeason}>
-                                <Text style={styles.removeSeasonText}>- Quitar Temporada</Text>
-                            </TouchableOpacity>
-                        </View>
-
                         {!isEditing && status === 'Mirando' && (
-                            <View>
-                                <Text style={styles.sectionTitle}>Progreso Inicial</Text>
-                                <View style={styles.row}>
-                                    <View style={{ flex: 1, marginRight: 5 }}>
-                                        <Text style={styles.label}>Temporada</Text>
-                                        <TextInput
-                                            style={styles.input}
-                                            keyboardType="numeric"
-                                            value={String(currentSeason)}
-                                            onChangeText={setCurrentSeason}
-                                        />
-                                    </View>
-                                    <View style={{ flex: 1, marginLeft: 5 }}>
-                                        <Text style={styles.label}>Capítulo</Text>
-                                        <TextInput
-                                            style={styles.input}
-                                            keyboardType="numeric"
-                                            value={String(currentEpisode)}
-                                            onChangeText={setCurrentEpisode}
-                                        />
-                                    </View>
+                            <View style={[styles.row, { gap: 10, marginTop: 15 }]}>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[styles.label, { color: theme.accent }]}>Temporada</Text>
+                                    <TextInput style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]} keyboardType="numeric" value={String(currentSeason)} onChangeText={(v) => setCurrentSeason(parseInt(v) || 1)} />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={[styles.label, { color: theme.accent }]}>Capítulo</Text>
+                                    <TextInput style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]} keyboardType="numeric" value={String(currentEpisode)} onChangeText={(v) => setCurrentEpisode(parseInt(v) || 1)} />
                                 </View>
                             </View>
                         )}
-
-                        <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-                            <Text style={styles.saveButtonText}>{isEditing ? 'Actualizar' : 'Guardar Serie'}</Text>
-                        </TouchableOpacity>
+                        <Text style={[styles.sectionTitle, { color: theme.text }]}>Temporadas</Text>
+                        {seasons.map((s, i) => (
+                            <View key={i} style={[styles.seasonRow, { backgroundColor: theme.card }]}>
+                                <Text style={[styles.seasonLabel, { color: theme.text }]}>Temporada {s.number}:</Text>
+                                <TextInput style={[styles.seasonInput, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]} keyboardType="numeric" value={s.episodes} onChangeText={(v) => updateSeasonEpisodes(i, v)} placeholder="Capítulos" placeholderTextColor={theme.subText} />
+                            </View>
+                        ))}
+                        <View style={styles.seasonActions}>
+                            <TouchableOpacity onPress={handleAddSeason}><Text style={{ color: theme.accent, fontWeight: 'bold' }}>+ Agregar</Text></TouchableOpacity>
+                            <TouchableOpacity onPress={handleRemoveSeason}><Text style={{ color: '#FF5252', fontWeight: 'bold' }}>- Quitar</Text></TouchableOpacity>
+                        </View>
+                        <TouchableOpacity style={[styles.saveButton, { backgroundColor: theme.accent }]} onPress={handleSave}><Text style={styles.saveButtonText}>Guardar</Text></TouchableOpacity>
                         <View style={{ height: 50 }} />
                     </ScrollView>
                 </SafeAreaView>
             </Modal>
 
-            {/* PROGRESS GRID MODAL */}
-            <Modal animationType="fade" transparent={true} visible={progressModalVisible} onRequestClose={() => setProgressModalVisible(false)}>
-                <View style={styles.overlay}>
-                    <View style={styles.progressModalContent}>
-                        <View style={styles.progressHeader}>
+            <Modal transparent visible={progressModalVisible} animationType="fade">
+                <View style={[styles.overlay, { backgroundColor: theme.modalOverlay }]}>
+                    <View style={[styles.progressModalContent, { backgroundColor: theme.card }]}>
+                        <View style={[styles.progressHeader, { borderBottomColor: theme.border }]}>
                             <View style={{ flex: 1 }}>
-                                <Text style={styles.progressSeriesName}>{activeSeries?.name}</Text>
-                                <Text style={styles.progressStatus}>
-                                    {activeSeries?.status === 'Terminado'
-                                        ? '✅ Serie Terminada'
-                                        : activeSeries?.status === 'En espera'
-                                            ? '⏳ En espera de contenido'
-                                            : `Viendo: Temporada ${activeSeries?.current_season}, Capítulo ${activeSeries?.current_episode}`}
-                                </Text>
-                                {activeSeries?.cycle_offset > 0 && activeSeries?.status !== 'Nueva' && (
-                                    <Text style={{ fontSize: 11, color: '#4CAF50', fontWeight: 'bold', marginTop: 2 }}>
-                                        🏁 {activeSeries.cycle_offset} capítulos completados anteriormente
-                                    </Text>
-                                )}
+                                <Text style={[styles.progressSeriesName, { color: theme.text }]}>{activeSeries?.name}</Text>
+                                <Text style={[styles.progressStatus, { color: theme.subText }]}>{activeSeries?.status} - T{activeSeries?.current_season} E{activeSeries?.current_episode}</Text>
                             </View>
-                            <TouchableOpacity onPress={() => setProgressModalVisible(false)} style={styles.closeGridBtn}>
-                                <Text style={styles.closeGridText}>✕</Text>
-                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => setProgressModalVisible(false)} style={[styles.closeGridBtn, { backgroundColor: theme.inputBackground }]}><Text style={{ color: theme.text }}>✕</Text></TouchableOpacity>
                         </View>
-
                         <ScrollView style={{ padding: 15 }}>
-                            {activeSeries?.seasons.map(season => (
-                                <View key={season.season_number} style={styles.seasonGroup}>
-                                    <Text style={styles.seasonTitle}>Temporada {season.season_number}</Text>
+                            {activeSeries?.seasons.map(s => (
+                                <View key={s.season_number} style={styles.seasonGroup}>
+                                    <Text style={[styles.seasonTitle, { color: theme.text }]}>Temporada {s.season_number}</Text>
                                     <View style={styles.episodeGrid}>
-                                        {Array.from({ length: season.episode_count }).map((_, i) => {
-                                            const epNum = i + 1;
-                                            const isWatched = (season.season_number < activeSeries.current_season) ||
-                                                (season.season_number === activeSeries.current_season && epNum < activeSeries.current_episode);
-                                            const isCurrent = (season.season_number === activeSeries.current_season && epNum === activeSeries.current_episode);
-
+                                        {Array.from({ length: s.episode_count }).map((_, i) => {
+                                            const ep = i + 1;
+                                            const isW = (s.season_number < activeSeries.current_season) || (s.season_number === activeSeries.current_season && ep < activeSeries.current_episode);
+                                            const isC = (s.season_number === activeSeries.current_season && ep === activeSeries.current_episode);
                                             return (
-                                                <TouchableOpacity
-                                                    key={epNum}
-                                                    style={[
-                                                        styles.episodeBox,
-                                                        isWatched && styles.episodeWatched,
-                                                        isCurrent && styles.episodeCurrent
-                                                    ]}
-                                                    onPress={() => {
-                                                        // When clicking, we want to update progress to NEXT chapter.
-                                                        // Actually, common UX is: click chapter X to MARK X AS SEEN (meaning progress becomes X+1)
-                                                        // Or: click chapter X to SET progress TO X.
-                                                        // Let's go with: click X to mark as CURRENT.
-                                                        updateToChapter(activeSeries.id, season.season_number, epNum);
-                                                    }}
-                                                >
-                                                    <Text style={[styles.episodeNum, (isWatched || isCurrent) && { color: '#fff' }]}>{epNum}</Text>
+                                                <TouchableOpacity key={ep} style={[styles.episodeBox, { backgroundColor: theme.inputBackground, borderColor: theme.border }, isW && styles.episodeWatched, isC && { backgroundColor: theme.accent, borderColor: theme.accent }]} onPress={() => updateToChapter(activeSeries.id, s.season_number, ep)}>
+                                                    <Text style={[styles.episodeNum, { color: theme.text }, (isW || isC) && { color: '#fff' }]}>{ep}</Text>
                                                 </TouchableOpacity>
                                             );
                                         })}
                                     </View>
                                 </View>
                             ))}
-                            <View style={{ height: 30 }} />
                         </ScrollView>
-
-                        <View style={styles.gridFooter}>
-                            <View style={styles.legend}>
-                                <View style={[styles.legendBox, styles.episodeWatched]} /><Text style={styles.legendText}>Visto</Text>
-                                <View style={[styles.legendBox, styles.episodeCurrent]} /><Text style={styles.legendText}>Siguiente</Text>
-                                <View style={[styles.legendBox]} /><Text style={styles.legendText}>Pendiente</Text>
-                            </View>
-
+                        <View style={[styles.gridFooter, { backgroundColor: theme.header, borderTopColor: theme.border }]}>
                             {activeSeries?.status === 'Terminado' && (
-                                <TouchableOpacity style={styles.restartBtn} onPress={handleRestart}>
-                                    <Text style={styles.restartBtnText}>🔄 Empezar de Nuevo</Text>
-                                </TouchableOpacity>
+                                <TouchableOpacity style={styles.restartBtn} onPress={handleRestart}><Text style={styles.restartBtnText}>🔄 Reiniciar Serie</Text></TouchableOpacity>
                             )}
                         </View>
                     </View>
@@ -755,163 +541,68 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#F5F5F5' },
-    header: {
-        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-        paddingHorizontal: 20, paddingVertical: 15, backgroundColor: '#fff',
-        borderBottomWidth: 1, borderBottomColor: '#eee'
-    },
+    container: { flex: 1 },
+    header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: 1 },
     backButton: { padding: 5 },
-    backButtonText: { fontSize: 24, color: '#333' },
-    headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
-    headerSubtitle: { fontSize: 13, color: '#666' },
-    headerBacklog: { fontSize: 12, color: '#EF6C00', fontWeight: 'bold' },
-    addButton: { backgroundColor: '#2196F3', width: 35, height: 35, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+    backButtonText: { fontSize: 24, fontWeight: 'bold' },
+    headerTitle: { fontSize: 18, fontWeight: 'bold' },
+    headerSubtitle: { fontSize: 13, fontWeight: 'bold' },
+    addButton: { width: 35, height: 35, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
     addButtonText: { color: '#fff', fontSize: 24, paddingBottom: 2 },
-
+    tabContainer: { flexDirection: 'row', padding: 10, borderBottomWidth: 1, gap: 10 },
+    tabButton: { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center', borderWidth: 1 },
+    tabText: { fontSize: 12, fontWeight: 'bold' },
     listContent: { padding: 15 },
-    emptyText: { textAlign: 'center', marginTop: 20, color: '#999' },
-
-    card: { backgroundColor: '#fff', padding: 15, borderRadius: 16, marginBottom: 12, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
+    card: { padding: 15, borderRadius: 16, marginBottom: 12, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
     cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-    cardTitle: { fontSize: 18, fontWeight: 'bold', color: '#1A237E' },
-    cardProgress: { fontSize: 13, color: '#3F51B5', fontWeight: 'bold' },
-    cardDesc: { fontSize: 12, color: '#7986CB', marginTop: 8, lineHeight: 16 },
-
+    cardTitle: { fontSize: 17, fontWeight: 'bold' },
+    cardProgress: { fontSize: 13, fontWeight: 'bold', marginTop: 2 },
+    cardDesc: { fontSize: 12, marginTop: 8, lineHeight: 16 },
     badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, marginLeft: 8 },
     badgeNew: { backgroundColor: '#E0F2F1' },
     badgeWatching: { backgroundColor: '#E3F2FD' },
     badgeHold: { backgroundColor: '#FFF3E0' },
     badgeFinished: { backgroundColor: '#E8F5E9' },
-    badgeText: { fontSize: 10, fontWeight: 'bold', color: '#455A64', textTransform: 'uppercase' },
-
-    modalContainer: { flex: 1, backgroundColor: '#fff' },
-    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 20, alignItems: 'center', borderBottomWidth: 1, borderColor: '#f0f0f0' },
-    modalTitle: { fontSize: 22, fontWeight: 'bold', color: '#1A237E' },
+    badgeText: { fontSize: 9, fontWeight: 'bold', color: '#455A64', textTransform: 'uppercase' },
+    cardActions: { flexDirection: 'row', gap: 6 },
+    gridBtn: { padding: 8, borderRadius: 8 },
+    orderButtons: { flexDirection: 'row', gap: 4 },
+    orderBtn: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1 },
+    orderBtnText: { fontSize: 14, fontWeight: 'bold' },
+    editBtn: { padding: 8, borderRadius: 8 },
+    deleteBtn: { padding: 8, borderRadius: 8 },
+    emptyText: { textAlign: 'center', marginTop: 40 },
+    modalContainer: { flex: 1 },
+    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 20, alignItems: 'center', borderBottomWidth: 1 },
+    modalTitle: { fontSize: 20, fontWeight: 'bold' },
     closeText: { color: '#FF5252', fontSize: 16, fontWeight: 'bold' },
     modalForm: { padding: 20 },
-
-    label: { fontSize: 14, color: '#5C6BC0', marginBottom: 5, marginTop: 10, fontWeight: '600' },
-    input: { borderWidth: 1, borderColor: '#E8EAF6', borderRadius: 10, padding: 12, fontSize: 16, backgroundColor: '#F5F5F7' },
-
-    statusContainer: { flexDirection: 'row', marginTop: 10, gap: 10 },
-    statusOption: { flex: 1, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: '#E8EAF6', borderRadius: 10, backgroundColor: '#fff' },
-    statusSelected: { backgroundColor: '#3F51B5', borderColor: '#3F51B5' },
-    statusText: { color: '#7986CB', fontWeight: '600' },
-    statusTextSelected: { color: '#fff', fontWeight: 'bold' },
-
-    sectionTitle: { fontSize: 18, fontWeight: 'bold', marginTop: 25, marginBottom: 15, color: '#1A237E' },
-    seasonRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, backgroundColor: '#F8F9FE', padding: 10, borderRadius: 10 },
-    seasonLabel: { flex: 1, fontSize: 15, color: '#333', fontWeight: '500' },
-    seasonInput: { width: 90, borderWidth: 1, borderColor: '#E1E4F3', borderRadius: 8, padding: 8, textAlign: 'center', backgroundColor: '#fff' },
-
-    seasonActions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 15 },
-    addSeasonBtn: { padding: 10 },
-    addSeasonText: { color: '#3F51B5', fontWeight: 'bold' },
-    removeSeasonBtn: { padding: 10 },
-    removeSeasonText: { color: '#FF5252', fontWeight: 'bold' },
-
-    row: { flexDirection: 'row' },
-    saveButton: { backgroundColor: '#3F51B5', padding: 18, borderRadius: 12, alignItems: 'center', marginTop: 35, elevation: 4 },
-    saveButtonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
-
-    cardActions: { flexDirection: 'row', alignItems: 'center' },
-    gridBtn: { backgroundColor: '#E8EAF6', padding: 8, borderRadius: 10, marginRight: 8 },
-    orderButtons: { flexDirection: 'row', marginRight: 8 },
-    orderBtn: { backgroundColor: '#F5F5F7', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, marginHorizontal: 2, borderWidth: 1, borderColor: '#E8EAF6' },
-    orderBtnText: { fontSize: 14, color: '#3F51B5', fontWeight: 'bold' },
-    editBtn: { backgroundColor: '#E3F2FD', padding: 8, borderRadius: 10, marginRight: 8 },
-    deleteBtn: { backgroundColor: '#FFEBEE', padding: 8, borderRadius: 10 },
-
-    editInfoBanner: { backgroundColor: '#E3F2FD', padding: 12, borderRadius: 10, marginTop: 20, borderLeftWidth: 4, borderLeftColor: '#3F51B5' },
-    editInfoText: { fontSize: 12, color: '#3F51B5', textAlign: 'left', fontWeight: '500' },
-
-    // Progress Grid Styles
-    overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
-    progressModalContent: { backgroundColor: '#fff', borderTopLeftRadius: 30, borderTopRightRadius: 30, height: '85%' },
-    progressHeader: { flexDirection: 'row', padding: 25, borderBottomWidth: 1, borderColor: '#f0f0f0', alignItems: 'center' },
-    progressSeriesName: { fontSize: 22, fontWeight: 'bold', color: '#1A237E' },
-    progressStatus: { fontSize: 14, color: '#7986CB', marginTop: 4 },
-    closeGridBtn: { backgroundColor: '#F5F5F7', width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-    closeGridText: { fontSize: 18, color: '#333' },
-
-    seasonGroup: { marginBottom: 25 },
-    seasonTitle: { fontSize: 16, fontWeight: 'bold', color: '#1A237E', marginBottom: 12, marginLeft: 5 },
+    label: { fontSize: 13, marginBottom: 5, marginTop: 10, fontWeight: 'bold' },
+    input: { borderWidth: 1, borderRadius: 10, padding: 12, fontSize: 16 },
+    statusContainer: { flexDirection: 'row', gap: 10, marginTop: 5 },
+    statusOption: { flex: 1, padding: 10, alignItems: 'center', borderWidth: 1, borderRadius: 10 },
+    statusText: { fontWeight: 'bold', fontSize: 13 },
+    sectionTitle: { fontSize: 18, fontWeight: 'bold', marginTop: 25, marginBottom: 15 },
+    seasonRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, padding: 10, borderRadius: 10 },
+    seasonLabel: { flex: 1, fontSize: 14, fontWeight: 'bold' },
+    seasonInput: { width: 80, borderWidth: 1, borderRadius: 8, padding: 6, textAlign: 'center' },
+    seasonActions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, paddingHorizontal: 5 },
+    saveButton: { padding: 15, borderRadius: 12, alignItems: 'center', marginTop: 30 },
+    saveButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+    overlay: { flex: 1, justifyContent: 'flex-end' },
+    progressModalContent: { borderTopLeftRadius: 25, borderTopRightRadius: 25, height: '85%' },
+    progressHeader: { flexDirection: 'row', padding: 20, borderBottomWidth: 1, alignItems: 'center' },
+    progressSeriesName: { fontSize: 20, fontWeight: 'bold' },
+    progressStatus: { fontSize: 13, marginTop: 2 },
+    closeGridBtn: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+    seasonGroup: { marginBottom: 20 },
+    seasonTitle: { fontSize: 15, fontWeight: 'bold', marginBottom: 10 },
     episodeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    episodeBox: {
-        width: 42, height: 42, borderRadius: 10, backgroundColor: '#F5F5F7',
-        alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#E8EAF6'
-    },
-    episodeWatched: { backgroundColor: '#4CAF50', borderColor: '#43A047' },
-    episodeCurrent: { backgroundColor: '#3F51B5', borderColor: '#3949AB' },
-    episodeNum: { fontSize: 14, fontWeight: 'bold', color: '#5C6BC0' },
-
-    gridFooter: { padding: 20, borderTopWidth: 1, borderColor: '#f0f0f0', backgroundColor: '#FAFAFA' },
-    legend: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 15 },
-    legendBox: { width: 14, height: 14, borderRadius: 4, backgroundColor: '#F5F5F7', borderWidth: 1, borderColor: '#E8EAF6' },
-    legendText: { fontSize: 12, color: '#666', fontWeight: '500' },
-
-    sectionHeader: {
-        backgroundColor: '#E8EAF6',
-        paddingVertical: 10,
-        paddingHorizontal: 15,
-        marginTop: 20,
-        marginBottom: 10,
-        borderRadius: 12,
-        flexDirection: 'row',
-        alignItems: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-        elevation: 2
-    },
-    sectionHeaderText: { fontSize: 16, fontWeight: 'bold', color: '#3F51B5', letterSpacing: 0.5 },
-
-    // Tabs Styles
-    tabContainer: {
-        flexDirection: 'row',
-        backgroundColor: '#fff',
-        paddingHorizontal: 15,
-        paddingVertical: 10,
-        borderBottomWidth: 1,
-        borderBottomColor: '#f0f0f0',
-        gap: 10
-    },
-    tabButton: {
-        flex: 1,
-        paddingVertical: 8,
-        borderRadius: 12,
-        backgroundColor: '#F5F5F7',
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: '#f0f0f0'
-    },
-    tabButtonActive: {
-        backgroundColor: '#3F51B5',
-        borderColor: '#3F51B5',
-    },
-    tabText: {
-        fontSize: 13,
-        fontWeight: 'bold',
-        color: '#7986CB'
-    },
-    tabTextActive: {
-        color: '#fff'
-    },
-    restartBtn: {
-        backgroundColor: '#E8F5E9',
-        paddingVertical: 10,
-        paddingHorizontal: 20,
-        borderRadius: 12,
-        marginTop: 15,
-        borderWidth: 1,
-        borderColor: '#C8E6C9',
-        alignItems: 'center'
-    },
-    restartBtnText: {
-        color: '#2E7D32',
-        fontWeight: 'bold',
-        fontSize: 14
-    }
+    episodeBox: { width: 40, height: 40, borderRadius: 8, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
+    episodeWatched: { backgroundColor: '#4CAF50', borderColor: '#4CAF50' },
+    episodeNum: { fontSize: 14, fontWeight: 'bold' },
+    gridFooter: { padding: 20, borderTopWidth: 1, alignItems: 'center' },
+    restartBtn: { backgroundColor: '#E8F5E9', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10, borderWidth: 1, borderColor: '#C8E6C9' },
+    restartBtnText: { color: '#2E7D32', fontWeight: 'bold' },
+    row: { flexDirection: 'row' }
 });
