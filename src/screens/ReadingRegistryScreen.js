@@ -69,7 +69,7 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
             const seriesEps = generateEpisodesForSeries(s);
             seriesEps.forEach((ep, idx) => { ep.interleavedOrder = (idx * 1000000) + sIdx; ep.sortOrder = s.sort_order || 0; episodes.push(ep); });
         });
-        episodes.sort((a, b) => a.interleavedOrder !== b.interleavedOrder ? a.interleavedOrder - b.interprocessedOrder : a.sortOrder - b.sortOrder);
+        episodes.sort((a, b) => a.interleavedOrder !== b.interleavedOrder ? a.interleavedOrder - b.interleavedOrder : a.sortOrder - b.sortOrder);
         return episodes;
     };
 
