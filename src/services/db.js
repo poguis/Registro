@@ -689,10 +689,8 @@ class DatabaseService {
             return { success: false, error: error.message };
         }
     }
-    async getFullWatchlist(categoryId = null) {
+    async getFullWatchlist(userId, categoryId = null) {
         if (!this.db) await this.init();
-        // Fallback user ID for now if not passed, or use hardcoded 1
-        const userId = 1;
 
         try {
             let query = `
@@ -846,9 +844,8 @@ class DatabaseService {
         }
     }
 
-    async getHistory(categoryId = null) {
+    async getHistory(userId, categoryId = null) {
         if (!this.db) await this.init();
-        const userId = 1; // Fallback
 
         try {
             let query = `
@@ -913,9 +910,8 @@ class DatabaseService {
         }
     }
 
-    async getReadingHistory(categoryId = null) {
+    async getReadingHistory(userId, categoryId = null) {
         if (!this.db) await this.init();
-        const userId = 1;
 
         try {
             let query = `

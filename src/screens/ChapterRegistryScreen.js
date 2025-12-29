@@ -30,7 +30,7 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
         setLoading(true);
         const [watchlistResult, historyResult] = await Promise.all([
             db.getFullWatchlist(user.id, category ? category.id : null),
-            db.getHistory(category ? category.id : null)
+            db.getHistory(user.id, category ? category.id : null)
         ]);
         if (watchlistResult.success) {
             setRawSeries(watchlistResult.data);

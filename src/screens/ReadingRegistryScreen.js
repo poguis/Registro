@@ -18,8 +18,8 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
         setLoading(true);
         try {
             const [seriesResult, historyResult] = await Promise.all([
-                db.getFullWatchlist(category ? category.id : null),
-                db.getReadingHistory(category ? category.id : null)
+                db.getFullWatchlist(user.id, category ? category.id : null),
+                db.getReadingHistory(user.id, category ? category.id : null)
             ]);
             if (seriesResult.success) {
                 setRawSeries(seriesResult.data);

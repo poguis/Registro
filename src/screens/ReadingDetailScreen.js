@@ -204,7 +204,7 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
             const willBeActive = status === 'Nueva' || status === 'Mirando';
 
             if (willBeActive && (!isCurrentlyActive || !isEditing)) {
-                if (activeCount >= (category.series_count || 0)) {
+                if (category.series_count > 0 && activeCount >= category.series_count) {
                     return Alert.alert('Límite Alcanzado', `Máximo ${category.series_count} lecturas activas.`);
                 }
             }
