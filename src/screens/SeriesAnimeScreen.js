@@ -526,7 +526,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                                     />
                                 </View>
                                 <View style={styles.halfInput}>
-                                    <Text style={styles.label}>{type === 'reading' ? 'Tomos' : 'Series'}</Text>
+                                    <Text style={[styles.label, { color: theme.text }]}>Límite (Viendo)</Text>
                                     <TextInput
                                         style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
                                         placeholder="0"

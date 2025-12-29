@@ -192,26 +192,56 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
         const isW = item.status === 'watched';
         const isB = !isW && headerBacklog && index < headerBacklog.items;
         return (
-            <View style={[styles.card, { backgroundColor: theme.card, borderLeftColor: isB ? '#EF6C00' : 'transparent' }, isB && { backgroundColor: isDarkMode ? '#3e2723' : '#FFFDE7' }]}>
+            <View style={[styles.card, { backgroundColor: theme.card, borderLeftColor: isB ? '#EF6C00' : 'transparent', paddingVertical: 12 }, isB && { backgroundColor: isDarkMode ? '#3e2723' : '#FFFDE7' }]}>
                 <View style={styles.cardContent}>
+                    {/* Series Name - Top Row */}
+                    <Text
+                        style={[styles.seriesName, { color: theme.text, fontSize: 17, marginBottom: 4 }]}
+                        numberOfLines={2}
+                        ellipsizeMode="tail"
+                    >
+                        {item.seriesName}
+                    </Text>
+
+                    {/* Metadata Row */}
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Text style={[styles.seriesName, { color: theme.text }]}>{item.seriesName}</Text>
-                        {isB && <View style={styles.backlogBadge}><Text style={styles.backlogBadgeText}>ATRASO</Text></View>}
+                        <Text style={[styles.episodeInfo, { color: theme.subText, marginTop: 0 }]}>
+                            T{item.season} - E{item.episode}
+                        </Text>
+                        {isB && (
+                            <View style={[styles.backlogBadge, { marginLeft: 10, marginTop: 0 }]}>
+                                <Text style={styles.backlogBadgeText}>ATRASO</Text>
+                            </View>
+                        )}
                     </View>
-                    <Text style={[styles.episodeInfo, { color: theme.subText }]}>T{item.season} - E{item.episode}</Text>
-                    {isW && <Text style={styles.watchedLabel}>Visto el {new Date(item.watchedAt).toLocaleDateString()}</Text>}
+
+                    {isW && (
+                        <Text style={[styles.watchedLabel, { marginTop: 4 }]}>
+                            Visto el {new Date(item.watchedAt).toLocaleDateString()}
+                        </Text>
+                    )}
                 </View>
-                {!isW ? (
-                    <TouchableOpacity style={[styles.checkButton, { backgroundColor: isB ? (isDarkMode ? '#5d4037' : '#FFF3E0') : theme.inputBackground }]} onPress={() => onMarkWatched(item)}>
-                        <Text style={[styles.checkText, isB && { color: '#EF6C00' }]}>✓</Text>
-                    </TouchableOpacity>
-                ) : (
-                    index === 0 ? (
-                        <TouchableOpacity style={[styles.checkButton, { backgroundColor: '#FFEBEE' }]} onPress={() => onUnmarkWatched(item)}>
-                            <Text style={[styles.checkText, { color: '#F44336' }]}>✕</Text>
+
+                {/* Action Button */}
+                <View style={{ marginLeft: 10 }}>
+                    {!isW ? (
+                        <TouchableOpacity
+                            style={[styles.checkButton, { backgroundColor: isB ? (isDarkMode ? '#5d4037' : '#FFF3E0') : theme.inputBackground }]}
+                            onPress={() => onMarkWatched(item)}
+                        >
+                            <Text style={[styles.checkText, isB && { color: '#EF6C00' }]}>✓</Text>
                         </TouchableOpacity>
-                    ) : <View style={{ width: 40 }} />
-                )}
+                    ) : (
+                        index === 0 ? (
+                            <TouchableOpacity
+                                style={[styles.checkButton, { backgroundColor: '#FFEBEE' }]}
+                                onPress={() => onUnmarkWatched(item)}
+                            >
+                                <Text style={[styles.checkText, { color: '#F44336' }]}>✕</Text>
+                            </TouchableOpacity>
+                        ) : <View style={{ width: 40 }} />
+                    )}
+                </View>
             </View>
         );
     };
