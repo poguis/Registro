@@ -280,55 +280,57 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
                 activeOpacity={0.9}
                 onPress={() => { setActiveSeries(item); setProgressModalVisible(true); }}
             >
-                {/* Title Row */}
-                <View style={{ marginBottom: 12 }}>
-                    <Text
-                        style={[styles.cardTitle, { color: theme.text, fontSize: 18, lineHeight: 22 }]}
-                        numberOfLines={3}
-                        ellipsizeMode="tail"
-                    >
-                        {item.name}
-                    </Text>
-                </View>
-
-                {/* Info and Actions Row */}
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-                    <View style={{ flex: 1 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                            <View style={[styles.badge, badgeStyle, { marginLeft: 0 }]}>
-                                <Text style={styles.badgeText}>{item.status === 'Mirando' ? 'Leyendo' : item.status}</Text>
-                            </View>
-                            {item.description ? (
-                                <Text style={[styles.cardDesc, { marginTop: 0, marginLeft: 10, flex: 1 }]} numberOfLines={1}>
-                                    • {item.description}
-                                </Text>
-                            ) : null}
-                        </View>
-                        <Text style={[styles.cardProgress, { color: theme.accent, fontSize: 14 }]}>
-                            Tomo {item.current_episode} <Text style={{ fontWeight: 'normal', color: theme.subText }}>de {item.total_seasons} Partes</Text>
+                <View style={styles.cardContent}>
+                    {/* Title Row */}
+                    <View style={{ marginBottom: 12 }}>
+                        <Text
+                            style={[styles.cardTitle, { color: theme.text, fontSize: 18, lineHeight: 22 }]}
+                            numberOfLines={3}
+                            ellipsizeMode="tail"
+                        >
+                            {item.name}
                         </Text>
                     </View>
 
-                    <View style={[styles.cardActions, { marginLeft: 10 }]}>
-                        <TouchableOpacity onPress={() => { setActiveSeries(item); setProgressModalVisible(true); }} style={[styles.gridBtn, { backgroundColor: theme.inputBackground }]}>
-                            <Text style={{ fontSize: 18 }}>👁️</Text>
-                        </TouchableOpacity>
-                        {isViendo && (
-                            <View style={styles.orderButtons}>
-                                <TouchableOpacity onPress={() => moveUp(index)} style={[styles.orderBtn, { backgroundColor: theme.inputBackground, borderColor: theme.border }]}>
-                                    <Text style={[styles.orderBtnText, { color: theme.accent }]}>↑</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity onPress={() => moveDown(index)} style={[styles.orderBtn, { backgroundColor: theme.inputBackground, borderColor: theme.border }]}>
-                                    <Text style={[styles.orderBtnText, { color: theme.accent }]}>↓</Text>
-                                </TouchableOpacity>
+                    {/* Info and Actions Row */}
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                        <View style={{ flex: 1 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
+                                <View style={[styles.badge, badgeStyle, { marginLeft: 0 }]}>
+                                    <Text style={styles.badgeText}>{item.status === 'Mirando' ? 'Leyendo' : item.status}</Text>
+                                </View>
+                                {item.description ? (
+                                    <Text style={[styles.cardDesc, { marginTop: 0, marginLeft: 10, flex: 1 }]} numberOfLines={1}>
+                                        • {item.description}
+                                    </Text>
+                                ) : null}
                             </View>
-                        )}
-                        <TouchableOpacity onPress={() => handleEdit(item)} style={[styles.editBtn, { backgroundColor: theme.accent + '22' }]}>
-                            <Text style={{ fontSize: 16 }}>✏️</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={() => handleDelete(item.id)} style={[styles.deleteBtn, { backgroundColor: '#FFEBEE' }]}>
-                            <Text style={{ fontSize: 16 }}>🗑️</Text>
-                        </TouchableOpacity>
+                            <Text style={[styles.cardProgress, { color: theme.accent, fontSize: 14 }]}>
+                                Tomo {item.current_episode} <Text style={{ fontWeight: 'normal', color: theme.subText }}>de {item.total_seasons} Partes</Text>
+                            </Text>
+                        </View>
+
+                        <View style={[styles.cardActions, { marginLeft: 10 }]}>
+                            <TouchableOpacity onPress={() => { setActiveSeries(item); setProgressModalVisible(true); }} style={[styles.gridBtn, { backgroundColor: theme.inputBackground }]}>
+                                <Text style={{ fontSize: 18 }}>👁️</Text>
+                            </TouchableOpacity>
+                            {isViendo && (
+                                <View style={styles.orderButtons}>
+                                    <TouchableOpacity onPress={() => moveUp(index)} style={[styles.orderBtn, { backgroundColor: theme.inputBackground, borderColor: theme.border }]}>
+                                        <Text style={[styles.orderBtnText, { color: theme.accent }]}>↑</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity onPress={() => moveDown(index)} style={[styles.orderBtn, { backgroundColor: theme.inputBackground, borderColor: theme.border }]}>
+                                        <Text style={[styles.orderBtnText, { color: theme.accent }]}>↓</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            )}
+                            <TouchableOpacity onPress={() => handleEdit(item)} style={[styles.editBtn, { backgroundColor: theme.accent + '22' }]}>
+                                <Text style={{ fontSize: 16 }}>✏️</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => handleDelete(item.id)} style={[styles.deleteBtn, { backgroundColor: '#FFEBEE' }]}>
+                                <Text style={{ fontSize: 16 }}>🗑️</Text>
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 </View>
             </TouchableOpacity>
@@ -512,7 +514,8 @@ const styles = StyleSheet.create({
     tabButton: { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center', borderWidth: 1 },
     tabText: { fontSize: 12, fontWeight: 'bold' },
     listContent: { padding: 15 },
-    card: { padding: 15, borderRadius: 16, marginBottom: 12, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
+    card: { padding: 15, borderRadius: 16, marginBottom: 12, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, backgroundColor: '#fff' },
+    cardContent: { flex: 1 },
     cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
     cardTitle: { fontSize: 17, fontWeight: 'bold' },
     cardProgress: { fontSize: 13, fontWeight: 'bold', marginTop: 2 },

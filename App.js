@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import LoginScreen from './src/screens/LoginScreen';
@@ -27,7 +27,13 @@ export default function App() {
     // Inicializar DB y recuperar sesión
     const init = async () => {
       try {
-        await db.init();
+        const success = await db.init();
+        if (!success) {
+          Alert.alert(
+            'Error de Base de Datos',
+            'No se pudo inicializar la base de datos. Por favor, intenta reiniciar la aplicación o borrar los datos en ajustes.'
+          );
+        }
 
         // Recuperar usuario de AsyncStorage
         const storedUser = await AsyncStorage.getItem('@user_session');

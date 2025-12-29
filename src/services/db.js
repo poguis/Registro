@@ -8,8 +8,11 @@ class DatabaseService {
     }
 
     async init() {
+        if (this.db) return true;
         try {
+            console.log('Starting SQLite initialization...');
             this.db = await SQLite.openDatabaseAsync(dbName);
+            console.log('DB File opened:', dbName);
 
             // Users
             await this.db.execAsync(`
@@ -163,7 +166,11 @@ class DatabaseService {
             }
 
             // Check and backfill history if needed
-            await this.checkAndBackfillHistory();
+            try {
+                await this.checkAndBackfillHistory();
+            } catch (e) {
+                console.error('Non-critical: Error backfilling history:', e);
+            }
 
             console.log('Database v3 initialized successfully');
             return true;
