@@ -29,6 +29,7 @@ const STATUS_COLORS = {
     'Pendiente': '#9E9E9E',
     'Mirando': '#2196F3',
     'Terminado': '#4CAF50',
+    'Total': '#673AB7',
 };
 
 export default function BacklogScreen({ user, onBack }) {
@@ -36,9 +37,11 @@ export default function BacklogScreen({ user, onBack }) {
     const [activeTab, setActiveTab] = useState('movie');
     const [activeStatus, setActiveStatus] = useState('Pendiente');
     const [items, setItems] = useState([]);
+    const [counts, setCounts] = useState({ 'Pendiente': 0, 'Mirando': 0, 'Terminado': 0, 'Total': 0 });
     const [loading, setLoading] = useState(true);
     const [modalVisible, setModalVisible] = useState(false);
     const [filterModalVisible, setFilterModalVisible] = useState(false);
+    const [editingItem, setEditingItem] = useState(null);
 
     // Sort states
     const [sortBy, setSortBy] = useState('title'); // 'title', 'year_start'
@@ -59,9 +62,15 @@ export default function BacklogScreen({ user, onBack }) {
 
     const loadItems = async () => {
         setLoading(true);
+        // Load items
         const res = await db.getBacklogItems(user.id, activeTab, activeStatus, sortBy, order);
         if (res.success) {
             setItems(res.data);
+        }
+        // Load counts
+        const countsRes = await db.getBacklogCounts(user.id, activeTab);
+        if (countsRes.success) {
+            setCounts(countsRes.counts);
         }
         setLoading(false);
     };
@@ -80,18 +89,39 @@ export default function BacklogScreen({ user, onBack }) {
             end_year: formData.end_year ? parseInt(formData.end_year) : null,
         };
 
-        const res = await db.addBacklogItem(user.id, data);
-        if (res.success) {
-            setModalVisible(false);
-            setFormData({ title: '', year: '', format: '24 min', start_year: '', end_year: '' });
-            // If the user adds something while on a different status filter, 
-            // maybe we should switch to 'Pendiente' to show it, or just reload.
-            // Since it defaults to 'Pendiente', switching is safer to show the new item.
-            setActiveStatus('Pendiente');
-            loadItems();
+        if (editingItem) {
+            const res = await db.updateBacklogItem(editingItem.id, data);
+            if (res.success) {
+                setModalVisible(false);
+                setEditingItem(null);
+                setFormData({ title: '', year: '', format: '24 min', start_year: '', end_year: '' });
+                loadItems();
+            } else {
+                Alert.alert('Error', 'No se pudo actualizar');
+            }
         } else {
-            Alert.alert('Error', 'No se pudo guardar');
+            const res = await db.addBacklogItem(user.id, data);
+            if (res.success) {
+                setModalVisible(false);
+                setFormData({ title: '', year: '', format: '24 min', start_year: '', end_year: '' });
+                setActiveStatus('Pendiente');
+                loadItems();
+            } else {
+                Alert.alert('Error', 'No se pudo guardar');
+            }
         }
+    };
+
+    const handleEditPress = (item) => {
+        setEditingItem(item);
+        setFormData({
+            title: item.title,
+            year: item.year ? item.year.toString() : '',
+            format: item.format || '24 min',
+            start_year: item.start_year ? item.start_year.toString() : '',
+            end_year: item.end_year ? item.end_year.toString() : '',
+        });
+        setModalVisible(true);
     };
 
     const handleUpdateStatus = async (item) => {
@@ -161,7 +191,11 @@ export default function BacklogScreen({ user, onBack }) {
                         <Text style={[styles.statusText, { color: STATUS_COLORS[item.status] }]}>{item.status}</Text>
                     </TouchableOpacity>
 
-                    <TouchableOpacity onPress={() => handleDeleteItem(item.id)} style={styles.deleteBtn}>
+                    <TouchableOpacity onPress={() => handleEditPress(item)} style={styles.actionBtn}>
+                        <Text style={{ fontSize: 18 }}>✏️</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity onPress={() => handleDeleteItem(item.id)} style={styles.actionBtn}>
                         <Text style={{ fontSize: 18 }}>🗑️</Text>
                     </TouchableOpacity>
                 </View>
@@ -212,7 +246,7 @@ export default function BacklogScreen({ user, onBack }) {
 
             {/* Sub Tabs (Status) */}
             <View style={styles.statusTabsContainer}>
-                {['Pendiente', 'Mirando', 'Terminado'].map(status => (
+                {['Pendiente', 'Mirando', 'Terminado', 'Total'].map(status => (
                     <TouchableOpacity
                         key={status}
                         style={[
@@ -227,7 +261,7 @@ export default function BacklogScreen({ user, onBack }) {
                             { color: STATUS_COLORS[status] },
                             activeStatus === status && { color: '#fff' }
                         ]}>
-                            {status}
+                            {status} ({counts[status] || 0})
                         </Text>
                     </TouchableOpacity>
                 ))}
@@ -251,7 +285,11 @@ export default function BacklogScreen({ user, onBack }) {
             {/* Add Button */}
             <TouchableOpacity
                 style={[styles.fab, { backgroundColor: currentCat.color }]}
-                onPress={() => setModalVisible(true)}
+                onPress={() => {
+                    setEditingItem(null);
+                    setFormData({ title: '', year: '', format: '24 min', start_year: '', end_year: '' });
+                    setModalVisible(true);
+                }}
             >
                 <Text style={styles.fabIcon}>+</Text>
             </TouchableOpacity>
@@ -318,7 +356,7 @@ export default function BacklogScreen({ user, onBack }) {
                 <View style={styles.modalOverlay}>
                     <View style={[styles.modalCard, { backgroundColor: theme.card }]}>
                         <Text style={[styles.modalTitle, { color: theme.text }]}>
-                            Añadir {currentCat.label}
+                            {editingItem ? 'Editar' : 'Añadir'} {currentCat.label}
                         </Text>
 
                         <ScrollView>
@@ -429,7 +467,9 @@ export default function BacklogScreen({ user, onBack }) {
                                 style={[styles.modalButton, { backgroundColor: currentCat.color }]}
                                 onPress={handleAddItem}
                             >
-                                <Text style={[styles.modalButtonText, { color: '#fff' }]}>Guardar</Text>
+                                <Text style={[styles.modalButtonText, { color: '#fff' }]}>
+                                    {editingItem ? 'Actualizar' : 'Guardar'}
+                                </Text>
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -475,7 +515,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     statusTabLabel: {
-        fontSize: 13,
+        fontSize: 11,
         fontWeight: 'bold',
     },
     tab: {
@@ -509,14 +549,14 @@ const styles = StyleSheet.create({
     itemSubtext: { fontSize: 13, marginRight: 15, marginTop: 2 },
     itemActions: { flexDirection: 'row', alignItems: 'center' },
     statusBadge: {
-        paddingHorizontal: 12,
+        paddingHorizontal: 10,
         paddingVertical: 6,
         borderRadius: 12,
         borderWidth: 1,
-        marginRight: 10,
+        marginRight: 8,
     },
-    statusText: { fontSize: 12, fontWeight: 'bold' },
-    deleteBtn: { padding: 5 },
+    statusText: { fontSize: 11, fontWeight: 'bold' },
+    actionBtn: { padding: 8 },
     fab: {
         position: 'absolute',
         bottom: 30,

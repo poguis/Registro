@@ -972,7 +972,7 @@ class DatabaseService {
             let query = `SELECT * FROM backlog WHERE user_id = ? AND type = ?`;
             const params = [userId, type];
 
-            if (status) {
+            if (status && status !== 'Total') {
                 query += ` AND status = ?`;
                 params.push(status);
             }
@@ -987,6 +987,37 @@ class DatabaseService {
         }
     }
 
+    async getBacklogCounts(userId, type) {
+        if (!this.db) await this.init();
+        try {
+            const counts = {
+                'Pendiente': 0,
+                'Mirando': 0,
+                'Terminado': 0,
+                'Total': 0
+            };
+
+            const rows = await this.db.getAllAsync(
+                'SELECT status, COUNT(*) as count FROM backlog WHERE user_id = ? AND type = ? GROUP BY status',
+                [userId, type]
+            );
+
+            let total = 0;
+            rows.forEach(row => {
+                if (counts.hasOwnProperty(row.status)) {
+                    counts[row.status] = row.count;
+                }
+                total += row.count;
+            });
+            counts['Total'] = total;
+
+            return { success: true, counts };
+        } catch (error) {
+            console.error('Error getBacklogCounts:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
     async updateBacklogStatus(id, status) {
         if (!this.db) await this.init();
         try {
@@ -996,6 +1027,23 @@ class DatabaseService {
             );
             return { success: true };
         } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async updateBacklogItem(id, data) {
+        if (!this.db) await this.init();
+        try {
+            const { title, year, format, start_year, end_year } = data;
+            await this.db.runAsync(
+                `UPDATE backlog 
+                 SET title = ?, year = ?, format = ?, start_year = ?, end_year = ? 
+                 WHERE id = ?`,
+                [title, year, format, start_year, end_year, id]
+            );
+            return { success: true };
+        } catch (error) {
+            console.error('Error updateBacklogItem:', error);
             return { success: false, error: error.message };
         }
     }

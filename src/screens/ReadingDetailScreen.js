@@ -470,7 +470,7 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
                             </View>
                             <TouchableOpacity onPress={() => setProgressModalVisible(false)} style={[styles.closeGridBtn, { backgroundColor: theme.inputBackground }]}><Text style={{ color: theme.text }}>✕</Text></TouchableOpacity>
                         </View>
-                        <ScrollView style={{ padding: 15 }}>
+                        <ScrollView style={{ flex: 1, padding: 15 }}>
                             {activeSeries?.seasons.map(s => (
                                 <View key={s.season_number} style={styles.seasonGroup}>
                                     <Text style={[styles.seasonTitle, { color: theme.text }]}>Parte {s.season_number}</Text>
