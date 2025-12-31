@@ -154,7 +154,8 @@ class DatabaseService {
                 `ALTER TABLE series ADD COLUMN cycle_offset INTEGER DEFAULT 0;`,
                 `ALTER TABLE series ADD COLUMN sort_order INTEGER DEFAULT 0;`,
                 `ALTER TABLE series ADD COLUMN initial_season INTEGER DEFAULT 1;`,
-                `ALTER TABLE series ADD COLUMN initial_episode INTEGER DEFAULT 1;`
+                `ALTER TABLE series ADD COLUMN initial_episode INTEGER DEFAULT 1;`,
+                `ALTER TABLE series ADD COLUMN last_watched_at INTEGER DEFAULT 0;`
             ];
 
             for (const m of migrations) {
@@ -569,9 +570,9 @@ class DatabaseService {
 
             // 1. Insert Series
             const result = await this.db.runAsync(
-                `INSERT INTO series (category_id, name, description, status, current_season, current_episode, initial_season, initial_episode, total_seasons, sort_order, cycle_offset) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [category_id, name, description, status, current_season, current_episode, current_season, current_episode, total_seasons, nextOrder, 0]
+                `INSERT INTO series (category_id, name, description, status, current_season, current_episode, initial_season, initial_episode, total_seasons, sort_order, cycle_offset, last_watched_at) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [category_id, name, description, status, current_season, current_episode, current_season, current_episode, total_seasons, nextOrder, 0, 0]
             );
             const seriesId = result.lastInsertRowId;
 
@@ -648,19 +649,24 @@ class DatabaseService {
 
     async updateSeriesProgress(seriesId, currentSeason, currentEpisode, status = null, customSortOrder = null) {
         if (!this.db) await this.init();
-        const newOrder = customSortOrder !== null ? customSortOrder : Date.now();
         try {
+            let query = 'UPDATE series SET current_season = ?, current_episode = ?, last_watched_at = ?';
+            let params = [currentSeason, currentEpisode, Date.now()];
+
             if (status) {
-                await this.db.runAsync(
-                    `UPDATE series SET current_season = ?, current_episode = ?, status = ?, sort_order = ? WHERE id = ?`,
-                    [currentSeason, currentEpisode, status, newOrder, seriesId]
-                );
-            } else {
-                await this.db.runAsync(
-                    `UPDATE series SET current_season = ?, current_episode = ?, sort_order = ? WHERE id = ?`,
-                    [currentSeason, currentEpisode, newOrder, seriesId]
-                );
+                query += ', status = ?';
+                params.push(status);
             }
+
+            if (customSortOrder !== null) {
+                query += ', sort_order = ?';
+                params.push(customSortOrder);
+            }
+
+            query += ' WHERE id = ?';
+            params.push(seriesId);
+
+            await this.db.runAsync(query, params);
             return { success: true };
         } catch (error) {
             return { success: false, error: error.message };
@@ -705,6 +711,7 @@ class DatabaseService {
                     series.total_seasons, 
                     series.sort_order, 
                     series.cycle_offset,
+                    series.last_watched_at,
                     entertainment_categories.id AS c_id, 
                     entertainment_categories.start_date, 
                     entertainment_categories.frequency, 
@@ -723,7 +730,10 @@ class DatabaseService {
 
             // Filtro de estados simplificado
             query += " AND (series.status = 'Nueva' OR series.status = 'Mirando' OR series.status = 'En espera' OR series.status = 'Terminado')";
-            query += " ORDER BY series.sort_order ASC, series.id DESC";
+
+            // SORT BY last_watched_at for Rotation (Queue) behavior in Registry
+            // Oldest watched (or never watched) first
+            query += " ORDER BY CASE WHEN series.last_watched_at IS NULL THEN 0 ELSE series.last_watched_at END ASC, series.sort_order ASC, series.id DESC";
 
             const seriesRows = await this.db.getAllAsync(query, params);
 
