@@ -565,7 +565,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                             </View>
                             <TouchableOpacity onPress={() => setProgressModalVisible(false)} style={[styles.closeGridBtn, { backgroundColor: theme.inputBackground }]}><Text style={{ color: theme.text }}>✕</Text></TouchableOpacity>
                         </View>
-                        <ScrollView style={{ flex: 1, padding: 15 }}>
+                        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 15, paddingBottom: 50 }}>
                             {activeSeries?.seasons.map(s => (
                                 <View key={s.season_number} style={styles.seasonGroup}>
                                     <Text style={[styles.seasonTitle, { color: theme.text }]}>Temporada {s.season_number}</Text>

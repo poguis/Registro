@@ -155,9 +155,35 @@ export default function BacklogScreen({ user, onBack }) {
 
     const renderItem = ({ item }) => (
         <View style={[styles.itemCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <View style={styles.itemHeader}>
-                <View style={{ flex: 1 }}>
-                    <Text style={[styles.itemTitle, { color: theme.text }]}>{item.title}</Text>
+            {/* Title Row - Full Width */}
+            <View style={{ marginBottom: 12 }}>
+                <Text style={[styles.itemTitle, { color: theme.text }]}>{item.title}</Text>
+            </View>
+
+            {/* Bottom Row: Status/Details (Left) and Actions (Right) */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+
+                {/* Left Side: Status & Metadata */}
+                <View style={{ flex: 1, marginRight: 10 }}>
+                    {/* Status Badge */}
+                    <View style={{ flexDirection: 'row', marginBottom: 6 }}>
+                        <TouchableOpacity
+                            onPress={() => handleUpdateStatus(item)}
+                            style={[
+                                styles.statusBadge,
+                                {
+                                    backgroundColor: STATUS_COLORS[item.status] + '20',
+                                    borderColor: STATUS_COLORS[item.status]
+                                }
+                            ]}
+                        >
+                            <Text style={[styles.statusText, { color: STATUS_COLORS[item.status] }]}>
+                                {item.status}
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Metadata Details */}
                     <View style={styles.itemDetails}>
                         {activeTab === 'movie' && item.year && (
                             <Text style={[styles.itemSubtext, { color: theme.subText }]}>Año: {item.year}</Text>
@@ -183,14 +209,8 @@ export default function BacklogScreen({ user, onBack }) {
                     </View>
                 </View>
 
+                {/* Right Side: Actions */}
                 <View style={styles.itemActions}>
-                    <TouchableOpacity
-                        onPress={() => handleUpdateStatus(item)}
-                        style={[styles.statusBadge, { backgroundColor: STATUS_COLORS[item.status] + '20', borderColor: STATUS_COLORS[item.status] }]}
-                    >
-                        <Text style={[styles.statusText, { color: STATUS_COLORS[item.status] }]}>{item.status}</Text>
-                    </TouchableOpacity>
-
                     <TouchableOpacity onPress={() => handleEditPress(item)} style={styles.actionBtn}>
                         <Text style={{ fontSize: 18 }}>✏️</Text>
                     </TouchableOpacity>
