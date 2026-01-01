@@ -197,8 +197,6 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
                     {/* Series Name - Top Row */}
                     <Text
                         style={[styles.seriesName, { color: theme.text, fontSize: 17, marginBottom: 4 }]}
-                        numberOfLines={2}
-                        ellipsizeMode="tail"
                     >
                         {item.seriesName}
                     </Text>
@@ -242,7 +240,7 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
                         ) : <View style={{ width: 40 }} />
                     )}
                 </View>
-            </View>
+            </View >
         );
     };
 

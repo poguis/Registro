@@ -115,11 +115,19 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
         return (
             <View style={[styles.card, { backgroundColor: theme.card, borderLeftColor: isB ? '#EF6C00' : 'transparent' }, isB && { backgroundColor: isDarkMode ? '#3e2723' : '#FFFDE7' }]}>
                 <View style={styles.cardContent}>
+                    <Text style={[styles.seriesName, { color: theme.text, marginBottom: 4 }]}>
+                        {item.seriesName}
+                    </Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Text style={[styles.seriesName, { color: theme.text }]}>{item.seriesName}</Text>
-                        {isB && <View style={styles.backlogBadge}><Text style={styles.backlogBadgeText}>ATRASO</Text></View>}
+                        <Text style={[styles.episodeInfo, { color: isB ? '#EF6C00' : theme.accent, marginTop: 0 }]}>
+                            Tomo {item.episode}
+                        </Text>
+                        {isB && (
+                            <View style={[styles.backlogBadge, { marginLeft: 10 }]}>
+                                <Text style={styles.backlogBadgeText}>ATRASO</Text>
+                            </View>
+                        )}
                     </View>
-                    <Text style={[styles.episodeInfo, { color: isB ? '#EF6C00' : theme.accent }]}>Tomo {item.episode}</Text>
                     {isW && <Text style={[styles.watchedLabel, { color: theme.subText }]}>Leído el {new Date(item.readAt).toLocaleDateString()}</Text>}
                 </View>
                 {!isW ? (
