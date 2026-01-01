@@ -124,9 +124,11 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
         let allEpisodes = [];
         seriesList.forEach((series, sIndex) => {
             const seriesEpisodes = generateEpisodesForSeries(series);
+            const baseCount = getWatchedCountSinceStart(series);
             seriesEpisodes.forEach((ep, index) => {
                 const BATCH_SIZE = 1000000;
-                ep.interleavedOrder = (index * BATCH_SIZE + sIndex);
+                // Use (baseCount + index) to align with global cycle
+                ep.interleavedOrder = ((baseCount + index) * BATCH_SIZE + sIndex);
                 ep.sortOrder = series.sort_order || 0;
                 allEpisodes.push(ep);
             });
@@ -184,7 +186,7 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
 
     const onUnmarkWatched = async (item) => {
         await db.removeHistory(item.seriesId, item.season, item.episode);
-        const res = await db.updateSeriesProgress(item.seriesId, item.season, item.episode, null, 1);
+        const res = await db.updateSeriesProgress(item.seriesId, item.season, item.episode, null, null, 0);
         if (res.success) loadData();
     };
 

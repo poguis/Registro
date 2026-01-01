@@ -67,7 +67,22 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
         list.forEach((s, sIdx) => {
             if (s.status === 'Terminado' || s.status === 'En espera') return;
             const seriesEps = generateEpisodesForSeries(s);
-            seriesEps.forEach((ep, idx) => { ep.interleavedOrder = (idx * 1000000) + sIdx; ep.sortOrder = s.sort_order || 0; episodes.push(ep); });
+
+            // Calculate baseCount inline
+            const getAbs = (sn, en) => {
+                let c = 0;
+                for (let i = 1; i < sn; i++) c += s.seasons.find(se => se.season_number === i)?.episode_count || 0;
+                return c + (en - 1);
+            };
+            const diff = getAbs(s.current_season, s.current_episode) - getAbs(s.initial_season || 1, s.initial_episode || 1);
+            const baseCount = Math.max(0, diff) + (s.cycle_offset || 0);
+
+            seriesEps.forEach((ep, idx) => {
+                // Use (baseCount + idx) to align with global cycle
+                ep.interleavedOrder = ((baseCount + idx) * 1000000) + sIdx;
+                ep.sortOrder = s.sort_order || 0;
+                episodes.push(ep);
+            });
         });
         episodes.sort((a, b) => a.interleavedOrder !== b.interleavedOrder ? a.interleavedOrder - b.interleavedOrder : a.sortOrder - b.sortOrder);
         return episodes;
@@ -106,7 +121,7 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
 
     const onUnmarkWatched = async (item) => {
         await db.removeReadingHistory(item.seriesId, item.season, item.episode);
-        const res = await db.updateSeriesProgress(item.seriesId, item.season, item.episode, null, 1);
+        const res = await db.updateSeriesProgress(item.seriesId, item.season, item.episode, null, null, 0);
         if (res.success) loadData();
     };
 

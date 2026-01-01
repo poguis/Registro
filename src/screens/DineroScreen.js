@@ -316,7 +316,7 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
     const visibleSections = React.useMemo(() => {
         return historyGroups.map(section => ({
             ...section,
-            data: expandedSections[section.title] === false ? [] : section.data
+            data: !!expandedSections[section.title] ? section.data : []
         }));
     }, [historyGroups, expandedSections]);
 
@@ -359,7 +359,7 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                     keyExtractor={(item) => item.id.toString()}
                     stickySectionHeadersEnabled={false}
                     renderSectionHeader={({ section: { title, total } }) => {
-                        const isExpanded = expandedSections[title] !== false;
+                        const isExpanded = !!expandedSections[title];
 
                         return (
                             <TouchableOpacity

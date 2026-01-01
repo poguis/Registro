@@ -572,7 +572,7 @@ class DatabaseService {
             const result = await this.db.runAsync(
                 `INSERT INTO series (category_id, name, description, status, current_season, current_episode, initial_season, initial_episode, total_seasons, sort_order, cycle_offset, last_watched_at) 
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [category_id, name, description, status, current_season, current_episode, current_season, current_episode, total_seasons, nextOrder, 0, 0]
+                [category_id, name, description, status, current_season, current_episode, current_season, current_episode, total_seasons, nextOrder, maxCycle, 0]
             );
             const seriesId = result.lastInsertRowId;
 
@@ -598,9 +598,78 @@ class DatabaseService {
         try {
             const { name, description, total_seasons, status } = seriesData;
 
+            // 0. Fetch current series state to check for status change
+            const currentSeries = await this.db.getFirstAsync('SELECT * FROM series WHERE id = ?', [seriesId]);
+            if (!currentSeries) return { success: false, error: 'Series not found' };
+
+            let newOffset = currentSeries.cycle_offset;
+
+            // Check if activating (was NOT Mirando, now IS Mirando)
+            // Or if user specifically requested a status change to Mirando via the UI
+            const isActivating = (currentSeries.status === 'En espera' || currentSeries.status === 'Terminado' || currentSeries.status === 'Nueva') && (status === 'Mirando');
+
+            if (isActivating) {
+                // Calculate Max Cycle in Category to sync
+                const seriesInCategory = await this.db.getAllAsync(
+                    'SELECT id, current_season, current_episode, initial_season, initial_episode, cycle_offset FROM series WHERE category_id = ? AND id != ?',
+                    [currentSeries.category_id, seriesId]
+                );
+
+                let maxCycle = 0;
+                for (const s of seriesInCategory) {
+                    const seasons = await this.db.getAllAsync('SELECT * FROM seasons WHERE series_id = ?', [s.id]);
+                    const getAbs = (sn, en) => {
+                        let c = 0;
+                        for (let i = 1; i < sn; i++) {
+                            const sea = seasons.find(se => se.season_number === i);
+                            c += sea ? sea.episode_count : 0;
+                        }
+                        return c + (en - 1);
+                    };
+                    const watched = getAbs(s.current_season, s.current_episode) - getAbs(s.initial_season || 1, s.initial_episode || 1);
+                    // If watched is negative (shouldn't happen but safe check), treat as 0
+                    const totalCycle = (watched > 0 ? watched : 0) + (s.cycle_offset || 0);
+                    if (totalCycle > maxCycle) maxCycle = totalCycle;
+                }
+
+                // Calculate THIS series current watched count (based on its NEW position if provided, else current)
+                // We need the seasons for THIS series to calculate its own internal progress
+                // If seasonsData is provided (it usually is during update), use it. otherwise fetch.
+                let mySeasons = [];
+                if (seasonsData && seasonsData.length > 0) {
+                    mySeasons = seasonsData;
+                } else {
+                    mySeasons = await this.db.getAllAsync('SELECT * FROM seasons WHERE series_id = ? ORDER BY season_number ASC', [seriesId]);
+                }
+
+                const myTargetS = seriesData.current_season !== undefined ? seriesData.current_season : currentSeries.current_season;
+                const myTargetE = seriesData.current_episode !== undefined ? seriesData.current_episode : currentSeries.current_episode;
+                const myInitS = currentSeries.initial_season || 1;
+                const myInitE = currentSeries.initial_episode || 1;
+
+                const getMyAbs = (sn, en) => {
+                    let c = 0;
+                    for (let i = 1; i < sn; i++) {
+                        // Find in mySeasons (which might be raw DB rows or the passed object)
+                        // passed object uses 'season_number', 'episode_count'. DB rows same.
+                        const sea = mySeasons.find(se => se.season_number === i);
+                        c += sea ? sea.episode_count : 0;
+                    }
+                    return c + (en - 1);
+                };
+
+                const myWatched = getMyAbs(myTargetS, myTargetE) - getMyAbs(myInitS, myInitE);
+
+                // New Offset = MaxCycle - MyWatched
+                // So (MyWatched + NewOffset) = MaxCycle
+                newOffset = maxCycle - (myWatched > 0 ? myWatched : 0);
+
+                // console.log(`Resyncing Series ${name}: MaxCycle=${maxCycle}, MyWatched=${myWatched}, NewOffset=${newOffset}`);
+            }
+
             // 1. Update Series
-            let query = `UPDATE series SET name = ?, description = ?, total_seasons = ?`;
-            let params = [name, description, total_seasons];
+            let query = `UPDATE series SET name = ?, description = ?, total_seasons = ?, cycle_offset = ?`;
+            let params = [name, description, total_seasons, newOffset];
 
             if (status) {
                 query += `, status = ?`;
@@ -647,11 +716,12 @@ class DatabaseService {
         }
     }
 
-    async updateSeriesProgress(seriesId, currentSeason, currentEpisode, status = null, customSortOrder = null) {
+    async updateSeriesProgress(seriesId, currentSeason, currentEpisode, status = null, customSortOrder = null, customLastWatchedAt = undefined) {
         if (!this.db) await this.init();
         try {
+            const timestamp = customLastWatchedAt !== undefined ? customLastWatchedAt : Date.now();
             let query = 'UPDATE series SET current_season = ?, current_episode = ?, last_watched_at = ?';
-            let params = [currentSeason, currentEpisode, Date.now()];
+            let params = [currentSeason, currentEpisode, timestamp];
 
             if (status) {
                 query += ', status = ?';
@@ -731,9 +801,10 @@ class DatabaseService {
             // Filtro de estados simplificado
             query += " AND (series.status = 'Nueva' OR series.status = 'Mirando' OR series.status = 'En espera' OR series.status = 'Terminado')";
 
-            // SORT BY last_watched_at for Rotation (Queue) behavior in Registry
-            // Oldest watched (or never watched) first
-            query += " ORDER BY CASE WHEN series.last_watched_at IS NULL THEN 0 ELSE series.last_watched_at END ASC, series.sort_order ASC, series.id DESC";
+            // SORT BY sort_order ASC, then last_watched_at
+            // Now that frontend handles 'Cycle' rotation, we can respect manual sort order
+            // which allows users to prioritize series within the same cycle.
+            query += " ORDER BY series.sort_order ASC, series.last_watched_at ASC, series.id DESC";
 
             const seriesRows = await this.db.getAllAsync(query, params);
 
