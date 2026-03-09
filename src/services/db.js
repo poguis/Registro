@@ -360,16 +360,59 @@ class DatabaseService {
         }
     }
 
-    async getBalanceHistory(userId) {
+    async getBalanceHistory(userId, startDate = null, endDate = null) {
         if (!this.db) await this.init();
         try {
-            // Get all records ordered by date DESC
-            const history = await this.db.getAllAsync(
-                `SELECT * FROM balance_history WHERE user_id = ? ORDER BY created_at DESC`,
-                [userId]
-            );
+            let query = `SELECT * FROM balance_history WHERE user_id = ?`;
+            const params = [userId];
+
+            if (startDate) {
+                query += ` AND created_at >= ?`;
+                params.push(startDate);
+            }
+            if (endDate) {
+                query += ` AND created_at <= ?`;
+                params.push(endDate);
+            }
+
+            query += ` ORDER BY created_at DESC`;
+
+            const history = await this.db.getAllAsync(query, params);
             return { success: true, history };
         } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async getStatisticsData(userId, startDate = null, endDate = null) {
+        if (!this.db) await this.init();
+        try {
+            let query = `
+                SELECT 
+                    category,
+                    SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) as income,
+                    SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END) as expense,
+                    COUNT(*) as count
+                FROM balance_history 
+                WHERE user_id = ?
+            `;
+            const params = [userId];
+
+            if (startDate) {
+                query += ` AND created_at >= ?`;
+                params.push(startDate);
+            }
+            if (endDate) {
+                query += ` AND created_at <= ?`;
+                params.push(endDate);
+            }
+
+            query += ` GROUP BY category ORDER BY expense DESC`;
+
+            const stats = await this.db.getAllAsync(query, params);
+            return { success: true, stats };
+        } catch (error) {
+            console.error('Error fetching statistics:', error);
             return { success: false, error: error.message };
         }
     }

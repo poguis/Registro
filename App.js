@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, ActivityIndicator, Alert } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, ActivityIndicator, Alert, BackHandler } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import LoginScreen from './src/screens/LoginScreen';
@@ -14,13 +14,14 @@ import ReadingDetailScreen from './src/screens/ReadingDetailScreen';
 import ChapterRegistryScreen from './src/screens/ChapterRegistryScreen';
 import ReadingRegistryScreen from './src/screens/ReadingRegistryScreen';
 import BacklogScreen from './src/screens/BacklogScreen';
+import StatisticsScreen from './src/screens/StatisticsScreen';
 import { ThemeProvider } from './src/contexts/ThemeContext';
 
 export default function App() {
   const [isReady, setIsReady] = useState(false);
   const [user, setUser] = useState(null);
   const [currentView, setCurrentView] = useState('LOGIN'); // LOGIN, HOME, DINERO, DEUDAS_PRESTAMOS, PENDIENTE
-  const [lastView, setLastView] = useState('HOME');
+  const [navigationHistory, setNavigationHistory] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState(null);
 
   useEffect(() => {
@@ -51,10 +52,41 @@ export default function App() {
     init();
   }, []);
 
+  const handleBack = useCallback(() => {
+    if (navigationHistory.length > 0) {
+      const newHistory = [...navigationHistory];
+      const prevView = newHistory.pop();
+      setNavigationHistory(newHistory);
+      setCurrentView(prevView);
+      return true; // Prevent default behavior (exiting app)
+    }
+
+    if (currentView === 'HOME') {
+      Alert.alert(
+        'Salir',
+        '¿Estás seguro de que quieres salir de la aplicación?',
+        [
+          { text: 'Cancelar', style: 'cancel', onPress: () => { } },
+          { text: 'Salir', style: 'destructive', onPress: () => BackHandler.exitApp() }
+        ]
+      );
+      return true;
+    }
+
+    // Default: if no history and not in HOME (e.g. LOGIN), let system handle it
+    return false;
+  }, [navigationHistory, currentView]);
+
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', handleBack);
+    return () => backHandler.remove();
+  }, [handleBack]);
+
   const handleLogin = async (userData) => {
     try {
       await AsyncStorage.setItem('@user_session', JSON.stringify(userData));
       setUser(userData);
+      setNavigationHistory([]); // Reset history on login
       setCurrentView('HOME');
     } catch (error) {
       console.error('Error saving session:', error);
@@ -67,6 +99,7 @@ export default function App() {
     try {
       await AsyncStorage.removeItem('@user_session');
       setUser(null);
+      setNavigationHistory([]); // Reset history on logout
       setCurrentView('LOGIN');
     } catch (error) {
       console.error('Error removing session:', error);
@@ -76,7 +109,7 @@ export default function App() {
   };
 
   const handleNavigate = (view) => {
-    setLastView(currentView);
+    setNavigationHistory(prev => [...prev, currentView]);
     setCurrentView(view);
   };
 
@@ -100,7 +133,7 @@ export default function App() {
               return (
                 <DineroScreen
                   user={user}
-                  onBack={() => setCurrentView('HOME')}
+                  onBack={handleBack}
                   onNavigate={handleNavigate}
                 />
               );
@@ -108,27 +141,27 @@ export default function App() {
               return (
                 <DeudasPrestamosScreen
                   user={user}
-                  onBack={() => setCurrentView(lastView === 'DINERO' ? 'DINERO' : 'HOME')}
+                  onBack={handleBack}
                 />
               );
             case 'PENDIENTE':
               return (
                 <BacklogScreen
                   user={user}
-                  onBack={() => setCurrentView('HOME')}
+                  onBack={handleBack}
                 />
               );
             case 'SERIES_ANIME':
               return (
                 <SeriesAnimeScreen
                   user={user}
-                  onBack={() => setCurrentView('HOME')}
+                  onBack={handleBack}
                   onNavigateDetail={(category) => {
                     setSelectedCategory(category);
                     if (category.type === 'reading') {
-                      setCurrentView('READING_DETAIL');
+                      handleNavigate('READING_DETAIL');
                     } else {
-                      setCurrentView('SERIES_DETAIL');
+                      handleNavigate('SERIES_DETAIL');
                     }
                   }}
                 />
@@ -138,8 +171,8 @@ export default function App() {
                 <SeriesDetailScreen
                   user={user}
                   category={selectedCategory}
-                  onBack={() => setCurrentView('SERIES_ANIME')}
-                  onNavigateRegistry={() => setCurrentView('CHAPTER_REGISTRY')}
+                  onBack={handleBack}
+                  onNavigateRegistry={() => handleNavigate('CHAPTER_REGISTRY')}
                 />
               );
             case 'READING_DETAIL':
@@ -147,8 +180,8 @@ export default function App() {
                 <ReadingDetailScreen
                   user={user}
                   category={selectedCategory}
-                  onBack={() => setCurrentView('SERIES_ANIME')}
-                  onNavigateRegistry={() => setCurrentView('READING_REGISTRY')}
+                  onBack={handleBack}
+                  onNavigateRegistry={() => handleNavigate('READING_REGISTRY')}
                 />
               );
             case 'CHAPTER_REGISTRY':
@@ -156,7 +189,7 @@ export default function App() {
                 <ChapterRegistryScreen
                   user={user}
                   category={selectedCategory}
-                  onBack={() => setCurrentView('SERIES_DETAIL')}
+                  onBack={handleBack}
                 />
               );
             case 'READING_REGISTRY':
@@ -164,7 +197,14 @@ export default function App() {
                 <ReadingRegistryScreen
                   user={user}
                   category={selectedCategory}
-                  onBack={() => setCurrentView('READING_DETAIL')}
+                  onBack={handleBack}
+                />
+              );
+            case 'STATISTICS':
+              return (
+                <StatisticsScreen
+                  user={user}
+                  onBack={handleBack}
                 />
               );
             case 'HOME':

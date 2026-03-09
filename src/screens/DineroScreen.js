@@ -22,6 +22,9 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
     const [balance, setBalance] = useState(0);
     const [historyGroups, setHistoryGroups] = useState([]);
     const [expandedSections, setExpandedSections] = useState({}); // { "Title": true/false }
+    const [dateFilter, setDateFilter] = useState('all'); // 'today', 'week', 'month', 'custom', 'all'
+    const [customRange, setCustomRange] = useState({ start: new Date(), end: new Date() });
+    const [showDatePicker, setShowDatePicker] = useState(false);
 
     // Modals
     const [showModal, setShowModal] = useState(false); // Manual Edit
@@ -49,7 +52,7 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
 
     useEffect(() => {
         loadData();
-    }, []);
+    }, [dateFilter]);
 
     const loadData = async () => {
         await loadBalance();
@@ -74,7 +77,40 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
     };
 
     const loadHistory = async () => {
-        const result = await db.getBalanceHistory(user.id);
+        let startDate = null;
+        let endDate = null;
+
+        if (dateFilter !== 'all') {
+            const now = new Date();
+            const y = now.getFullYear();
+            const m = String(now.getMonth() + 1).padStart(2, '0');
+            const d = String(now.getDate()).padStart(2, '0');
+
+            if (dateFilter === 'today') {
+                startDate = `${y}-${m}-${d} 00:00:00`;
+            } else if (dateFilter === 'week') {
+                const day = now.getDay();
+                const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+                const monday = new Date(now.setDate(diff));
+                const my = monday.getFullYear();
+                const mm = String(monday.getMonth() + 1).padStart(2, '0');
+                const md = String(monday.getDate()).padStart(2, '0');
+                startDate = `${my}-${mm}-${md} 00:00:00`;
+            } else if (dateFilter === 'month') {
+                startDate = `${y}-${m}-01 00:00:00`;
+            } else if (dateFilter === 'custom') {
+                const sy = customRange.start.getFullYear();
+                const sm = String(customRange.start.getMonth() + 1).padStart(2, '0');
+                const sd = String(customRange.start.getDate()).padStart(2, '0');
+                const ey = customRange.end.getFullYear();
+                const em = String(customRange.end.getMonth() + 1).padStart(2, '0');
+                const ed = String(customRange.end.getDate()).padStart(2, '0');
+                startDate = `${sy}-${sm}-${sd} 00:00:00`;
+                endDate = `${ey}-${em}-${ed} 23:59:59`;
+            }
+        }
+
+        const result = await db.getBalanceHistory(user.id, startDate, endDate);
         if (result.success) {
             const groups = groupHistoryByDate(result.history);
             setHistoryGroups(groups);
@@ -330,7 +366,7 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                     <Text style={{ fontSize: 24, color: theme.text }}>←</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.compactBalance} onPress={() => {
+                <TouchableOpacity onPress={() => {
                     setInputBalance(balance.toString());
                     setEditMode(true);
                 }}>
@@ -338,9 +374,14 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                     <Text style={[styles.balanceSmall, { color: theme.text }]}>${balance.toFixed(2)}</Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity onPress={() => onNavigate('DEUDAS_PRESTAMOS')}>
-                    <Text style={{ fontSize: 22 }}>👥</Text>
-                </TouchableOpacity>
+                <View style={{ flexDirection: 'row', gap: 15 }}>
+                    <TouchableOpacity onPress={() => onNavigate('STATISTICS')}>
+                        <Text style={{ fontSize: 22 }}>📊</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => onNavigate('DEUDAS_PRESTAMOS')}>
+                        <Text style={{ fontSize: 22 }}>👥</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
 
             <View style={styles.actionStrip}>
@@ -353,7 +394,29 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
             </View>
 
             <View style={{ flex: 1, paddingHorizontal: 15 }}>
-                <Text style={[styles.histTitle, { color: theme.text }]}>Historial</Text>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <Text style={[styles.histTitle, { color: theme.text, marginBottom: 0 }]}>Historial</Text>
+                    <View style={{ flexDirection: 'row', gap: 5 }}>
+                        {['today', 'week', 'month', 'custom', 'all'].map(f => (
+                            <TouchableOpacity
+                                key={f}
+                                onPress={() => f === 'custom' ? setShowDatePicker(true) : setDateFilter(f)}
+                                style={[
+                                    styles.filterPill,
+                                    { backgroundColor: dateFilter === f ? theme.accent : theme.inputBackground }
+                                ]}
+                            >
+                                <Text style={{
+                                    fontSize: 10,
+                                    color: dateFilter === f ? '#fff' : theme.subText,
+                                    fontWeight: 'bold'
+                                }}>
+                                    {f === 'today' ? 'Hoy' : f === 'week' ? 'Sem' : f === 'month' ? 'Mes' : f === 'custom' ? '📅' : 'Todo'}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                </View>
                 <SectionList
                     sections={visibleSections}
                     keyExtractor={(item) => item.id.toString()}
@@ -580,6 +643,112 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                 </View>
             </Modal>
 
+            {/* Custom Date Picker Modal */}
+            <Modal visible={showDatePicker} transparent animationType="fade">
+                <View style={[styles.overlay, { backgroundColor: 'rgba(0,0,0,0.7)' }]}>
+                    <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+                        <Text style={[styles.modalTitle, { color: theme.text }]}>Seleccionar Rango</Text>
+
+                        <View style={styles.datePickerContainer}>
+                            <View style={styles.dateBlock}>
+                                <Text style={[styles.dateLabel, { color: theme.subText }]}>Desde:</Text>
+                                <View style={styles.dateInputsRow}>
+                                    <TextInput
+                                        style={[styles.dateInput, { backgroundColor: theme.inputBackground, color: theme.text }]}
+                                        placeholder="Año"
+                                        keyboardType="numeric"
+                                        maxLength={4}
+                                        value={customRange.start.getFullYear().toString()}
+                                        onChangeText={(v) => {
+                                            const d = new Date(customRange.start);
+                                            d.setFullYear(parseInt(v) || now.getFullYear());
+                                            setCustomRange(prev => ({ ...prev, start: d }));
+                                        }}
+                                    />
+                                    <TextInput
+                                        style={[styles.dateInput, { backgroundColor: theme.inputBackground, color: theme.text }]}
+                                        placeholder="Mes"
+                                        keyboardType="numeric"
+                                        maxLength={2}
+                                        value={(customRange.start.getMonth() + 1).toString()}
+                                        onChangeText={(v) => {
+                                            const d = new Date(customRange.start);
+                                            d.setMonth((parseInt(v) || 1) - 1);
+                                            setCustomRange(prev => ({ ...prev, start: d }));
+                                        }}
+                                    />
+                                    <TextInput
+                                        style={[styles.dateInput, { backgroundColor: theme.inputBackground, color: theme.text }]}
+                                        placeholder="Día"
+                                        keyboardType="numeric"
+                                        maxLength={2}
+                                        value={customRange.start.getDate().toString()}
+                                        onChangeText={(v) => {
+                                            const d = new Date(customRange.start);
+                                            d.setDate(parseInt(v) || 1);
+                                            setCustomRange(prev => ({ ...prev, start: d }));
+                                        }}
+                                    />
+                                </View>
+                            </View>
+
+                            <View style={[styles.dateBlock, { marginTop: 20 }]}>
+                                <Text style={[styles.dateLabel, { color: theme.subText }]}>Hasta:</Text>
+                                <View style={styles.dateInputsRow}>
+                                    <TextInput
+                                        style={[styles.dateInput, { backgroundColor: theme.inputBackground, color: theme.text }]}
+                                        placeholder="Año"
+                                        keyboardType="numeric"
+                                        maxLength={4}
+                                        value={customRange.end.getFullYear().toString()}
+                                        onChangeText={(v) => {
+                                            const d = new Date(customRange.end);
+                                            d.setFullYear(parseInt(v) || now.getFullYear());
+                                            setCustomRange(prev => ({ ...prev, end: d }));
+                                        }}
+                                    />
+                                    <TextInput
+                                        style={[styles.dateInput, { backgroundColor: theme.inputBackground, color: theme.text }]}
+                                        placeholder="Mes"
+                                        keyboardType="numeric"
+                                        maxLength={2}
+                                        value={(customRange.end.getMonth() + 1).toString()}
+                                        onChangeText={(v) => {
+                                            const d = new Date(customRange.end);
+                                            d.setMonth((parseInt(v) || 1) - 1);
+                                            setCustomRange(prev => ({ ...prev, end: d }));
+                                        }}
+                                    />
+                                    <TextInput
+                                        style={[styles.dateInput, { backgroundColor: theme.inputBackground, color: theme.text }]}
+                                        placeholder="Día"
+                                        keyboardType="numeric"
+                                        maxLength={2}
+                                        value={customRange.end.getDate().toString()}
+                                        onChangeText={(v) => {
+                                            const d = new Date(customRange.end);
+                                            d.setDate(parseInt(v) || 1);
+                                            setCustomRange(prev => ({ ...prev, end: d }));
+                                        }}
+                                    />
+                                </View>
+                            </View>
+                        </View>
+
+                        <View style={styles.btnsRow}>
+                            <TouchableOpacity style={[styles.cancelBtn, { backgroundColor: theme.inputBackground }]} onPress={() => setShowDatePicker(false)}>
+                                <Text style={{ color: theme.text }}>Cancelar</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.saveBtn, { backgroundColor: theme.accent }]} onPress={() => {
+                                setDateFilter('custom');
+                                setShowDatePicker(false);
+                            }}>
+                                <Text style={{ color: '#fff', fontWeight: 'bold' }}>Filtrar</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 }
@@ -654,4 +823,23 @@ const styles = StyleSheet.create({
     saveBtn: { flex: 1, padding: 12, alignItems: 'center', borderRadius: 8 },
     bgGreen: { backgroundColor: '#4CAF50' },
     bgRed: { backgroundColor: '#F44336' },
+    filterPill: {
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: 'transparent'
+    },
+    datePickerContainer: { paddingVertical: 10 },
+    dateBlock: { width: '100%' },
+    dateLabel: { fontSize: 13, fontWeight: 'bold', marginBottom: 5 },
+    dateInputsRow: { flexDirection: 'row', gap: 10 },
+    dateInput: {
+        flex: 1,
+        padding: 10,
+        borderRadius: 8,
+        textAlign: 'center',
+        fontSize: 16,
+        fontWeight: 'bold'
+    }
 });
