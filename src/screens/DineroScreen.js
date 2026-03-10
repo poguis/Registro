@@ -68,10 +68,9 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
     const loadCategories = async () => {
         const result = await db.getDistinctCategories(user.id);
         if (result.success) {
-            // Ensure default linked categories are always present or handled logic wise
-            // We can merge defaults with DB results
-            const defaults = ['Me deben', 'Préstamos', 'Comida', 'Transporte', 'Sueldo'];
-            const merged = Array.from(new Set([...defaults, ...result.categories]));
+            // "Me deben" and "Préstamos" are system categories, we always include them
+            const system = ['Me deben', 'Préstamos'];
+            const merged = Array.from(new Set([...system, ...result.categories]));
             setAvailableCategories(merged);
         }
     };
@@ -187,19 +186,7 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
 
     const handleCategoryChange = (text) => {
         setTransCategory(text);
-
-        // Filter suggestions
-        if (text.length > 0) {
-            const filtered = availableCategories.filter(c =>
-                c.toLowerCase().includes(text.toLowerCase())
-            );
-            setFilteredCategories(filtered);
-            setShowCatSuggestions(true);
-        } else {
-            setShowCatSuggestions(false);
-        }
-
-        // Logic for Linked Contacts (Trigger immediately if exact match)
+        setShowCatSuggestions(false);
         checkLinkedLogic(text);
     };
 
@@ -207,6 +194,21 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
         setTransCategory(cat);
         setShowCatSuggestions(false);
         checkLinkedLogic(cat);
+    };
+
+    const [isAddingCategory, setIsAddingCategory] = useState(false);
+    const [newCatName, setNewCatName] = useState('');
+
+    const handleAddCategory = async () => {
+        if (!newCatName.trim()) return;
+        const result = await db.addFinanceCategory(user.id, newCatName.trim());
+        if (result.success) {
+            await loadCategories();
+            setTransCategory(newCatName.trim());
+            setIsAddingCategory(false);
+            setNewCatName('');
+            checkLinkedLogic(newCatName.trim());
+        }
     };
 
     const checkLinkedLogic = async (cat) => {
@@ -485,29 +487,49 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                             onChangeText={setTransAmount}
                         />
 
-                        <View style={{ zIndex: 10 }}>
-                            <TextInput
-                                style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
-                                placeholder="Categoría (Ej: Comida)"
-                                placeholderTextColor={theme.subText}
-                                value={transCategory}
-                                onChangeText={handleCategoryChange}
-                                onFocus={() => transCategory.length > 0 && setShowCatSuggestions(true)}
-                                onBlur={() => setTimeout(() => setShowCatSuggestions(false), 200)}
-                            />
-
-                            {showCatSuggestions && filteredCategories.length > 0 && (
-                                <View style={[styles.suggestionsBox, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                                    <ScrollView keyboardShouldPersistTaps="handled">
-                                        {filteredCategories.map(cat => (
-                                            <TouchableOpacity key={cat} style={[styles.suggItem, { borderBottomColor: theme.border }]} onPress={() => selectCategory(cat)}>
-                                                <Text style={{ color: theme.text }}>{cat}</Text>
-                                            </TouchableOpacity>
-                                        ))}
-                                    </ScrollView>
-                                </View>
-                            )}
+                        <View style={styles.catPickerWrapper}>
+                            <Text style={[styles.label, { color: theme.subText, marginBottom: 10 }]}>Categoría:</Text>
+                            <View style={styles.catGrid}>
+                                {availableCategories.map(cat => (
+                                    <TouchableOpacity
+                                        key={cat}
+                                        style={[
+                                            styles.catPill,
+                                            { backgroundColor: theme.inputBackground },
+                                            transCategory === cat && { backgroundColor: theme.accent, borderColor: theme.accent }
+                                        ]}
+                                        onPress={() => selectCategory(cat)}
+                                    >
+                                        <Text style={[styles.catPillText, { color: transCategory === cat ? '#fff' : theme.text }]}>{cat}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                                <TouchableOpacity
+                                    style={[styles.catPill, { backgroundColor: 'rgba(76, 175, 80, 0.1)', borderStyle: 'dashed', borderWidth: 1, borderColor: '#4CAF50' }]}
+                                    onPress={() => setIsAddingCategory(true)}
+                                >
+                                    <Text style={[styles.catPillText, { color: '#4CAF50', fontWeight: 'bold' }]}>+ Nueva</Text>
+                                </TouchableOpacity>
+                            </View>
                         </View>
+
+                        {isAddingCategory && (
+                            <View style={styles.newCatRow}>
+                                <TextInput
+                                    style={[styles.inputSmall, { flex: 1, backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                    placeholder="Nombre de categoría"
+                                    placeholderTextColor={theme.subText}
+                                    value={newCatName}
+                                    onChangeText={setNewCatName}
+                                    autoFocus
+                                />
+                                <TouchableOpacity style={[styles.addBtnSmall, { backgroundColor: theme.accent }]} onPress={handleAddCategory}>
+                                    <Text style={{ color: '#fff', fontWeight: 'bold' }}>Añadir</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={[styles.cancelBtnSmall]} onPress={() => setIsAddingCategory(false)}>
+                                    <Text style={{ color: theme.subText }}>✕</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
 
                         {(transCategory === 'Me deben' || transCategory === 'Préstamos') && (
                             <View style={[styles.linkedBox, { backgroundColor: theme.inputBackground }]}>
@@ -800,13 +822,6 @@ const styles = StyleSheet.create({
     inputBig: { fontSize: 30, textAlign: 'center', fontWeight: 'bold', marginBottom: 20, borderBottomWidth: 1, borderColor: '#eee', color: '#000' },
     input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10, marginBottom: 10, color: '#000' },
 
-    suggestionsBox: {
-        position: 'absolute', top: 50, left: 0, right: 0,
-        backgroundColor: '#fff', borderWidth: 1, borderColor: '#eee',
-        borderRadius: 8, elevation: 5, maxHeight: 150
-    },
-    suggItem: { padding: 10, borderBottomWidth: 1, borderBottomColor: '#f9f9f9' },
-
     linkedBox: { backgroundColor: '#f9f9f9', padding: 10, borderRadius: 8, marginBottom: 10 },
     label: { marginBottom: 5, color: '#666', fontSize: 12 },
     tab: { flex: 1, padding: 8, alignItems: 'center', borderRadius: 5, backgroundColor: '#eee', marginRight: 5 },
@@ -819,6 +834,42 @@ const styles = StyleSheet.create({
     infoMsg: { color: '#0D47A1', fontSize: 12 },
 
     btnsRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
+    catPickerWrapper: { marginVertical: 15 },
+    catGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+        maxHeight: 180,
+    },
+    catPill: {
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: 'transparent'
+    },
+    catPillText: { fontSize: 13 },
+    newCatRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginTop: 5,
+        marginBottom: 15
+    },
+    inputSmall: {
+        padding: 10,
+        borderRadius: 10,
+        borderWidth: 1,
+        fontSize: 14
+    },
+    addBtnSmall: {
+        paddingVertical: 10,
+        paddingHorizontal: 15,
+        borderRadius: 10,
+    },
+    cancelBtnSmall: {
+        padding: 10
+    },
     cancelBtn: { flex: 1, padding: 12, alignItems: 'center', backgroundColor: '#f5f5f5', borderRadius: 8 },
     saveBtn: { flex: 1, padding: 12, alignItems: 'center', borderRadius: 8 },
     bgGreen: { backgroundColor: '#4CAF50' },

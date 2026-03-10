@@ -61,6 +61,19 @@ class DatabaseService {
         );
       `);
 
+            // Finance Categories (New Table)
+            await this.db.execAsync(`
+        CREATE TABLE IF NOT EXISTS finance_categories (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          icon TEXT,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(user_id, name),
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+      `);
+
             // Entertainment Categories (Series/Anime/Reading)
             await this.db.execAsync(`
         CREATE TABLE IF NOT EXISTS entertainment_categories (
@@ -190,7 +203,9 @@ class DatabaseService {
                 'INSERT INTO users (username, password, current_balance) VALUES (?, ?, 0)',
                 [username, password]
             );
-            return { success: true, id: result.lastInsertRowId };
+            const userId = result.lastInsertRowId;
+            await this.seedDefaultCategories(userId);
+            return { success: true, id: userId };
         } catch (error) {
             if (error.message.includes('UNIQUE constraint failed')) {
                 return { success: false, error: 'El usuario ya existe' };
@@ -417,18 +432,75 @@ class DatabaseService {
         }
     }
 
+    async getCategoryHistory(userId, category, startDate = null, endDate = null) {
+        if (!this.db) await this.init();
+        try {
+            let query = `SELECT * FROM balance_history WHERE user_id = ? AND category = ?`;
+            const params = [userId, category];
+
+            if (startDate) {
+                query += ` AND created_at >= ?`;
+                params.push(startDate);
+            }
+            if (endDate) {
+                query += ` AND created_at <= ?`;
+                params.push(endDate);
+            }
+
+            query += ` ORDER BY created_at DESC`;
+
+            const history = await this.db.getAllAsync(query, params);
+            return { success: true, history };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
     async getDistinctCategories(userId) {
         if (!this.db) await this.init();
         try {
-            const result = await this.db.getAllAsync(
+            // First, get categories from the specific categories table
+            const catResult = await this.db.getAllAsync(
+                `SELECT name FROM finance_categories WHERE user_id = ? ORDER BY name ASC`,
+                [userId]
+            );
+
+            // Also get from history just in case there are legacy categories
+            const histResult = await this.db.getAllAsync(
                 `SELECT DISTINCT category FROM balance_history WHERE user_id = ? ORDER BY category ASC`,
                 [userId]
             );
-            // Returns array of objects: [{category: 'Food'}, {category: 'Salary'}]
-            const categories = result.map(r => r.category);
+
+            const tableCats = catResult.map(r => r.name);
+            const historyCats = histResult.map(r => r.category);
+
+            const categories = Array.from(new Set([...tableCats, ...historyCats]));
             return { success: true, categories };
         } catch (error) {
             return { success: false, error: error.message };
+        }
+    }
+
+    async addFinanceCategory(userId, name) {
+        if (!this.db) await this.init();
+        try {
+            await this.db.runAsync(
+                'INSERT INTO finance_categories (user_id, name) VALUES (?, ?)',
+                [userId, name]
+            );
+            return { success: true };
+        } catch (error) {
+            if (error.message.includes('UNIQUE constraint failed')) {
+                return { success: true }; // Already exists
+            }
+            return { success: false, error: error.message };
+        }
+    }
+
+    async seedDefaultCategories(userId) {
+        const defaults = ['Comida', 'Transporte', 'Sueldo', 'Venta', 'Salud', 'Hogar'];
+        for (const cat of defaults) {
+            await this.addFinanceCategory(userId, cat);
         }
     }
 
