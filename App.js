@@ -15,6 +15,7 @@ import ChapterRegistryScreen from './src/screens/ChapterRegistryScreen';
 import ReadingRegistryScreen from './src/screens/ReadingRegistryScreen';
 import BacklogScreen from './src/screens/BacklogScreen';
 import StatisticsScreen from './src/screens/StatisticsScreen';
+import TrabajoScreen from './src/screens/TrabajoScreen';
 import { ThemeProvider } from './src/contexts/ThemeContext';
 
 export default function App() {
@@ -203,6 +204,13 @@ export default function App() {
             case 'STATISTICS':
               return (
                 <StatisticsScreen
+                  user={user}
+                  onBack={handleBack}
+                />
+              );
+            case 'TRABAJO':
+              return (
+                <TrabajoScreen
                   user={user}
                   onBack={handleBack}
                 />

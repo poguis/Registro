@@ -168,7 +168,8 @@ class DatabaseService {
                 `ALTER TABLE series ADD COLUMN sort_order INTEGER DEFAULT 0;`,
                 `ALTER TABLE series ADD COLUMN initial_season INTEGER DEFAULT 1;`,
                 `ALTER TABLE series ADD COLUMN initial_episode INTEGER DEFAULT 1;`,
-                `ALTER TABLE series ADD COLUMN last_watched_at INTEGER DEFAULT 0;`
+                `ALTER TABLE series ADD COLUMN last_watched_at INTEGER DEFAULT 0;`,
+                `ALTER TABLE work_people ADD COLUMN sort_order INTEGER DEFAULT 0;`
             ];
 
             for (const m of migrations) {
@@ -185,6 +186,20 @@ class DatabaseService {
             } catch (e) {
                 console.error('Non-critical: Error backfilling history:', e);
             }
+
+            // Work People (For Trabajo module)
+            await this.db.execAsync(`
+                CREATE TABLE IF NOT EXISTS work_people (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    start_date TEXT NOT NULL,
+                    cycle TEXT NOT NULL, -- JSON string
+                    sort_order INTEGER DEFAULT 0,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
+            `);
 
             console.log('Database v3 initialized successfully');
             return true;
@@ -1250,6 +1265,74 @@ class DatabaseService {
             await this.db.runAsync('DELETE FROM backlog WHERE id = ?', [id]);
             return { success: true };
         } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    // Work People Methods
+    async getWorkPeople(userId) {
+        if (!this.db) await this.init();
+        try {
+            const result = await this.db.getAllAsync(
+                'SELECT * FROM work_people WHERE user_id = ? ORDER BY sort_order ASC, created_at DESC',
+                [userId]
+            );
+            return { success: true, data: result };
+        } catch (error) {
+            console.error('Error getWorkPeople:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async addWorkPerson(userId, name, startDate, cycle) {
+        if (!this.db) await this.init();
+        try {
+            // Get max sort_order
+            const max = await this.db.getFirstAsync('SELECT MAX(sort_order) as m FROM work_people WHERE user_id = ?', [userId]);
+            const nextOrder = (max?.m || 0) + 1;
+
+            const result = await this.db.runAsync(
+                'INSERT INTO work_people (user_id, name, start_date, cycle, sort_order) VALUES (?, ?, ?, ?, ?)',
+                [userId, name, startDate, cycle, nextOrder]
+            );
+            return { success: true, id: result.lastInsertRowId };
+        } catch (error) {
+            console.error('Error addWorkPerson:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async updateWorkPersonOrder(id, order) {
+        if (!this.db) await this.init();
+        try {
+            await this.db.runAsync('UPDATE work_people SET sort_order = ? WHERE id = ?', [order, id]);
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async updateWorkPerson(id, name, startDate, cycle) {
+        if (!this.db) await this.init();
+        try {
+            await this.db.runAsync(
+                'UPDATE work_people SET name = ?, start_date = ?, cycle = ? WHERE id = ?',
+                [name, startDate, cycle, id]
+            );
+            return { success: true };
+        } catch (error) {
+            console.error('Error updateWorkPerson:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async deleteWorkPerson(id) {
+        if (!this.db) await this.init();
+        try {
+            await this.db.runAsync('DELETE FROM work_people WHERE id = ?', [id]);
+            return { success: true };
+        } catch (error) {
+            console.error('Error deleteWorkPerson:', error);
             return { success: false, error: error.message };
         }
     }

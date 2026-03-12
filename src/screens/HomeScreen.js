@@ -43,6 +43,10 @@ export default function HomeScreen({ user, onLogout, onNavigate }) {
             onNavigate('PENDIENTE');
             return;
         }
+        if (module === 'Trabajo') {
+            onNavigate('TRABAJO');
+            return;
+        }
         Alert.alert('Próximamente', `El módulo de ${module} estará disponible pronto.`);
     };
 
@@ -94,6 +98,14 @@ export default function HomeScreen({ user, onLogout, onNavigate }) {
                     icon="📋"
                     color="#673AB7"
                     onPress={() => handlePress('Pendiente')}
+                    theme={theme}
+                />
+
+                <MenuButton
+                    title="Trabajo"
+                    icon="💼"
+                    color="#FF9800"
+                    onPress={() => handlePress('Trabajo')}
                     theme={theme}
                 />
             </View>

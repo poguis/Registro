@@ -87,16 +87,23 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
 
             if (dateFilter === 'today') {
                 startDate = `${y}-${m}-${d} 00:00:00`;
+                endDate = `${y}-${m}-${d} 23:59:59`;
             } else if (dateFilter === 'week') {
                 const day = now.getDay();
                 const diff = now.getDate() - day + (day === 0 ? -6 : 1);
-                const monday = new Date(now.setDate(diff));
-                const my = monday.getFullYear();
-                const mm = String(monday.getMonth() + 1).padStart(2, '0');
-                const md = String(monday.getDate()).padStart(2, '0');
-                startDate = `${my}-${mm}-${md} 00:00:00`;
+                const monday = new Date(now.getFullYear(), now.getMonth(), diff);
+                const sunday = new Date(monday);
+                sunday.setDate(monday.getDate() + 6);
+                
+                startDate = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')} 00:00:00`;
+                endDate = `${sunday.getFullYear()}-${String(sunday.getMonth() + 1).padStart(2, '0')}-${String(sunday.getDate()).padStart(2, '0')} 23:59:59`;
             } else if (dateFilter === 'month') {
+                const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
                 startDate = `${y}-${m}-01 00:00:00`;
+                endDate = `${y}-${m}-${String(lastDay).padStart(2, '0')} 23:59:59`;
+            } else if (dateFilter === 'year') {
+                startDate = `${y}-01-01 00:00:00`;
+                endDate = `${y}-12-31 23:59:59`;
             } else if (dateFilter === 'custom') {
                 const sy = customRange.start.getFullYear();
                 const sm = String(customRange.start.getMonth() + 1).padStart(2, '0');
@@ -261,7 +268,14 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
 
             if (actionType === 'add') {
                 if (transCategory === 'Me deben') {
-                    // I'm getting money back from someone
+                    // I'm getting money back from someone (Loan Collection)
+                    if (!isNewContact) {
+                        const contact = linkedContacts.find(x => x.id === selectedContactId);
+                        if (contact && val > contact.total) {
+                            Alert.alert('Error', `El monto ($${val}) supera lo que te deben ($${contact.total.toFixed(2)})`);
+                            return;
+                        }
+                    }
                     dbAmount = isNewContact ? val : -val;
                 } else {
                     // I'm borrowing money (Préstamos)
@@ -272,8 +286,14 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                     // I'm lending money to someone (Me deben)
                     dbAmount = val;
                 } else {
-                    // I'm paying my debt (Préstamos)
-                    // If it's a new contact, we initialize the debt as positive (+)
+                    // I'm paying my debt (Préstamos Repayment)
+                    if (!isNewContact) {
+                        const contact = linkedContacts.find(x => x.id === selectedContactId);
+                        if (contact && val > contact.total) {
+                            Alert.alert('Error', `El monto ($${val}) supera tu deuda actual ($${contact.total.toFixed(2)})`);
+                            return;
+                        }
+                    }
                     dbAmount = isNewContact ? val : -val;
                 }
             }

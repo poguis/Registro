@@ -43,15 +43,28 @@ export default function StatisticsScreen({ user, onBack }) {
         const m = String(now.getMonth() + 1).padStart(2, '0');
         const d = String(now.getDate()).padStart(2, '0');
 
-        if (period === 'week') {
+        if (period === 'today') {
+            startDate = `${y}-${m}-${d} 00:00:00`;
+            endDate = `${y}-${m}-${d} 23:59:59`;
+        } else if (period === 'week') {
+            // Monday to Sunday of the current week
             const day = now.getDay();
             const diff = now.getDate() - day + (day === 0 ? -6 : 1);
-            const monday = new Date(now.setDate(diff));
+            const monday = new Date(now.getFullYear(), now.getMonth(), diff);
+            const sunday = new Date(monday);
+            sunday.setDate(monday.getDate() + 6);
+            
             startDate = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')} 00:00:00`;
+            endDate = `${sunday.getFullYear()}-${String(sunday.getMonth() + 1).padStart(2, '0')}-${String(sunday.getDate()).padStart(2, '0')} 23:59:59`;
         } else if (period === 'month') {
+            // 1st to last day of the current month
+            const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
             startDate = `${y}-${m}-01 00:00:00`;
+            endDate = `${y}-${m}-${String(lastDay).padStart(2, '0')} 23:59:59`;
         } else if (period === 'year') {
+            // Jan 1st to Dec 31st of the current year
             startDate = `${y}-01-01 00:00:00`;
+            endDate = `${y}-12-31 23:59:59`;
         } else if (period === 'custom') {
             startDate = `${customRange.start.getFullYear()}-${String(customRange.start.getMonth() + 1).padStart(2, '0')}-${String(customRange.start.getDate()).padStart(2, '0')} 00:00:00`;
             endDate = `${customRange.end.getFullYear()}-${String(customRange.end.getMonth() + 1).padStart(2, '0')}-${String(customRange.end.getDate()).padStart(2, '0')} 23:59:59`;
@@ -100,12 +113,12 @@ export default function StatisticsScreen({ user, onBack }) {
             </View>
 
             <View style={styles.periodSelector}>
-                {['week', 'month', 'year', 'all'].map((p) => (
+                {['today', 'week', 'month', 'year', 'all'].map((p) => (
                     <TouchableOpacity
                         key={p}
                         style={[
                             styles.periodBtn,
-                            period === p && { backgroundColor: theme.accent }
+                            { backgroundColor: period === p ? theme.accent : theme.inputBackground }
                         ]}
                         onPress={() => setPeriod(p)}
                     >
@@ -113,7 +126,7 @@ export default function StatisticsScreen({ user, onBack }) {
                             styles.periodText,
                             { color: period === p ? '#fff' : theme.subText }
                         ]}>
-                            {p === 'week' ? 'Sem' : p === 'month' ? 'Mes' : p === 'year' ? 'Año' : 'Todo'}
+                            {p === 'today' ? 'Hoy' : p === 'week' ? 'Sem' : p === 'month' ? 'Mes' : p === 'year' ? 'Año' : 'Todo'}
                         </Text>
                     </TouchableOpacity>
                 ))}
@@ -296,17 +309,29 @@ export default function StatisticsScreen({ user, onBack }) {
                             data={categoryHistory}
                             keyExtractor={(item) => item.id.toString()}
                             contentContainerStyle={{ padding: 15 }}
-                            renderItem={({ item }) => (
-                                <View style={[styles.historyItem, { borderBottomColor: theme.border }]}>
-                                    <View>
-                                        <Text style={[styles.historyLabel, { color: theme.text }]}>{item.label || 'Sin etiqueta'}</Text>
-                                        <Text style={[styles.historyDate, { color: theme.subText }]}>{item.created_at}</Text>
+                            renderItem={({ item }) => {
+                                // Format time from created_at
+                                const timeStr = new Date(item.created_at.replace(' ', 'T') + 'Z').toLocaleTimeString('es-ES', {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                    hour12: true,
+                                    timeZone: 'America/Guayaquil'
+                                });
+
+                                return (
+                                    <View style={[styles.historyItem, { borderBottomColor: theme.border }]}>
+                                        <View>
+                                            <Text style={[styles.historyLabel, { color: theme.text }]}>
+                                                {item.description || selectedCategory}
+                                            </Text>
+                                            <Text style={[styles.historyDate, { color: theme.subText }]}>{timeStr}</Text>
+                                        </View>
+                                        <Text style={[styles.historyAmount, { color: item.amount > 0 ? '#4CAF50' : '#F44336' }]}>
+                                            {item.amount > 0 ? '+' : '-'}${Math.abs(item.amount).toFixed(2)}
+                                        </Text>
                                     </View>
-                                    <Text style={[styles.historyAmount, { color: item.amount > 0 ? '#4CAF50' : '#F44336' }]}>
-                                        {item.amount > 0 ? '+' : '-'}${Math.abs(item.amount).toFixed(2)}
-                                    </Text>
-                                </View>
-                            )}
+                                );
+                            }}
                             ListEmptyComponent={<Text style={[styles.empty, { color: theme.subText, marginTop: 50 }]}>No hay movimientos registrados</Text>}
                         />
                     </View>
@@ -328,16 +353,16 @@ const styles = StyleSheet.create({
     headerTitle: { fontSize: 18, fontWeight: 'bold' },
     periodSelector: {
         flexDirection: 'row',
-        padding: 15,
-        gap: 10,
+        paddingVertical: 15,
+        paddingHorizontal: 10,
+        gap: 6,
         justifyContent: 'center'
     },
     periodBtn: {
-        paddingHorizontal: 15,
+        paddingHorizontal: 8,
         paddingVertical: 8,
         borderRadius: 20,
-        backgroundColor: '#eee',
-        minWidth: 70,
+        minWidth: 55,
         alignItems: 'center'
     },
     periodText: { fontSize: 13, fontWeight: '600' },
