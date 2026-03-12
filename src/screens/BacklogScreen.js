@@ -44,8 +44,8 @@ export default function BacklogScreen({ user, onBack }) {
     const [editingItem, setEditingItem] = useState(null);
 
     // Sort states
-    const [sortBy, setSortBy] = useState('title'); // 'title', 'year_start'
-    const [order, setOrder] = useState('ASC'); // 'ASC', 'DESC'
+    const [sortBy, setSortBy] = useState('created_at'); // 'title', 'year_start', 'created_at'
+    const [order, setOrder] = useState('DESC'); // 'ASC', 'DESC'
 
     // Form state
     const [formData, setFormData] = useState({
@@ -154,73 +154,59 @@ export default function BacklogScreen({ user, onBack }) {
     };
 
     const renderItem = ({ item }) => (
-        <View style={[styles.itemCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            {/* Title Row - Full Width */}
-            <View style={{ marginBottom: 12 }}>
-                <Text style={[styles.itemTitle, { color: theme.text }]}>{item.title}</Text>
-            </View>
+        <TouchableOpacity 
+            style={[styles.itemCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+            onPress={() => handleUpdateStatus(item)}
+            activeOpacity={0.7}
+        >
+            <View style={styles.cardMain}>
+                <View style={styles.cardHeader}>
+                    <Text style={[styles.itemTitle, { color: theme.text }]}>{item.title}</Text>
+                    <View style={[
+                        styles.statusDot, 
+                        { backgroundColor: STATUS_COLORS[item.status] }
+                    ]} />
+                </View>
 
-            {/* Bottom Row: Status/Details (Left) and Actions (Right) */}
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-
-                {/* Left Side: Status & Metadata */}
-                <View style={{ flex: 1, marginRight: 10 }}>
-                    {/* Status Badge */}
-                    <View style={{ flexDirection: 'row', marginBottom: 6 }}>
-                        <TouchableOpacity
-                            onPress={() => handleUpdateStatus(item)}
-                            style={[
-                                styles.statusBadge,
-                                {
-                                    backgroundColor: STATUS_COLORS[item.status] + '20',
-                                    borderColor: STATUS_COLORS[item.status]
-                                }
-                            ]}
-                        >
-                            <Text style={[styles.statusText, { color: STATUS_COLORS[item.status] }]}>
-                                {item.status}
-                            </Text>
-                        </TouchableOpacity>
-                    </View>
-
-                    {/* Metadata Details */}
-                    <View style={styles.itemDetails}>
+                <View style={styles.cardFooter}>
+                    <View style={styles.metadataContainer}>
                         {activeTab === 'movie' && item.year && (
-                            <Text style={[styles.itemSubtext, { color: theme.subText }]}>Año: {item.year}</Text>
+                            <Text style={[styles.itemSubtext, { color: theme.subText }]}>🎬 {item.year}</Text>
                         )}
                         {activeTab === 'series' && (
                             <>
-                                <Text style={[styles.itemSubtext, { color: theme.subText }]}>{item.format}</Text>
+                                <Text style={[styles.itemSubtext, { color: theme.subText }]}>📺 {item.format}</Text>
                                 {(item.start_year || item.end_year) && (
                                     <Text style={[styles.itemSubtext, { color: theme.subText }]}>
-                                        {item.start_year || '?'}{item.end_year ? ` - ${item.end_year}` : '...'}
+                                        📅 {item.start_year || '?'}{item.end_year ? ` - ${item.end_year}` : '...'}
                                     </Text>
                                 )}
                             </>
                         )}
                         {activeTab === 'anime' && (item.start_year || item.end_year) && (
                             <Text style={[styles.itemSubtext, { color: theme.subText }]}>
-                                {item.start_year || '?'}{item.end_year ? ` - ${item.end_year}` : '...'}
+                                🎋 {item.start_year || '?'}{item.end_year ? ` - ${item.end_year}` : '...'}
                             </Text>
                         )}
                         {activeTab === 'reading' && item.start_year && (
-                            <Text style={[styles.itemSubtext, { color: theme.subText }]}>Inicio: {item.start_year}</Text>
+                            <Text style={[styles.itemSubtext, { color: theme.subText }]}>📚 {item.start_year}</Text>
                         )}
+                        <Text style={[styles.dateText, { color: theme.subText }]}>
+                            ⏱️ {new Date(item.created_at).toLocaleDateString()}
+                        </Text>
+                    </View>
+
+                    <View style={styles.cardIcons}>
+                        <TouchableOpacity onPress={(e) => { e.stopPropagation(); handleEditPress(item); }} style={styles.miniActionBtn}>
+                            <Text style={{ fontSize: 16 }}>✏️</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={(e) => { e.stopPropagation(); handleDeleteItem(item.id); }} style={styles.miniActionBtn}>
+                            <Text style={{ fontSize: 16 }}>🗑️</Text>
+                        </TouchableOpacity>
                     </View>
                 </View>
-
-                {/* Right Side: Actions */}
-                <View style={styles.itemActions}>
-                    <TouchableOpacity onPress={() => handleEditPress(item)} style={styles.actionBtn}>
-                        <Text style={{ fontSize: 18 }}>✏️</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity onPress={() => handleDeleteItem(item.id)} style={styles.actionBtn}>
-                        <Text style={{ fontSize: 18 }}>🗑️</Text>
-                    </TouchableOpacity>
-                </View>
             </View>
-        </View>
+        </TouchableOpacity>
     );
 
     const currentCat = CATEGORIES.find(c => c.id === activeTab);
@@ -337,6 +323,12 @@ export default function BacklogScreen({ user, onBack }) {
                                 onPress={() => setSortBy('year_start')}
                             >
                                 <Text style={[styles.filterOptionText, sortBy === 'year_start' && { color: '#fff' }]}>Año</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.filterOption, sortBy === 'created_at' && { backgroundColor: theme.accent }]}
+                                onPress={() => setSortBy('created_at')}
+                            >
+                                <Text style={[styles.filterOptionText, sortBy === 'created_at' && { color: '#fff' }]}>Fecha</Text>
                             </TouchableOpacity>
                         </View>
 
@@ -553,30 +545,57 @@ const styles = StyleSheet.create({
     tabLabel: { fontSize: 14, fontWeight: 'bold' },
     listContent: { padding: 15, paddingBottom: 100 },
     itemCard: {
-        padding: 15,
-        borderRadius: 20,
-        marginBottom: 12,
+        borderRadius: 15,
+        marginBottom: 10,
         borderWidth: 1,
-        elevation: 3,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 5,
+        overflow: 'hidden',
     },
-    itemHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    itemTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 4 },
-    itemDetails: { flexDirection: 'row', flexWrap: 'wrap' },
-    itemSubtext: { fontSize: 13, marginRight: 15, marginTop: 2 },
-    itemActions: { flexDirection: 'row', alignItems: 'center' },
-    statusBadge: {
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 12,
-        borderWidth: 1,
-        marginRight: 8,
+    cardMain: {
+        padding: 12,
     },
-    statusText: { fontSize: 11, fontWeight: 'bold' },
-    actionBtn: { padding: 8 },
+    cardHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 8,
+    },
+    itemTitle: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        flex: 1,
+        marginRight: 10,
+    },
+    statusDot: {
+        width: 10,
+        height: 10,
+        borderRadius: 5,
+    },
+    cardFooter: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+    },
+    metadataContainer: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        flex: 1,
+        alignItems: 'center',
+    },
+    itemSubtext: {
+        fontSize: 12,
+        marginRight: 12,
+    },
+    dateText: {
+        fontSize: 11,
+        fontStyle: 'italic',
+    },
+    cardIcons: {
+        flexDirection: 'row',
+        gap: 8,
+    },
+    miniActionBtn: {
+        padding: 4,
+    },
     fab: {
         position: 'absolute',
         bottom: 30,

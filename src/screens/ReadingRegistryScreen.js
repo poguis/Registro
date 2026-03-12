@@ -24,21 +24,55 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
             if (seriesResult.success) {
                 setRawSeries(seriesResult.data);
                 const freq = category.frequency, startStr = category.start_date, dOfWeek = category.days_of_week;
-                const getValidDays = (s, dw) => {
+                const isDatePaused = (date, pauses) => {
+                    if (!pauses || pauses.length === 0) return false;
+                    const dStr = date.toISOString().split('T')[0];
+                    return pauses.some(p => {
+                        const start = p.pause_start;
+                        const end = p.pause_end || '9999-12-31';
+                        return dStr >= start && dStr <= end;
+                    });
+                };
+                const getValidDays = (s, dw, history = []) => {
                     if (!s) return 0;
+                    
                     const now = new Date(); now.setHours(0, 0, 0, 0);
                     const [y, m, d] = s.split('-').map(Number);
                     const start = new Date(y, m - 1, d);
                     if (start > now) return 0;
+                    
                     let c = 0, curr = new Date(start);
+                    const pauses = category?.pauses || [];
+                    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
                     while (curr <= now) {
-                        const dayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][curr.getDay()];
-                        if (dw.includes(dayName)) c++;
+                        if (!isDatePaused(curr, pauses)) {
+                            const dStr = curr.toISOString().split('T')[0];
+                            let activeQuotas = null;
+
+                            if (history && history.length > 0) {
+                                const record = history.find(h => dStr >= h.start_date && dStr <= (h.end_date || '9999-12-31'));
+                                if (record) activeQuotas = record.quotas;
+                            }
+
+                            if (!activeQuotas) {
+                                try {
+                                    activeQuotas = typeof dw === 'string' ? JSON.parse(dw || '[]') : dw;
+                                } catch (e) { activeQuotas = []; }
+                            }
+
+                            const dayName = dayNames[curr.getDay()];
+                            if (Array.isArray(activeQuotas)) {
+                                if (activeQuotas.includes(dayName)) c++;
+                            } else if (activeQuotas && activeQuotas[dayName] > 0) {
+                                c++;
+                            }
+                        }
                         curr.setDate(curr.getDate() + 1);
                     }
                     return c;
                 };
-                const validDays = getValidDays(startStr, dOfWeek);
+                const validDays = getValidDays(startStr, dOfWeek, category?.quotas_history);
                 let targetTotal = freq > 0 ? (validDays * freq) : Math.floor(validDays / Math.abs(freq));
                 let totalRead = 0;
                 seriesResult.data.forEach(s => {

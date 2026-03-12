@@ -144,7 +144,9 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
     const [name, setName] = useState('');
     const [type, setType] = useState('video');
     const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
-    const [selectedDays, setSelectedDays] = useState([]);
+    const [selectedDays, setSelectedDays] = useState({
+        Monday: 0, Tuesday: 0, Wednesday: 0, Thursday: 0, Friday: 0, Saturday: 0, Sunday: 0
+    });
     const [frequency, setFrequency] = useState('');
     const [seriesCount, setSeriesCount] = useState('');
     const [description, setDescription] = useState('');
@@ -171,12 +173,18 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
             setType(item.type);
             setStartDate(item.start_date || new Date().toISOString().split('T')[0]);
 
-            // Handle array of days if it comes as JSON string or array
-            let days = [];
+            // Handle daily quotas (stored as JSON object)
+            let days = { Monday: 0, Tuesday: 0, Wednesday: 0, Thursday: 0, Friday: 0, Saturday: 0, Sunday: 0 };
             try {
-                days = typeof item.days_of_week === 'string' ? JSON.parse(item.days_of_week) : item.days_of_week;
-            } catch (e) { days = []; }
-            setSelectedDays(days || []);
+                const parsedDays = typeof item.days_of_week === 'string' ? JSON.parse(item.days_of_week) : item.days_of_week;
+                if (Array.isArray(parsedDays)) {
+                    // Migrate from old array format
+                    parsedDays.forEach(d => { if (days.hasOwnProperty(d)) days[d] = 1; });
+                } else if (parsedDays && typeof parsedDays === 'object') {
+                    days = { ...days, ...parsedDays };
+                }
+            } catch (e) { console.error("Error parsing days", e); }
+            setSelectedDays(days);
 
             setFrequency(String(item.frequency || ''));
             setSeriesCount(String(item.series_count || ''));
@@ -187,7 +195,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
             setName('');
             setType('video');
             setStartDate(new Date().toISOString().split('T')[0]);
-            setSelectedDays([]);
+            setSelectedDays({ Monday: 0, Tuesday: 0, Wednesday: 0, Thursday: 0, Friday: 0, Saturday: 0, Sunday: 0 });
             setFrequency('');
             setSeriesCount('');
             setDescription('');
@@ -195,12 +203,21 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
         setModalVisible(true);
     };
 
+    const updateDayQuota = (dayKey, value) => {
+        setSelectedDays(prev => ({
+            ...prev,
+            [dayKey]: parseInt(value) || 0
+        }));
+    };
+
     const toggleDay = (dayKey) => {
-        if (selectedDays.includes(dayKey)) {
-            setSelectedDays(selectedDays.filter(d => d !== dayKey));
-        } else {
-            setSelectedDays([...selectedDays, dayKey]);
-        }
+        if (type === 'video') return; // Should not be called for video in new UI
+        
+        // For reading, we treat selectedDays as a map where 1 is selected
+        setSelectedDays(prev => ({
+            ...prev,
+            [dayKey]: prev[dayKey] ? 0 : 1
+        }));
     };
 
     const handleSave = async () => {
@@ -215,7 +232,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
             startDate,
             daysOfWeek: selectedDays,
             frequency: parseInt(frequency) || 0,
-            seriesCount: parseInt(seriesCount) || 0,
+            seriesCount: seriesCount === '' ? null : (parseInt(seriesCount) || 0),
             description
         };
 
@@ -232,6 +249,26 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
             Alert.alert('Éxito', isEditing ? 'Actualizado correctamente' : 'Guardado correctamente');
         } else {
             Alert.alert('Error', result.error || 'No se pudo guardar la información');
+        }
+    };
+
+    const handleTogglePause = async (item) => {
+        const today = new Date().toISOString().split('T')[0];
+        let result;
+        if (item.is_paused) {
+            // Para reanudar hoy, la pausa terminó ayer
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayStr = yesterday.toISOString().split('T')[0];
+            result = await db.resumeCategory(item.id, yesterdayStr);
+        } else {
+            result = await db.pauseCategory(item.id, today);
+        }
+
+        if (result.success) {
+            fetchCategories();
+        } else {
+            Alert.alert('Error', 'No se pudo cambiar el estado de pausa');
         }
     };
 
@@ -253,15 +290,17 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
         );
     };
 
-    const calculateBacklog = (startStr, freq, daysOfWeek, totalWatched = 0, type = 'video') => {
-        if (!startStr || !freq) return null;
-
-        let daysArray = [];
-        try {
-            daysArray = typeof daysOfWeek === 'string' ? JSON.parse(daysOfWeek) : daysOfWeek;
-        } catch (e) { daysArray = []; }
-
-        if (!daysArray || daysArray.length === 0) return null;
+    const isDatePaused = (date, pauses) => {
+        if (!pauses || pauses.length === 0) return false;
+        const dStr = date.toISOString().split('T')[0];
+        return pauses.some(p => {
+            const start = p.pause_start;
+            const end = p.pause_end || '9999-12-31';
+            return dStr >= start && dStr <= end;
+        });
+    };
+    const calculateBacklog = (startStr, freq, daysOfWeek, totalWatched = 0, type = 'video', pauses = [], history = []) => {
+        if (!startStr) return null;
 
         const now = new Date();
         now.setHours(0, 0, 0, 0);
@@ -269,68 +308,141 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
         const [y, m, d] = startStr.split('-').map(Number);
         const start = new Date(y, m - 1, d);
 
-        if (start > now) return { diffDays: 0, backlogItems: 0, unit: '' };
-
-        let validDaysPassed = 0;
-        let current = new Date(start);
-
-        while (current <= now) {
-            const dayIndex = current.getDay();
-            const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-            const dayName = dayMap[dayIndex];
-
-            if (daysArray.includes(dayName)) {
-                validDaysPassed++;
-            }
-            current.setDate(current.getDate() + 1);
-        }
+        if (start > now) return { diffDays: 0, backlogItems: 0, unit: type === 'video' ? 'Caps' : 'Tomos' };
 
         let targetItems = 0;
+        let current = new Date(start);
+        const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-        if (freq > 0) {
-            // Lógica normal: X items por día
-            targetItems = validDaysPassed * freq;
-        } else if (freq < 0) {
-            // Lógica Lectura (inversa): 1 item cada X días
-            // Usamos Math.floor para que el item solo "venza" cuando se cumple el ciclo completo
-            // Ej: Freq -3. Día 1, 2 = 0 items. Día 3 = 1 item.
-            const daysPerItem = Math.abs(freq);
-            targetItems = Math.floor(validDaysPassed / daysPerItem);
+        // Helper to get quotas for a specific date
+        const getQuotasForDate = (date) => {
+            const dStr = date.toISOString().split('T')[0];
+            
+            // 1. Check History first
+            if (history && history.length > 0) {
+                const record = history.find(h => {
+                    const hStart = h.start_date;
+                    const hEnd = h.end_date || '9999-12-31';
+                    return dStr >= hStart && dStr <= hEnd;
+                });
+                if (record) return record.quotas;
+            }
+
+            // 2. Fallback to current daysOfWeek
+            let q = { Monday: 0, Tuesday: 0, Wednesday: 0, Thursday: 0, Friday: 0, Saturday: 0, Sunday: 0 };
+            try {
+                const parsed = typeof daysOfWeek === 'string' ? JSON.parse(daysOfWeek) : daysOfWeek;
+                if (Array.isArray(parsed)) {
+                    parsed.forEach(day => { if (q.hasOwnProperty(day)) q[day] = freq || 0; });
+                } else if (parsed && typeof parsed === 'object') {
+                    q = { ...q, ...parsed };
+                }
+            } catch (e) {}
+            return q;
+        };
+
+        if (type === 'video') {
+            // Video logic: Sum quotas for each day passed using history if available
+            while (current <= now) {
+                if (!isDatePaused(current, pauses)) {
+                    const dayName = dayMap[current.getDay()];
+                    const activeQuotas = getQuotasForDate(current);
+                    targetItems += activeQuotas[dayName] || 0;
+                }
+                current.setDate(current.getDate() + 1);
+            }
+        } else {
+            // Lecture/Reading logic (stays original but skips pauses)
+            if (!freq) return null;
+            let validDaysPassed = 0;
+            while (current <= now) {
+                if (!isDatePaused(current, pauses)) {
+                    const dayName = dayMap[current.getDay()];
+                    const activeQuotas = getQuotasForDate(current);
+                    // For reading, activeQuotas might be an array (legacy) or object
+                    if (Array.isArray(activeQuotas)) {
+                        if (activeQuotas.includes(dayName)) validDaysPassed++;
+                    } else if (activeQuotas && activeQuotas[dayName] > 0) {
+                        validDaysPassed++;
+                    }
+                }
+                current.setDate(current.getDate() + 1);
+            }
+            
+            if (freq > 0) {
+                targetItems = validDaysPassed * freq;
+            } else {
+                targetItems = Math.floor(validDaysPassed / Math.abs(freq));
+            }
         }
 
         let backlogItems = targetItems - totalWatched;
         if (backlogItems < 0) backlogItems = 0;
 
-        // Days of Atraso calculation
+        // Days of Atraso calculation: Count backward from now
         let daysAtraso = 0;
-        if (freq > 0) {
-            daysAtraso = Math.ceil(backlogItems / freq);
-        } else if (freq < 0) {
-            // Si debo 2 tomos, y leo 1 cada 3 días, necesito 6 días para ponerme al día.
-            daysAtraso = backlogItems * Math.abs(freq);
+        if (backlogItems > 0) {
+            let tempBacklog = backlogItems;
+            let checkDate = new Date(now);
+            const safetyMax = 3650; // 10 years
+            let safety = 0;
+
+            while (tempBacklog > 0 && safety < safetyMax) {
+                if (!isDatePaused(checkDate, pauses)) {
+                    const activeQuotas = getQuotasForDate(checkDate);
+                    const dayName = dayMap[checkDate.getDay()];
+                    let quotaForDay = 0;
+
+                    if (type === 'video') {
+                        quotaForDay = activeQuotas[dayName] || 0;
+                    } else {
+                        let isActive = false;
+                        if (Array.isArray(activeQuotas)) {
+                            isActive = activeQuotas.includes(dayName);
+                        } else if (activeQuotas && activeQuotas[dayName] > 0) {
+                            isActive = true;
+                        }
+                        if (isActive) {
+                            quotaForDay = Math.abs(freq) || 1;
+                        }
+                    }
+
+                    if (quotaForDay > 0) {
+                        tempBacklog -= quotaForDay;
+                        daysAtraso++;
+                    }
+                }
+                
+                checkDate.setDate(checkDate.getDate() - 1);
+                safety++;
+
+                // Stop if we go before start_date
+                if (checkDate.toISOString().split('T')[0] < startStr) break;
+            }
         }
 
-        let unitLabel = 'Items';
-        if (type === 'video') unitLabel = 'Caps';
-        if (type === 'reading') unitLabel = 'Tomos';
-
+        let unitLabel = type === 'video' ? 'Caps' : 'Tomos';
         return { diffDays: daysAtraso, backlogItems, unit: unitLabel };
     };
 
     const renderItem = ({ item }) => {
-        // Parse days
-        let days = [];
+        // Parse quotas
+        let quotas = {};
         try {
-            days = typeof item.days_of_week === 'string' ? JSON.parse(item.days_of_week) : item.days_of_week;
-        } catch (e) { days = []; }
+            quotas = typeof item.days_of_week === 'string' ? JSON.parse(item.days_of_week) : item.days_of_week;
+            if (Array.isArray(quotas)) {
+                // Legacy display
+                const dayLabels = quotas.map(dKey => DAYS.find(d => d.key === dKey)?.label).join(', ');
+                item._displayDays = dayLabels;
+            } else {
+                const dayLabels = (item.type === 'video') 
+                    ? DAYS.filter(d => quotas[d.key] > 0).map(d => `${d.label}(${quotas[d.key]})`).join(' ')
+                    : DAYS.filter(d => quotas[d.key] > 0).map(d => d.label).join(', ');
+                item._displayDays = dayLabels;
+            }
+        } catch (e) { item._displayDays = 'No definido'; }
 
-        // Get day labels
-        const dayLabels = days.map(dKey => {
-            const dayObj = DAYS.find(d => d.key === dKey);
-            return dayObj ? dayObj.label : '';
-        }).join(', ');
-
-        const calc = calculateBacklog(item.start_date, item.frequency, item.days_of_week, item.totalWatched, item.type);
+        const calc = calculateBacklog(item.start_date, item.frequency, item.days_of_week, item.totalWatched, item.type, item.pauses, item.quotas_history);
 
         return (
             <TouchableOpacity
@@ -342,14 +454,23 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                         <Text style={{ fontSize: 20 }}>{item.type === 'video' ? '🎬' : '📚'}</Text>
                     </View>
                     <View style={{ flex: 1, marginLeft: 10 }}>
-                        <Text style={[styles.cardTitle, { color: theme.text }]}>{item.name}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Text style={[styles.cardTitle, { color: theme.text }]}>{item.name}</Text>
+                            {item.is_paused && (
+                                <View style={styles.pausedBadge}>
+                                    <Text style={styles.pausedBadgeText}>PAUSADO</Text>
+                                </View>
+                            )}
+                        </View>
 
                         {/* Info Rows */}
                         <Text style={[styles.cardInfoRow, { color: theme.subText }]}>📅 Inicio: {item.start_date}</Text>
-                        <Text style={[styles.cardInfoRow, { color: theme.subText }]}>📆 Días: {dayLabels || 'No definido'}</Text>
-                        <Text style={[styles.cardInfoRow, { color: theme.subText }]}>
-                            ⏱️ Frecuencia: {item.frequency < 0 ? `1 cada ${Math.abs(item.frequency)} días` : `${item.frequency} / día`}
-                        </Text>
+                        <Text style={[styles.cardInfoRow, { color: theme.subText }]}>{item.type === 'video' ? '📆 Cuotas:' : '📆 Días:'} {item._displayDays || 'No definido'}</Text>
+                        {item.type === 'reading' && (
+                            <Text style={[styles.cardInfoRow, { color: theme.subText }]}>
+                                ⏱️ Frecuencia: {item.frequency < 0 ? `1 cada ${Math.abs(item.frequency)} días` : `${item.frequency} / día`}
+                            </Text>
+                        )}
 
                         {/* Calculation Result */}
                         {calc && (
@@ -373,6 +494,17 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                             }}
                         >
                             <Text style={styles.iconButtonText}>✏️</Text>
+                        </TouchableOpacity>
+
+                        {/* Pause Toggle Button */}
+                        <TouchableOpacity
+                            style={[styles.iconButton, { marginLeft: 10 }]}
+                            onPress={(e) => {
+                                e.stopPropagation();
+                                handleTogglePause(item);
+                            }}
+                        >
+                            <Text style={styles.iconButtonText}>{item.is_paused ? '▶️' : '⏸️'}</Text>
                         </TouchableOpacity>
 
                         {/* Delete Button */}
@@ -489,54 +621,95 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                                 <Text style={[styles.dateButtonText, { color: theme.text }]}>📅 {startDate || 'Seleccionar Fecha'}</Text>
                             </TouchableOpacity>
 
-                            {/* Days of Week */}
-                            <Text style={[styles.label, { color: theme.text }]}>Días</Text>
-                            <View style={styles.daysContainer}>
-                                {DAYS.map((day) => (
-                                    <TouchableOpacity
-                                        key={day.key}
-                                        style={[
-                                            styles.dayButton,
-                                            selectedDays.includes(day.key) && styles.dayButtonActive
-                                        ]}
-                                        onPress={() => toggleDay(day.key)}
-                                    >
-                                        <Text style={[
-                                            styles.dayText,
-                                            { color: theme.text },
-                                            selectedDays.includes(day.key) && styles.dayTextActive
-                                        ]}>
-                                            {day.label}
-                                        </Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
+                            {/* Days Selection logic based on type */}
+                            {type === 'video' ? (
+                                <>
+                                    <Text style={[styles.label, { color: theme.text }]}>Cuota por Día (Capítulos)</Text>
+                                    <View style={styles.daysQuotasContainer}>
+                                        {DAYS.map((day) => (
+                                            <View key={day.key} style={styles.dayQuotaItem}>
+                                                <Text style={[styles.dayLabelShort, { color: theme.text }]}>{day.label}</Text>
+                                                <TextInput
+                                                    style={[styles.dayQuotaInput, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                                    keyboardType="numeric"
+                                                    value={String(selectedDays[day.key] || 0)}
+                                                    onChangeText={(val) => updateDayQuota(day.key, val)}
+                                                    selectTextOnFocus
+                                                />
+                                            </View>
+                                        ))}
+                                    </View>
+                                </>
+                            ) : (
+                                <>
+                                    <Text style={[styles.label, { color: theme.text }]}>Días</Text>
+                                    <View style={styles.daysContainer}>
+                                        {DAYS.map((day) => (
+                                            <TouchableOpacity
+                                                key={day.key}
+                                                style={[
+                                                    styles.dayButton,
+                                                    selectedDays[day.key] > 0 && styles.dayButtonActive
+                                                ]}
+                                                onPress={() => toggleDay(day.key)}
+                                            >
+                                                <Text style={[
+                                                    styles.dayText,
+                                                    { color: theme.text },
+                                                    selectedDays[day.key] > 0 && styles.dayTextActive
+                                                ]}>
+                                                    {day.label}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                </>
+                            )}
 
-                            {/* Frequency & Count Row */}
-                            <View style={styles.row}>
-                                <View style={styles.halfInput}>
-                                    <Text style={[styles.label, { color: theme.text }]}>Frecuencia</Text>
-                                    <TextInput
-                                        style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
-                                        placeholder={type === 'reading' ? "Ej: -3 (1/3 días)" : "Ej: 2 (2/día)"}
-                                        placeholderTextColor={theme.subText}
-                                        keyboardType="numbers-and-punctuation"
-                                        value={frequency}
-                                        onChangeText={setFrequency}
-                                    />
+                            {/* Frequency (Only for Reading now or special cases) */}
+                            {type === 'reading' && (
+                                <View style={styles.row}>
+                                    <View style={styles.halfInput}>
+                                        <Text style={[styles.label, { color: theme.text }]}>Frecuencia Lectura</Text>
+                                        <TextInput
+                                            style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                            placeholder="Ej: -3 (1 cada 3 días)"
+                                            placeholderTextColor={theme.subText}
+                                            keyboardType="numbers-and-punctuation"
+                                            value={frequency}
+                                            onChangeText={setFrequency}
+                                        />
+                                        <Text style={styles.hintText}>Usa negativo (ej -3) para leer cada X días.</Text>
+                                    </View>
+                                    <View style={styles.halfInput}>
+                                        <Text style={[styles.label, { color: theme.text }]}>Límite (Viendo)</Text>
+                                        <TextInput
+                                            style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                            placeholder="0"
+                                            placeholderTextColor={theme.subText}
+                                            keyboardType="numeric"
+                                            value={seriesCount}
+                                            onChangeText={setSeriesCount}
+                                        />
+                                    </View>
                                 </View>
-                                <View style={styles.halfInput}>
-                                    <Text style={[styles.label, { color: theme.text }]}>Límite (Viendo)</Text>
-                                    <TextInput
-                                        style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
-                                        placeholder="0"
-                                        placeholderTextColor={theme.subText}
-                                        keyboardType="numeric"
-                                        value={seriesCount}
-                                        onChangeText={setSeriesCount}
-                                    />
+                            )}
+
+                            {type === 'video' && (
+                                <View style={styles.row}>
+                                    <View style={styles.fullWidth}>
+                                        <Text style={[styles.label, { color: theme.text }]}>Límite Simultáneo (Viendo)</Text>
+                                        <TextInput
+                                            style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                            placeholder="Cuántas series puedes ver a la vez (0 = sin límite)"
+                                            placeholderTextColor={theme.subText}
+                                            keyboardType="numeric"
+                                            value={seriesCount}
+                                            onChangeText={setSeriesCount}
+                                        />
+                                    </View>
                                 </View>
-                            </View>
+                            )}
 
                             {/* Description */}
                             <Text style={[styles.label, { color: theme.text }]}>Descripción</Text>
@@ -780,6 +953,33 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         marginBottom: 15,
     },
+    daysQuotasContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: 5,
+        marginBottom: 15,
+    },
+    dayQuotaItem: {
+        alignItems: 'center',
+        width: '12%',
+    },
+    dayLabelShort: {
+        fontSize: 12,
+        fontWeight: 'bold',
+        marginBottom: 5,
+    },
+    dayQuotaInput: {
+        width: '100%',
+        padding: 5,
+        borderRadius: 8,
+        borderWidth: 1,
+        textAlign: 'center',
+        fontSize: 14,
+    },
+    fullWidth: {
+        flex: 1,
+    },
     dayButton: {
         width: 35,
         height: 35,
@@ -970,5 +1170,17 @@ const styles = StyleSheet.create({
     },
     iconButtonText: {
         fontSize: 20,
+    },
+    pausedBadge: {
+        backgroundColor: '#FF5252',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 4,
+        marginLeft: 8,
+    },
+    pausedBadgeText: {
+        color: '#fff',
+        fontSize: 10,
+        fontWeight: 'bold',
     },
 });

@@ -58,13 +58,83 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
         let totalBacklogDays = 0;
         let totalBacklogItems = 0;
         if (category) {
-            const { start_date, frequency, days_of_week } = category;
-            const scheduleCalc = calculateScheduleDays(start_date, days_of_week);
-            const targetTotal = scheduleCalc.validDays * frequency;
+            const { start_date, frequency, days_of_week, type } = category;
+            let targetTotal = 0;
+            const dOfWeek = days_of_week; // Renamed for clarity with new function signature
+            const startStr = start_date; // Renamed for clarity with new function signature
+
+            if (type === 'video') {
+                targetTotal = calculateQuotasPassed(startStr, dOfWeek, category?.quotas_history);
+            } else {
+                if (!category?.frequency) return; // Ensure frequency exists for reading type
+                const scheduleCalc = calculateScheduleDays(startStr, dOfWeek, category?.quotas_history);
+                targetTotal = (frequency > 0) ? (scheduleCalc.validDays * frequency) : Math.floor(scheduleCalc.validDays / Math.abs(frequency || 1));
+            }
+
             let totalWatchedSinceStart = 0;
             seriesList.forEach(s => { totalWatchedSinceStart += getWatchedCountSinceStart(s); });
             totalBacklogItems = Math.max(0, targetTotal - totalWatchedSinceStart);
-            totalBacklogDays = Math.ceil(totalBacklogItems / frequency);
+            
+            let bDays = 0;
+            if (totalBacklogItems > 0) {
+                let tempBacklog = totalBacklogItems;
+                let checkDate = new Date();
+                checkDate.setHours(0, 0, 0, 0);
+                const safetyMax = 3650;
+                let safety = 0;
+                const history = category?.quotas_history || [];
+                const pauses = category?.pauses || [];
+                const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+                while (tempBacklog > 0 && safety < safetyMax) {
+                    if (!isDatePaused(checkDate, pauses)) {
+                        const dStr = checkDate.toISOString().split('T')[0];
+                        let activeQuotas = null;
+
+                        if (history.length > 0) {
+                            const record = history.find(h => dStr >= h.start_date && dStr <= (h.end_date || '9999-12-31'));
+                            if (record) activeQuotas = record.quotas;
+                        }
+
+                        if (!activeQuotas) {
+                            try {
+                                const parsed = typeof dOfWeek === 'string' ? JSON.parse(dOfWeek || '[]') : dOfWeek;
+                                if (Array.isArray(parsed)) {
+                                    activeQuotas = {};
+                                    parsed.forEach(day => { activeQuotas[day] = frequency || 0; });
+                                } else {
+                                    activeQuotas = parsed;
+                                }
+                            } catch (e) { activeQuotas = {}; }
+                        }
+
+                        const dayName = dayMap[checkDate.getDay()];
+                        let quota = 0;
+                        if (type === 'video') {
+                            quota = activeQuotas?.[dayName] || 0;
+                        } else {
+                            let isActive = false;
+                            if (Array.isArray(activeQuotas)) {
+                                isActive = activeQuotas.includes(dayName);
+                            } else {
+                                isActive = activeQuotas?.[dayName] > 0;
+                            }
+                            if (isActive) {
+                                quota = frequency > 0 ? frequency : (1 / Math.abs(frequency || 1));
+                            }
+                        }
+
+                        if (quota > 0) {
+                            tempBacklog -= quota;
+                            bDays++;
+                        }
+                    }
+                    checkDate.setDate(checkDate.getDate() - 1);
+                    safety++;
+                    if (checkDate.toISOString().split('T')[0] < startStr) break;
+                }
+            }
+            totalBacklogDays = Math.ceil(bDays);
         } else {
             seriesList.forEach(s => {
                 const b = calculateBacklogCount(s);
@@ -75,20 +145,93 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
         setHeaderBacklog({ days: totalBacklogDays, items: totalBacklogItems });
     };
 
-    const calculateScheduleDays = (startStr, daysOfWeek) => {
+
+    const calculateQuotasPassed = (startStr, currentQuotas, history = []) => {
+        if (!startStr) return 0;
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+        const [y, m, d] = startStr.split('-').map(Number);
+        const current = new Date(y, m - 1, d);
+        if (current > now) return 0;
+        let total = 0;
+        const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const pauses = category?.pauses || [];
+        while (current <= now) {
+            if (!isDatePaused(current, pauses)) {
+                const dayName = dayMap[current.getDay()];
+                const dStr = current.toISOString().split('T')[0];
+                
+                let activeQuotas = null;
+                if (history && history.length > 0) {
+                    const record = history.find(h => dStr >= h.start_date && dStr <= (h.end_date || '9999-12-31'));
+                    if (record) activeQuotas = record.quotas;
+                }
+
+                if (!activeQuotas) {
+                    activeQuotas = {};
+                    try {
+                        const parsed = typeof currentQuotas === 'string' ? JSON.parse(currentQuotas || '[]') : currentQuotas;
+                        if (Array.isArray(parsed)) {
+                            parsed.forEach(day => { activeQuotas[day] = category?.frequency || 0; });
+                        } else if (parsed && typeof parsed === 'object') {
+                            activeQuotas = { ...parsed };
+                        }
+                    } catch (e) {}
+                }
+                total += activeQuotas[dayName] || 0;
+            }
+            current.setDate(current.getDate() + 1);
+        }
+        return total;
+    };
+
+    const isDatePaused = (date, pauses) => {
+        if (!pauses || pauses.length === 0) return false;
+        const dStr = date.toISOString().split('T')[0];
+        return pauses.some(p => {
+            const start = p.pause_start;
+            const end = p.pause_end || '9999-12-31';
+            return dStr >= start && dStr <= end;
+        });
+    };
+
+    const calculateScheduleDays = (startStr, daysOfWeek, history = []) => {
         if (!startStr) return { validDays: 0 };
-        let daysArray = [];
-        try { daysArray = typeof daysOfWeek === 'string' ? JSON.parse(daysOfWeek) : daysOfWeek; } catch (e) { daysArray = []; }
+        
         const now = new Date();
         now.setHours(0, 0, 0, 0);
         const [y, m, d] = startStr.split('-').map(Number);
         const start = new Date(y, m - 1, d);
         if (start > now) return { validDays: 0 };
+        
         let count = 0;
         let current = new Date(start);
+        const pauses = category?.pauses || [];
+        const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
         while (current <= now) {
-            const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-            if (daysArray.includes(dayMap[current.getDay()])) count++;
+            if (!isDatePaused(current, pauses)) {
+                const dStr = current.toISOString().split('T')[0];
+                let activeQuotas = null;
+
+                if (history && history.length > 0) {
+                    const record = history.find(h => dStr >= h.start_date && dStr <= (h.end_date || '9999-12-31'));
+                    if (record) activeQuotas = record.quotas;
+                }
+
+                if (!activeQuotas) {
+                    try {
+                        activeQuotas = typeof daysOfWeek === 'string' ? JSON.parse(daysOfWeek || '[]') : daysOfWeek;
+                    } catch (e) { activeQuotas = []; }
+                }
+
+                const dayName = dayMap[current.getDay()];
+                if (Array.isArray(activeQuotas)) {
+                    if (activeQuotas.includes(dayName)) count++;
+                } else if (activeQuotas && activeQuotas[dayName] > 0) {
+                    count++;
+                }
+            }
             current.setDate(current.getDate() + 1);
         }
         return { validDays: count };

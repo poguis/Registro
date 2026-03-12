@@ -91,6 +91,29 @@ class DatabaseService {
         );
       `);
 
+            // Category Pauses (New Table)
+            await this.db.execAsync(`
+        CREATE TABLE IF NOT EXISTS entertainment_pauses (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          category_id INTEGER NOT NULL,
+          pause_start TEXT NOT NULL,
+          pause_end TEXT,
+          FOREIGN KEY (category_id) REFERENCES entertainment_categories(id) ON DELETE CASCADE
+        );
+      `);
+
+            // Quotas History (New Table)
+            await this.db.execAsync(`
+        CREATE TABLE IF NOT EXISTS entertainment_quotas_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          category_id INTEGER NOT NULL,
+          quotas TEXT NOT NULL, -- JSON string
+          start_date TEXT NOT NULL,
+          end_date TEXT,
+          FOREIGN KEY (category_id) REFERENCES entertainment_categories(id) ON DELETE CASCADE
+        );
+      `);
+
             // Create SERIES table
             await this.db.execAsync(`
         CREATE TABLE IF NOT EXISTS series (
@@ -527,14 +550,23 @@ class DatabaseService {
             const { name, type, startDate, daysOfWeek, frequency, seriesCount, description } = data;
             const daysString = JSON.stringify(daysOfWeek);
 
-            await this.db.runAsync(
+            const result = await this.db.runAsync(
                 `INSERT INTO entertainment_categories 
                 (user_id, name, type, start_date, days_of_week, frequency, series_count, description) 
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
                 [userId, name, type, startDate, daysString, frequency, seriesCount, description]
             );
 
-            return { success: true };
+            const categoryId = result.lastInsertRowId;
+            if (categoryId) {
+                // Initial quota record
+                await this.db.runAsync(
+                    'INSERT INTO entertainment_quotas_history (category_id, quotas, start_date) VALUES (?, ?, ?)',
+                    [categoryId, daysString, startDate || new Date().toISOString().split('T')[0]]
+                );
+            }
+
+            return { success: true, id: categoryId };
         } catch (error) {
             console.error('Error adding entertainment category:', error);
             return { success: false, error: error.message };
@@ -552,6 +584,16 @@ class DatabaseService {
 
             // Calculate aggregated progress for each category
             const enrichedCategories = await Promise.all(categories.map(async (cat) => {
+                const quotasHistory = await this.db.getAllAsync(
+                    'SELECT quotas, start_date, end_date FROM entertainment_quotas_history WHERE category_id = ? ORDER BY start_date ASC',
+                    [cat.id]
+                );
+                
+                const parsesQuotasHistory = quotasHistory.map(qh => ({
+                    ...qh,
+                    quotas: JSON.parse(qh.quotas)
+                }));
+
                 const seriesList = await this.db.getAllAsync(
                     `SELECT id, current_season, current_episode, initial_season, initial_episode, status, cycle_offset FROM series WHERE category_id = ?`,
                     [cat.id]
@@ -591,10 +633,18 @@ class DatabaseService {
                     totalWatched += val;
                 }
 
+                const pauses = await this.db.getAllAsync(
+                    'SELECT pause_start, pause_end FROM entertainment_pauses WHERE category_id = ?',
+                    [cat.id]
+                );
+
                 return {
                     ...cat,
                     days_of_week: typeof cat.days_of_week === 'string' ? JSON.parse(cat.days_of_week || '[]') : cat.days_of_week,
-                    totalWatched
+                    totalWatched,
+                    pauses,
+                    quotas_history: parsesQuotasHistory,
+                    is_paused: pauses.some(p => !p.pause_end)
                 };
             }));
 
@@ -605,11 +655,95 @@ class DatabaseService {
         }
     }
 
+    async getCategoryPauses(categoryId) {
+        if (!this.db) await this.init();
+        try {
+            const pauses = await this.db.getAllAsync(
+                'SELECT * FROM entertainment_pauses WHERE category_id = ? ORDER BY pause_start ASC',
+                [categoryId]
+            );
+            return { success: true, pauses };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async pauseCategory(categoryId, date) {
+        if (!this.db) await this.init();
+        try {
+            // Check if already paused
+            const activePause = await this.db.getFirstAsync(
+                'SELECT id FROM entertainment_pauses WHERE category_id = ? AND pause_end IS NULL',
+                [categoryId]
+            );
+            if (activePause) return { success: true }; // Already paused
+
+            await this.db.runAsync(
+                'INSERT INTO entertainment_pauses (category_id, pause_start) VALUES (?, ?)',
+                [categoryId, date]
+            );
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async resumeCategory(categoryId, date) {
+        if (!this.db) await this.init();
+        try {
+            await this.db.runAsync(
+                'UPDATE entertainment_pauses SET pause_end = ? WHERE category_id = ? AND pause_end IS NULL',
+                [date, categoryId]
+            );
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async getQuotaHistory(categoryId) {
+        if (!this.db) await this.init();
+        try {
+            const history = await this.db.getAllAsync(
+                'SELECT * FROM entertainment_quotas_history WHERE category_id = ? ORDER BY start_date ASC',
+                [categoryId]
+            );
+            return { success: true, history: history.map(h => ({ ...h, quotas: JSON.parse(h.quotas) })) };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
     async updateEntertainmentCategory(id, data) {
         if (!this.db) await this.init();
         try {
             const { name, type, startDate, daysOfWeek, frequency, seriesCount, description } = data;
             const daysString = JSON.stringify(daysOfWeek);
+
+            // Check if daysOfWeek (quotas) changed
+            const currentCat = await this.db.getFirstAsync(
+                'SELECT days_of_week FROM entertainment_categories WHERE id = ?',
+                [id]
+            );
+
+            if (currentCat && currentCat.days_of_week !== daysString) {
+                const today = new Date().toISOString().split('T')[0];
+                const yesterday = new Date();
+                yesterday.setDate(yesterday.getDate() - 1);
+                const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+                // 1. Close current history record (end_date = yesterday)
+                await this.db.runAsync(
+                    'UPDATE entertainment_quotas_history SET end_date = ? WHERE category_id = ? AND end_date IS NULL',
+                    [yesterdayStr, id]
+                );
+
+                // 2. Insert new history record (start_date = today)
+                await this.db.runAsync(
+                    'INSERT INTO entertainment_quotas_history (category_id, quotas, start_date) VALUES (?, ?, ?)',
+                    [id, daysString, today]
+                );
+            }
 
             await this.db.runAsync(
                 `UPDATE entertainment_categories 

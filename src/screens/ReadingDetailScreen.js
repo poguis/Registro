@@ -66,7 +66,7 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
         const startStr = category.start_date;
         const freq = category.frequency;
         const daysOfWeek = category.days_of_week;
-        const scheduleCalc = calculateScheduleDays(startStr, daysOfWeek);
+        const scheduleCalc = calculateScheduleDays(startStr, daysOfWeek, category.quotas_history);
         const validDaysPassed = scheduleCalc.validDays;
 
         let targetTotal = 0;
@@ -84,20 +84,53 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
         setBacklogInfo({ days: backlogDays, items: backlogValue });
     };
 
-    const calculateScheduleDays = (startStr, daysOfWeek) => {
+    const isDatePaused = (date, pauses) => {
+        if (!pauses || pauses.length === 0) return false;
+        const dStr = date.toISOString().split('T')[0];
+        return pauses.some(p => {
+            const start = p.pause_start;
+            const end = p.pause_end || '9999-12-31';
+            return dStr >= start && dStr <= end;
+        });
+    };
+
+    const calculateScheduleDays = (startStr, daysOfWeek, history = []) => {
         if (!startStr) return { validDays: 0 };
-        let daysArray = [];
-        try { daysArray = typeof daysOfWeek === 'string' ? JSON.parse(daysOfWeek) : daysOfWeek; } catch (e) { daysArray = []; }
+        
         const now = new Date();
         now.setHours(0, 0, 0, 0);
         const [y, m, d] = startStr.split('-').map(Number);
         const start = new Date(y, m - 1, d);
         if (start > now) return { validDays: 0 };
+        
         let count = 0;
         let current = new Date(start);
+        const pauses = category?.pauses || [];
+        const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
         while (current <= now) {
-            const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-            if (daysArray.includes(dayMap[current.getDay()])) count++;
+            if (!isDatePaused(current, pauses)) {
+                const dStr = current.toISOString().split('T')[0];
+                let activeQuotas = null;
+
+                if (history && history.length > 0) {
+                    const record = history.find(h => dStr >= h.start_date && dStr <= (h.end_date || '9999-12-31'));
+                    if (record) activeQuotas = record.quotas;
+                }
+
+                if (!activeQuotas) {
+                    try {
+                        activeQuotas = typeof daysOfWeek === 'string' ? JSON.parse(daysOfWeek || '[]') : daysOfWeek;
+                    } catch (e) { activeQuotas = []; }
+                }
+
+                const dayName = dayMap[current.getDay()];
+                if (Array.isArray(activeQuotas)) {
+                    if (activeQuotas.includes(dayName)) count++;
+                } else if (activeQuotas && activeQuotas[dayName] > 0) {
+                    count++;
+                }
+            }
             current.setDate(current.getDate() + 1);
         }
         return { validDays: count };
@@ -204,8 +237,10 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
             const willBeActive = status === 'Nueva' || status === 'Mirando';
 
             if (willBeActive && (!isCurrentlyActive || !isEditing)) {
-                if (category.series_count > 0 && activeCount >= category.series_count) {
-                    return Alert.alert('Límite Alcanzado', `Máximo ${category.series_count} lecturas activas.`);
+                if (category.series_count !== null && category.series_count !== undefined) {
+                    if (activeCount >= category.series_count) {
+                        return Alert.alert('Límite Alcanzado', `Máximo ${category.series_count} lecturas activas.`);
+                    }
                 }
             }
             const seriesData = {
@@ -353,7 +388,7 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
                             </Text>
                         )}
                         <Text style={[styles.headerSubtitle, { color: theme.subText, fontSize: 11 }]}>
-                            • Leyendo: {originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando').length}/{category.series_count || 0}
+                            • Leyendo: {originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando').length}/{category.series_count !== null ? category.series_count : '∞'}
                         </Text>
                     </View>
                 </View>
