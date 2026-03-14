@@ -453,24 +453,93 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                     <View style={styles.cardIcon}>
                         <Text style={{ fontSize: 20 }}>{item.type === 'video' ? '🎬' : '📚'}</Text>
                     </View>
-                    <View style={{ flex: 1, marginLeft: 10 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <Text style={[styles.cardTitle, { color: theme.text }]}>{item.name}</Text>
-                            {item.is_paused && (
-                                <View style={styles.pausedBadge}>
-                                    <Text style={styles.pausedBadgeText}>PAUSADO</Text>
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, flexWrap: 'wrap' }}>
+                                <Text style={[styles.cardTitle, { color: theme.text }]}>{item.name}</Text>
+                                {item.is_paused && (
+                                    <View style={styles.pausedBadge}>
+                                        <Text style={styles.pausedBadgeText}>PAUSADO</Text>
+                                    </View>
+                                )}
+                            </View>
+
+                            <View style={styles.actionButtonsContainer}>
+                                <TouchableOpacity
+                                    style={styles.iconButton}
+                                    onPress={(e) => {
+                                        e.stopPropagation();
+                                        openModal(item);
+                                    }}
+                                >
+                                    <Text style={styles.iconButtonText}>✏️</Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    style={styles.iconButton}
+                                    onPress={(e) => {
+                                        e.stopPropagation();
+                                        handleTogglePause(item);
+                                    }}
+                                >
+                                    <Text style={styles.iconButtonText}>{item.is_paused ? '▶️' : '⏸️'}</Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    style={styles.iconButton}
+                                    onPress={(e) => {
+                                        e.stopPropagation();
+                                        handleDelete(item.id);
+                                    }}
+                                >
+                                    <Text style={styles.iconButtonText}>🗑️</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+
+                        {/* Info Badges */}
+                        <View style={styles.badgesContainer}>
+                            <View style={[styles.badge, { backgroundColor: isDarkMode ? '#2C2C2E' : '#E3F2FD' }]}>
+                                <Text style={styles.badgeIcon}>📅</Text>
+                                <Text style={[styles.badgeText, { color: isDarkMode ? '#A0A0A0' : '#1565C0' }]}>
+                                    {item.start_date}
+                                </Text>
+                            </View>
+                            
+                            <View style={[styles.badge, { backgroundColor: isDarkMode ? '#2C2C2E' : '#E8F5E9' }]}>
+                                <Text style={styles.badgeIcon}>{item.type === 'video' ? '📺' : '📆'}</Text>
+                                <Text style={[styles.badgeText, { color: isDarkMode ? '#A0A0A0' : '#2E7D32' }]}>
+                                    {item.type === 'video' ? 'Cuotas:' : 'Días:'} {item._displayDays || 'No definido'}
+                                </Text>
+                            </View>
+
+                            {/* Límite Viendo Badge */}
+                            {(item.series_count !== null && item.series_count > 0) ? (
+                                <View style={[styles.badge, { backgroundColor: isDarkMode ? '#2C2C2E' : '#FFF3E0' }]}>
+                                    <Text style={styles.badgeIcon}>👀</Text>
+                                    <Text style={[styles.badgeText, { color: isDarkMode ? '#A0A0A0' : '#EF6C00' }]}>
+                                        Límite: {item.series_count}
+                                    </Text>
+                                </View>
+                            ) : (
+                                <View style={[styles.badge, { backgroundColor: isDarkMode ? '#2C2C2E' : '#FFF3E0' }]}>
+                                    <Text style={styles.badgeIcon}>👀</Text>
+                                    <Text style={[styles.badgeText, { color: isDarkMode ? '#A0A0A0' : '#EF6C00' }]}>
+                                        Sin límite
+                                    </Text>
+                                </View>
+                            )}
+
+                            {/* Frecuencia Lectura Badge */}
+                            {item.type === 'reading' && (
+                                <View style={[styles.badge, { backgroundColor: isDarkMode ? '#2C2C2E' : '#F3E5F5' }]}>
+                                    <Text style={styles.badgeIcon}>⏱️</Text>
+                                    <Text style={[styles.badgeText, { color: isDarkMode ? '#A0A0A0' : '#7B1FA2' }]}>
+                                        {item.frequency < 0 ? `1 cada ${Math.abs(item.frequency)} d` : `${item.frequency} / día`}
+                                    </Text>
                                 </View>
                             )}
                         </View>
-
-                        {/* Info Rows */}
-                        <Text style={[styles.cardInfoRow, { color: theme.subText }]}>📅 Inicio: {item.start_date}</Text>
-                        <Text style={[styles.cardInfoRow, { color: theme.subText }]}>{item.type === 'video' ? '📆 Cuotas:' : '📆 Días:'} {item._displayDays || 'No definido'}</Text>
-                        {item.type === 'reading' && (
-                            <Text style={[styles.cardInfoRow, { color: theme.subText }]}>
-                                ⏱️ Frecuencia: {item.frequency < 0 ? `1 cada ${Math.abs(item.frequency)} días` : `${item.frequency} / día`}
-                            </Text>
-                        )}
 
                         {/* Calculation Result */}
                         {calc && (
@@ -482,41 +551,6 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                                 </Text>
                             </View>
                         )}
-                    </View>
-
-                    <View style={styles.actionButtonsContainer}>
-                        {/* Edit Button */}
-                        <TouchableOpacity
-                            style={styles.iconButton}
-                            onPress={(e) => {
-                                e.stopPropagation();
-                                openModal(item);
-                            }}
-                        >
-                            <Text style={styles.iconButtonText}>✏️</Text>
-                        </TouchableOpacity>
-
-                        {/* Pause Toggle Button */}
-                        <TouchableOpacity
-                            style={[styles.iconButton, { marginLeft: 10 }]}
-                            onPress={(e) => {
-                                e.stopPropagation();
-                                handleTogglePause(item);
-                            }}
-                        >
-                            <Text style={styles.iconButtonText}>{item.is_paused ? '▶️' : '⏸️'}</Text>
-                        </TouchableOpacity>
-
-                        {/* Delete Button */}
-                        <TouchableOpacity
-                            style={[styles.iconButton, { marginLeft: 10 }]}
-                            onPress={(e) => {
-                                e.stopPropagation();
-                                handleDelete(item.id);
-                            }}
-                        >
-                            <Text style={styles.iconButtonText}>🗑️</Text>
-                        </TouchableOpacity>
                     </View>
                 </View>
             </TouchableOpacity>
@@ -824,7 +858,7 @@ const styles = StyleSheet.create({
     },
     cardHeader: {
         flexDirection: 'row',
-        alignItems: 'center',
+        alignItems: 'flex-start',
     },
     cardIcon: {
         width: 40,
@@ -1142,6 +1176,28 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
     },
     // New Card Styles
+    badgesContainer: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        marginTop: 10,
+    },
+    badge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 8,
+        marginRight: 6,
+        marginBottom: 6,
+    },
+    badgeIcon: {
+        fontSize: 12,
+    },
+    badgeText: {
+        fontSize: 12,
+        fontWeight: '600',
+        marginLeft: 4,
+    },
     cardInfoRow: {
         fontSize: 13,
         color: '#555',
@@ -1160,16 +1216,16 @@ const styles = StyleSheet.create({
         fontWeight: 'bold',
     },
     actionButtonsContainer: {
+        flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        height: 70, // Distribute space
-        marginLeft: 5,
+        marginLeft: 10,
     },
     iconButton: {
-        padding: 5,
+        padding: 6,
+        marginLeft: 2,
     },
     iconButtonText: {
-        fontSize: 20,
+        fontSize: 18,
     },
     pausedBadge: {
         backgroundColor: '#FF5252',
