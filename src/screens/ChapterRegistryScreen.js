@@ -83,6 +83,12 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
             const pauses = category?.pauses || [];
             const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+            const todayStr = new Date().toISOString().split('T')[0];
+            const workingPauses = pauses.map(p => {
+                if (!p.pause_end) return { ...p, pause_end: todayStr };
+                return p;
+            });
+
             const getActiveQuotasForDate = (checkDate) => {
                 const dStr = checkDate.toISOString().split('T')[0];
                 let activeQ = null;
@@ -131,7 +137,7 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
                 let safety = 0;
 
                 while (tempBacklog > 0 && safety < safetyMax) {
-                    if (!isDatePaused(checkDate, pauses)) {
+                    if (!isDatePaused(checkDate, workingPauses)) {
                         const activeQuotas = getActiveQuotasForDate(checkDate);
                         const quota = getQuotaForDate(checkDate, activeQuotas);
 
@@ -153,7 +159,7 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
                 let safety = 0;
 
                 while (tempAdelanto > 0 && safety < safetyMax) {
-                    if (!isDatePaused(checkDate, pauses)) {
+                    if (!isDatePaused(checkDate, workingPauses)) {
                         const activeQuotas = getActiveQuotasForDate(checkDate);
                         const quota = getQuotaForDate(checkDate, activeQuotas);
 

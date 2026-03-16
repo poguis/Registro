@@ -379,6 +379,14 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
         let backlogItems = targetItems - totalWatched;
         if (backlogItems < 0) backlogItems = 0;
 
+        // FIX: For atraso and adelanto calculations, we don't want an open-ended pause to freeze projections forever.
+        // If a pause is indefinite, we limit its effect to 'today' so backward/forward counts can still measure working days correctly!
+        const todayStr = new Date().toISOString().split('T')[0];
+        const workingPauses = pauses.map(p => {
+            if (!p.pause_end) return { ...p, pause_end: todayStr };
+            return p;
+        });
+
         // Days of Atraso calculation: Count backward from now
         let daysAtraso = 0;
         if (backlogItems > 0) {
@@ -388,7 +396,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
             let safety = 0;
 
             while (tempBacklog > 0 && safety < safetyMax) {
-                if (!isDatePaused(checkDate, pauses)) {
+                if (!isDatePaused(checkDate, workingPauses)) {
                     const activeQuotas = getQuotasForDate(checkDate);
                     const dayName = dayMap[checkDate.getDay()];
                     let quotaForDay = 0;
@@ -433,7 +441,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
             let safety = 0;
 
             while (tempAdelanto > 0 && safety < safetyMax) {
-                if (!isDatePaused(checkDate, pauses)) {
+                if (!isDatePaused(checkDate, workingPauses)) {
                     const activeQuotas = getQuotasForDate(checkDate);
                     const dayName = dayMap[checkDate.getDay()];
                     let quotaForDay = 0;
@@ -478,10 +486,11 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                 const dayLabels = quotas.map(dKey => DAYS.find(d => d.key === dKey)?.label).join(', ');
                 item._displayDays = dayLabels;
             } else {
-                const dayLabels = (item.type === 'video') 
-                    ? DAYS.filter(d => quotas[d.key] > 0).map(d => `${d.label}(${quotas[d.key]})`).join(' ')
-                    : DAYS.filter(d => quotas[d.key] > 0).map(d => d.label).join(', ');
-                item._displayDays = dayLabels;
+                if (item.type === 'video') {
+                    item._quotaBadges = DAYS.filter(d => quotas[d.key] > 0).map(d => ({ label: d.label, amount: quotas[d.key] }));
+                } else {
+                    item._displayDays = DAYS.filter(d => quotas[d.key] > 0).map(d => d.label).join(', ');
+                }
             }
         } catch (e) { item._displayDays = 'No definido'; }
 
@@ -549,12 +558,26 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                                 </Text>
                             </View>
                             
-                            <View style={[styles.badge, { backgroundColor: isDarkMode ? '#2C2C2E' : '#E8F5E9' }]}>
-                                <Text style={styles.badgeIcon}>{item.type === 'video' ? '📺' : '📆'}</Text>
-                                <Text style={[styles.badgeText, { color: isDarkMode ? '#A0A0A0' : '#2E7D32' }]}>
-                                    {item.type === 'video' ? 'Cuotas:' : 'Días:'} {item._displayDays || 'No definido'}
-                                </Text>
-                            </View>
+                            {item.type === 'video' && item._quotaBadges && item._quotaBadges.length > 0 ? (
+                                <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginRight: 6, marginBottom: 6 }}>
+                                    <View style={[styles.badge, { backgroundColor: isDarkMode ? '#2C2C2E' : '#E8F5E9', marginRight: 0, marginBottom: 0 }]}>
+                                        <Text style={styles.badgeIcon}>📺</Text>
+                                        <Text style={[styles.badgeText, { color: isDarkMode ? '#A0A0A0' : '#2E7D32' }]}>Cuotas:</Text>
+                                    </View>
+                                    {item._quotaBadges.map((qb, i) => (
+                                        <View key={i} style={[styles.miniQuotaBadge, { backgroundColor: theme.accent + '22' }]}>
+                                            <Text style={{ fontSize: 11, color: theme.accent, fontWeight: 'bold' }}>{qb.label}: {qb.amount}</Text>
+                                        </View>
+                                    ))}
+                                </View>
+                            ) : (
+                                <View style={[styles.badge, { backgroundColor: isDarkMode ? '#2C2C2E' : '#E8F5E9' }]}>
+                                    <Text style={styles.badgeIcon}>{item.type === 'video' ? '📺' : '📆'}</Text>
+                                    <Text style={[styles.badgeText, { color: isDarkMode ? '#A0A0A0' : '#2E7D32' }]}>
+                                        {item.type === 'video' ? 'Cuotas:' : 'Días:'} {item._displayDays || 'No definido'}
+                                    </Text>
+                                </View>
+                            )}
 
                             {/* Límite Viendo Badge */}
                             {(item.series_count !== null && item.series_count > 0) ? (
@@ -1242,6 +1265,11 @@ const styles = StyleSheet.create({
         fontSize: 12,
         fontWeight: '600',
         marginLeft: 4,
+    },
+    miniQuotaBadge: {
+        paddingHorizontal: 6,
+        paddingVertical: 3,
+        borderRadius: 8,
     },
     cardInfoRow: {
         fontSize: 13,

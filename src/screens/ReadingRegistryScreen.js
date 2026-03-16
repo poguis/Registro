@@ -106,8 +106,15 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
                     const pauses = category?.pauses || [];
                     const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+                    // FIX: Prevent infinite loop when calculating days forward during an indefinite pause
+                    const todayStr = new Date().toISOString().split('T')[0];
+                    const workingPauses = pauses.map(p => {
+                        if (!p.pause_end) return { ...p, pause_end: todayStr };
+                        return p;
+                    });
+
                     while (tempAdelanto > 0 && safety < safetyMax) {
-                        if (!isDatePaused(checkDate, pauses)) {
+                        if (!isDatePaused(checkDate, workingPauses)) {
                             const dStr = checkDate.toISOString().split('T')[0];
                             let activeQuotas = null;
 
