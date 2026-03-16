@@ -87,56 +87,67 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
         const totalBacklogItems = targetTotal - totalWatchedSinceStart;
         const backlogValue = totalBacklogItems < 0 ? 0 : totalBacklogItems;
+        const adelantoValue = totalBacklogItems < 0 ? Math.abs(totalBacklogItems) : 0;
 
         let backlogDays = 0;
+        let adelantoDays = 0;
+
+        const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const pauses = category.pauses || [];
+        const history = category.quotas_history || [];
+
+        const getActiveQuotasForDate = (checkDate) => {
+            const dStr = checkDate.toISOString().split('T')[0];
+            let activeQ = null;
+            if (history.length > 0) {
+                const record = history.find(h => dStr >= h.start_date && dStr <= (h.end_date || '9999-12-31'));
+                if (record) activeQ = record.quotas;
+            }
+            if (!activeQ) {
+                try {
+                    const parsed = typeof daysOfWeek === 'string' ? JSON.parse(daysOfWeek || '[]') : daysOfWeek;
+                    if (Array.isArray(parsed)) {
+                        activeQ = {};
+                        parsed.forEach(day => { activeQ[day] = category.frequency || 0; });
+                    } else {
+                        activeQ = parsed;
+                    }
+                } catch (e) { activeQ = {}; }
+            }
+            return activeQ;
+        };
+
+        const getQuotaForDate = (checkDate, activeQ) => {
+            const dayName = dayMap[checkDate.getDay()];
+            let quota = 0;
+            if (type === 'video') {
+                quota = activeQ?.[dayName] || 0;
+            } else {
+                let isActive = false;
+                if (Array.isArray(activeQ)) {
+                    isActive = activeQ.includes(dayName);
+                } else {
+                    isActive = activeQ?.[dayName] > 0;
+                }
+                if (isActive) {
+                    const freq = category.frequency || 0;
+                    quota = freq > 0 ? freq : (1 / Math.abs(freq || 1));
+                }
+            }
+            return quota;
+        };
+
         if (backlogValue > 0) {
             let tempBacklog = backlogValue;
             let checkDate = new Date();
             checkDate.setHours(0, 0, 0, 0);
             const safetyMax = 3650;
             let safety = 0;
-            const history = category.quotas_history || [];
-            const pauses = category.pauses || [];
-            const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
             while (tempBacklog > 0 && safety < safetyMax) {
                 if (!isDatePaused(checkDate, pauses)) {
-                    const dStr = checkDate.toISOString().split('T')[0];
-                    let activeQuotas = null;
-
-                    if (history.length > 0) {
-                        const record = history.find(h => dStr >= h.start_date && dStr <= (h.end_date || '9999-12-31'));
-                        if (record) activeQuotas = record.quotas;
-                    }
-
-                    if (!activeQuotas) {
-                        try {
-                            const parsed = typeof daysOfWeek === 'string' ? JSON.parse(daysOfWeek || '[]') : daysOfWeek;
-                            if (Array.isArray(parsed)) {
-                                activeQuotas = {};
-                                parsed.forEach(day => { activeQuotas[day] = category.frequency || 0; });
-                            } else {
-                                activeQuotas = parsed;
-                            }
-                        } catch (e) { activeQuotas = {}; }
-                    }
-
-                    const dayName = dayMap[checkDate.getDay()];
-                    let quota = 0;
-                    if (type === 'video') {
-                        quota = activeQuotas?.[dayName] || 0;
-                    } else {
-                        let isActive = false;
-                        if (Array.isArray(activeQuotas)) {
-                            isActive = activeQuotas.includes(dayName);
-                        } else {
-                            isActive = activeQuotas?.[dayName] > 0;
-                        }
-                        if (isActive) {
-                            const freq = category.frequency || 0;
-                            quota = freq > 0 ? freq : (1 / Math.abs(freq || 1));
-                        }
-                    }
+                    const activeQuotas = getActiveQuotasForDate(checkDate);
+                    const quota = getQuotaForDate(checkDate, activeQuotas);
 
                     if (quota > 0) {
                         tempBacklog -= quota;
@@ -147,9 +158,30 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 safety++;
                 if (checkDate.toISOString().split('T')[0] < startStr) break;
             }
+        } else if (adelantoValue > 0) {
+            let tempAdelanto = adelantoValue;
+            let checkDate = new Date();
+            checkDate.setHours(0, 0, 0, 0);
+            checkDate.setDate(checkDate.getDate() + 1); // Start from tomorrow
+            const safetyMax = 3650;
+            let safety = 0;
+
+            while (tempAdelanto > 0 && safety < safetyMax) {
+                if (!isDatePaused(checkDate, pauses)) {
+                    const activeQuotas = getActiveQuotasForDate(checkDate);
+                    const quota = getQuotaForDate(checkDate, activeQuotas);
+
+                    if (quota > 0) {
+                        tempAdelanto -= quota;
+                        adelantoDays++;
+                    }
+                }
+                checkDate.setDate(checkDate.getDate() + 1);
+                safety++;
+            }
         }
 
-        setBacklogInfo({ days: Math.ceil(backlogDays), items: backlogValue });
+        setBacklogInfo({ days: Math.ceil(backlogDays), items: backlogValue, adelantoDays, adelantoItems: adelantoValue });
     };
 
 
@@ -584,8 +616,12 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                     <Text style={[styles.headerTitle, { color: theme.text }]}>{category.name}</Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                         {backlogInfo && (
-                            <Text style={[styles.headerSubtitle, (backlogInfo.days <= 0 && backlogInfo.items <= 0) ? { color: '#4CAF50' } : { color: '#EF6C00' }]}>
-                                {(backlogInfo.days <= 0 && backlogInfo.items <= 0) ? '¡Al día! 🎉' : `Atraso: ${backlogInfo.days}d, ${backlogInfo.items}c`}
+                            <Text style={[styles.headerSubtitle, (backlogInfo.days <= 0 && backlogInfo.items <= 0 && backlogInfo.adelantoItems <= 0) ? { color: '#4CAF50' } : (backlogInfo.adelantoItems > 0 ? { color: '#2E7D32' } : { color: '#EF6C00' })]}>
+                                {backlogInfo.adelantoItems > 0 
+                                    ? `Adelantado: ${backlogInfo.adelantoDays}d, ${backlogInfo.adelantoItems}c`
+                                    : (backlogInfo.days <= 0 && backlogInfo.items <= 0) 
+                                        ? '¡Al día! 🎉' 
+                                        : `Atraso: ${backlogInfo.days}d, ${backlogInfo.items}c`}
                             </Text>
                         )}
                         <Text style={[styles.headerSubtitle, { color: theme.subText, fontSize: 11 }]}>

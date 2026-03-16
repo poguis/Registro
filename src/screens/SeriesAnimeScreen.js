@@ -421,8 +421,51 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
             }
         }
 
+        // Adelantado calculation: Count forward from tomorrow
+        let adelantoDays = 0;
+        let adelantoItems = 0;
+        if (targetItems - totalWatched < 0) {
+            adelantoItems = totalWatched - targetItems;
+            let tempAdelanto = adelantoItems;
+            let checkDate = new Date(now);
+            checkDate.setDate(checkDate.getDate() + 1); // Start checking from tomorrow
+            const safetyMax = 3650; // 10 years
+            let safety = 0;
+
+            while (tempAdelanto > 0 && safety < safetyMax) {
+                if (!isDatePaused(checkDate, pauses)) {
+                    const activeQuotas = getQuotasForDate(checkDate);
+                    const dayName = dayMap[checkDate.getDay()];
+                    let quotaForDay = 0;
+
+                    if (type === 'video') {
+                        quotaForDay = activeQuotas[dayName] || 0;
+                    } else {
+                        let isActive = false;
+                        if (Array.isArray(activeQuotas)) {
+                            isActive = activeQuotas.includes(dayName);
+                        } else if (activeQuotas && activeQuotas[dayName] > 0) {
+                            isActive = true;
+                        }
+                        if (isActive) {
+                            quotaForDay = Math.abs(freq) || 1;
+                        }
+                    }
+
+                    if (quotaForDay > 0) {
+                        tempAdelanto -= quotaForDay;
+                        // Count a day of 'adelanto' once the quota for this future day is 'paid off'
+                        adelantoDays++;
+                    }
+                }
+                // Stop even if we don't fully pay off the last day, as real days are whole
+                checkDate.setDate(checkDate.getDate() + 1);
+                safety++;
+            }
+        }
+
         let unitLabel = type === 'video' ? 'Caps' : 'Tomos';
-        return { diffDays: daysAtraso, backlogItems, unit: unitLabel };
+        return { diffDays: daysAtraso, backlogItems, adelantoDays, adelantoItems, unit: unitLabel };
     };
 
     const renderItem = ({ item }) => {
@@ -543,11 +586,13 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
 
                         {/* Calculation Result */}
                         {calc && (
-                            <View style={[styles.calcResult, { backgroundColor: isDarkMode ? '#332b21' : '#FFF3E0' }]}>
-                                <Text style={[styles.calcText, (calc.diffDays <= 0 && calc.backlogItems <= 0) && { color: '#4CAF50', fontWeight: 'bold' }]}>
-                                    {(calc.diffDays <= 0 && calc.backlogItems <= 0)
-                                        ? '¡Estás al día! 🎉'
-                                        : `Atraso: ${calc.diffDays} días, ${calc.backlogItems} ${calc.unit}`}
+                            <View style={[styles.calcResult, { backgroundColor: isDarkMode ? '#332b21' : (calc.adelantoItems > 0 ? '#E8F5E9' : '#FFF3E0') }]}>
+                                <Text style={[styles.calcText, (calc.diffDays <= 0 && calc.backlogItems <= 0 && calc.adelantoItems <= 0) && { color: '#4CAF50', fontWeight: 'bold' }, calc.adelantoItems > 0 && { color: '#2E7D32', fontWeight: 'bold' }]}>
+                                    {calc.adelantoItems > 0
+                                        ? `Adelantado: ${calc.adelantoDays} días, ${calc.adelantoItems} ${calc.unit}`
+                                        : (calc.diffDays <= 0 && calc.backlogItems <= 0)
+                                            ? '¡Estás al día! 🎉'
+                                            : `Atraso: ${calc.diffDays} días, ${calc.backlogItems} ${calc.unit}`}
                                 </Text>
                             </View>
                         )}

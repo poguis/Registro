@@ -84,8 +84,68 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
                     const diff = getAbs(s.current_season, s.current_episode) - getAbs(s.initial_season || 1, s.initial_episode || 1);
                     totalRead += Math.max(0, diff) + (s.cycle_offset || 0) + (s.status === 'Terminado' || s.status === 'En espera' ? 1 : 0);
                 });
-                const bItems = Math.max(0, targetTotal - totalRead);
-                setBacklogInfo({ items: bItems, days: freq > 0 ? Math.ceil(bItems / freq) : bItems * Math.abs(freq) });
+                const totalBacklogItems = targetTotal - totalRead;
+                const bItems = totalBacklogItems < 0 ? 0 : totalBacklogItems;
+                const adelantoItems = totalBacklogItems < 0 ? Math.abs(totalBacklogItems) : 0;
+                
+                let bDays = 0;
+                let adelantoDays = 0;
+
+                if (bItems > 0) {
+                    bDays = freq > 0 ? Math.ceil(bItems / freq) : bItems * Math.abs(freq);
+                } else if (adelantoItems > 0) {
+                    // Logic for adelantoDays
+                    // Use a full checkDate loop counting forward from tomorrow
+                    let tempAdelanto = adelantoItems;
+                    let checkDate = new Date();
+                    checkDate.setHours(0, 0, 0, 0);
+                    checkDate.setDate(checkDate.getDate() + 1); // Start from tomorrow
+                    const safetyMax = 3650;
+                    let safety = 0;
+                    const history = category?.quotas_history || [];
+                    const pauses = category?.pauses || [];
+                    const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+                    while (tempAdelanto > 0 && safety < safetyMax) {
+                        if (!isDatePaused(checkDate, pauses)) {
+                            const dStr = checkDate.toISOString().split('T')[0];
+                            let activeQuotas = null;
+
+                            if (history && history.length > 0) {
+                                const record = history.find(h => dStr >= h.start_date && dStr <= (h.end_date || '9999-12-31'));
+                                if (record) activeQuotas = record.quotas;
+                            }
+
+                            if (!activeQuotas) {
+                                try {
+                                    activeQuotas = typeof dOfWeek === 'string' ? JSON.parse(dOfWeek || '[]') : dOfWeek;
+                                } catch (e) { activeQuotas = []; }
+                            }
+
+                            const dayName = dayMap[checkDate.getDay()];
+                            let quota = 0;
+                            let isActive = false;
+                            if (Array.isArray(activeQuotas)) {
+                                isActive = activeQuotas.includes(dayName);
+                            } else if (activeQuotas && activeQuotas[dayName] > 0) {
+                                isActive = true;
+                            }
+                            
+                            if (isActive) {
+                                quota = freq > 0 ? freq : (1 / Math.abs(freq || 1));
+                            }
+
+                            if (quota > 0) {
+                                tempAdelanto -= quota;
+                                adelantoDays++;
+                            }
+                        }
+                        checkDate.setDate(checkDate.getDate() + 1);
+                        safety++;
+                    }
+                }
+                
+                setBacklogInfo({ items: bItems, days: bDays, adelantoItems, adelantoDays });
                 const pendingList = generateInterleavedList(seriesResult.data);
                 let watchedList = historyResult.success ? historyResult.data.map(h => ({ uniqueId: `${h.series_id}-s${h.season_number}-e${h.episode_number}-rh${h.id}`, seriesId: h.series_id, seriesName: h.s_name, season: h.season_number, episode: h.episode_number, status: 'watched', readAt: h.read_at })) : [];
                 setCounts({ pending: pendingList.length, watched: watchedList.length });
@@ -160,7 +220,8 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
     };
 
     const renderItem = ({ item, index }) => {
-        const isW = item.status === 'watched', isB = !isW && backlogInfo.items > 0 && index < backlogInfo.items;
+        const isW = item.status === 'watched';
+        const isB = !isW && backlogInfo.items > 0 && index < backlogInfo.items;
         return (
             <View style={[styles.card, { backgroundColor: theme.card, borderLeftColor: isB ? '#EF6C00' : 'transparent' }, isB && { backgroundColor: isDarkMode ? '#3e2723' : '#FFFDE7' }]}>
                 <View style={styles.cardContent}>
@@ -201,7 +262,15 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
                 <TouchableOpacity onPress={onBack} style={styles.backButton}><Text style={[styles.backStatus, { color: theme.text }]}>←</Text></TouchableOpacity>
                 <View style={{ flex: 1, alignItems: 'center' }}>
                     <Text style={[styles.headerTitle, { color: theme.text }]}>Registro - {category?.name || 'Lectura'}</Text>
-                    {!loading && <Text style={[styles.allDone, backlogInfo.items > 0 ? { color: '#EF6C00' } : { color: '#4CAF50' }]}>{backlogInfo.items <= 0 ? '¡Al día! 🎉' : `Atraso: ${backlogInfo.items} Tomos`}</Text>}
+                    {!loading && backlogInfo && (
+                        <Text style={[styles.allDone, (backlogInfo.items <= 0 && backlogInfo.adelantoItems <= 0) ? { color: '#4CAF50' } : (backlogInfo.adelantoItems > 0 ? { color: '#2E7D32' } : { color: '#EF6C00' })]}>
+                            {backlogInfo.adelantoItems > 0 
+                                ? `Adelantado: ${backlogInfo.adelantoDays}d, ${backlogInfo.adelantoItems} Tomos` 
+                                : (backlogInfo.items <= 0) 
+                                    ? '¡Al día! 🎉' 
+                                    : `Atraso: ${backlogInfo.items} Tomos`}
+                        </Text>
+                    )}
                 </View>
                 <View style={{ width: 40 }} />
             </View>

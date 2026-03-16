@@ -73,56 +73,67 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
 
             let totalWatchedSinceStart = 0;
             seriesList.forEach(s => { totalWatchedSinceStart += getWatchedCountSinceStart(s); });
-            totalBacklogItems = Math.max(0, targetTotal - totalWatchedSinceStart);
+            const totalBacklogValue = targetTotal - totalWatchedSinceStart;
+            totalBacklogItems = totalBacklogValue < 0 ? 0 : totalBacklogValue;
+            let totalAdelantoItems = totalBacklogValue < 0 ? Math.abs(totalBacklogValue) : 0;
             
             let bDays = 0;
+            let adelantoDays = 0;
+            const history = category?.quotas_history || [];
+            const pauses = category?.pauses || [];
+            const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+            const getActiveQuotasForDate = (checkDate) => {
+                const dStr = checkDate.toISOString().split('T')[0];
+                let activeQ = null;
+                if (history.length > 0) {
+                    const record = history.find(h => dStr >= h.start_date && dStr <= (h.end_date || '9999-12-31'));
+                    if (record) activeQ = record.quotas;
+                }
+                if (!activeQ) {
+                    try {
+                        const parsed = typeof dOfWeek === 'string' ? JSON.parse(dOfWeek || '[]') : dOfWeek;
+                        if (Array.isArray(parsed)) {
+                            activeQ = {};
+                            parsed.forEach(day => { activeQ[day] = frequency || 0; });
+                        } else {
+                            activeQ = parsed;
+                        }
+                    } catch (e) { activeQ = {}; }
+                }
+                return activeQ;
+            };
+
+            const getQuotaForDate = (checkDate, activeQ) => {
+                const dayName = dayMap[checkDate.getDay()];
+                let quota = 0;
+                if (type === 'video') {
+                    quota = activeQ?.[dayName] || 0;
+                } else {
+                    let isActive = false;
+                    if (Array.isArray(activeQ)) {
+                        isActive = activeQ.includes(dayName);
+                    } else {
+                        isActive = activeQ?.[dayName] > 0;
+                    }
+                    if (isActive) {
+                        quota = frequency > 0 ? frequency : (1 / Math.abs(frequency || 1));
+                    }
+                }
+                return quota;
+            };
+
             if (totalBacklogItems > 0) {
                 let tempBacklog = totalBacklogItems;
                 let checkDate = new Date();
                 checkDate.setHours(0, 0, 0, 0);
                 const safetyMax = 3650;
                 let safety = 0;
-                const history = category?.quotas_history || [];
-                const pauses = category?.pauses || [];
-                const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
                 while (tempBacklog > 0 && safety < safetyMax) {
                     if (!isDatePaused(checkDate, pauses)) {
-                        const dStr = checkDate.toISOString().split('T')[0];
-                        let activeQuotas = null;
-
-                        if (history.length > 0) {
-                            const record = history.find(h => dStr >= h.start_date && dStr <= (h.end_date || '9999-12-31'));
-                            if (record) activeQuotas = record.quotas;
-                        }
-
-                        if (!activeQuotas) {
-                            try {
-                                const parsed = typeof dOfWeek === 'string' ? JSON.parse(dOfWeek || '[]') : dOfWeek;
-                                if (Array.isArray(parsed)) {
-                                    activeQuotas = {};
-                                    parsed.forEach(day => { activeQuotas[day] = frequency || 0; });
-                                } else {
-                                    activeQuotas = parsed;
-                                }
-                            } catch (e) { activeQuotas = {}; }
-                        }
-
-                        const dayName = dayMap[checkDate.getDay()];
-                        let quota = 0;
-                        if (type === 'video') {
-                            quota = activeQuotas?.[dayName] || 0;
-                        } else {
-                            let isActive = false;
-                            if (Array.isArray(activeQuotas)) {
-                                isActive = activeQuotas.includes(dayName);
-                            } else {
-                                isActive = activeQuotas?.[dayName] > 0;
-                            }
-                            if (isActive) {
-                                quota = frequency > 0 ? frequency : (1 / Math.abs(frequency || 1));
-                            }
-                        }
+                        const activeQuotas = getActiveQuotasForDate(checkDate);
+                        const quota = getQuotaForDate(checkDate, activeQuotas);
 
                         if (quota > 0) {
                             tempBacklog -= quota;
@@ -133,16 +144,44 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
                     safety++;
                     if (checkDate.toISOString().split('T')[0] < startStr) break;
                 }
+            } else if (totalAdelantoItems > 0) {
+                let tempAdelanto = totalAdelantoItems;
+                let checkDate = new Date();
+                checkDate.setHours(0, 0, 0, 0);
+                checkDate.setDate(checkDate.getDate() + 1); // Start checking from tomorrow
+                const safetyMax = 3650;
+                let safety = 0;
+
+                while (tempAdelanto > 0 && safety < safetyMax) {
+                    if (!isDatePaused(checkDate, pauses)) {
+                        const activeQuotas = getActiveQuotasForDate(checkDate);
+                        const quota = getQuotaForDate(checkDate, activeQuotas);
+
+                        if (quota > 0) {
+                            tempAdelanto -= quota;
+                            adelantoDays++;
+                        }
+                    }
+                    checkDate.setDate(checkDate.getDate() + 1);
+                    safety++;
+                }
             }
             totalBacklogDays = Math.ceil(bDays);
+            setHeaderBacklog({ days: totalBacklogDays, items: totalBacklogItems, adelantoDays: Math.ceil(adelantoDays), adelantoItems: totalAdelantoItems });
         } else {
+            // Global without category
+            let globalAdelantoDays = 0;
+            let globalAdelantoItems = 0;
             seriesList.forEach(s => {
                 const b = calculateBacklogCount(s);
-                totalBacklogItems += b;
-                if (s.frequency) totalBacklogDays += Math.ceil(b / s.frequency);
+                totalBacklogItems += b.items;
+                if (s.frequency) totalBacklogDays += Math.ceil(b.items / s.frequency);
+                
+                globalAdelantoItems += b.adelantoItems;
+                if (s.frequency) globalAdelantoDays += Math.ceil(b.adelantoItems / s.frequency);
             });
+            setHeaderBacklog({ days: totalBacklogDays, items: totalBacklogItems, adelantoDays: globalAdelantoDays, adelantoItems: globalAdelantoItems });
         }
-        setHeaderBacklog({ days: totalBacklogDays, items: totalBacklogItems });
     };
 
 
@@ -260,7 +299,11 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
         const calc = calculateScheduleDays(series.start_date, series.days_of_week);
         const targetCount = calc.validDays * series.frequency;
         const watchedSinceStart = getWatchedCountSinceStart(series);
-        return Math.max(0, targetCount - watchedSinceStart);
+        const diff = targetCount - watchedSinceStart;
+        return { 
+            items: Math.max(0, diff), 
+            adelantoItems: Math.max(0, -diff) 
+        };
     };
 
     const generateInterleavedList = (seriesList) => {
@@ -398,8 +441,12 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
                     <View style={{ marginLeft: 10 }}>
                         <Text style={[styles.headerTitle, { color: theme.text }]}>Registro - {category?.name || 'Global'}</Text>
                         {headerBacklog && (
-                            <Text style={[styles.headerSubtitle, (headerBacklog.days <= 0 && headerBacklog.items <= 0) && { color: '#4CAF50' }]}>
-                                {(headerBacklog.days <= 0 && headerBacklog.items <= 0) ? '¡Al día! 🎉' : `Atraso: ${headerBacklog.days}d, ${headerBacklog.items} Caps`}
+                            <Text style={[styles.headerSubtitle, (headerBacklog.days <= 0 && headerBacklog.items <= 0 && headerBacklog.adelantoItems <= 0) && { color: '#4CAF50' }, headerBacklog.adelantoItems > 0 && { color: '#2E7D32' }]}>
+                                {headerBacklog.adelantoItems > 0 
+                                    ? `Adelantado: ${headerBacklog.adelantoDays}d, ${headerBacklog.adelantoItems} Caps`
+                                    : (headerBacklog.days <= 0 && headerBacklog.items <= 0) 
+                                        ? '¡Al día! 🎉' 
+                                        : `Atraso: ${headerBacklog.days}d, ${headerBacklog.items} Caps`}
                             </Text>
                         )}
                     </View>
