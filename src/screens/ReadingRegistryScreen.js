@@ -166,7 +166,7 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
     const generateInterleavedList = (list) => {
         let episodes = [];
         list.forEach((s, sIdx) => {
-            if (s.status === 'Terminado' || s.status === 'En espera') return;
+            if (s.status === 'Terminado' || s.status === 'En espera' || s.status === 'Pausado') return;
             const seriesEps = generateEpisodesForSeries(s);
 
             // Calculate baseCount inline

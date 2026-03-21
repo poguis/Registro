@@ -335,7 +335,7 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
     const generateEpisodesForSeries = (series) => {
         const episodes = [];
         let { current_season, current_episode, status, total_seasons } = series;
-        if (status === 'Terminado' || status === 'En espera') return [];
+        if (status === 'Terminado' || status === 'En espera' || status === 'Pausado') return [];
         let count = 0, s = current_season || 1, e = current_episode || 1;
         const maxSeason = total_seasons || (series.seasons?.length ? series.seasons[series.seasons.length - 1].season_number : 1);
         while (s <= maxSeason && count < 500) {
