@@ -279,7 +279,7 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
     };
 
     const getFilteredSeries = () => {
-        if (currentStatusTab === 'Viendo') return originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando');
+        if (currentStatusTab === 'Viendo') return originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando' || s.status === 'Pausado');
         return originalList.filter(s => s.status === currentStatusTab);
     };
 
@@ -316,10 +316,10 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
             }
             result = await db.updateSeriesWithSeasons(editingSeriesId, seriesData, seasonsData);
         } else {
-            const activeItems = originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando');
+            const activeItems = originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando' || s.status === 'Pausado');
             const activeCount = activeItems.length;
             const isCurrentlyActive = isEditing && activeItems.some(s => s.id === editingSeriesId);
-            const willBeActive = status === 'Nueva' || status === 'Mirando';
+            const willBeActive = status === 'Nueva' || status === 'Mirando' || status === 'Pausado';
 
             if (willBeActive && (!isCurrentlyActive || !isEditing)) {
                 if (category.series_count !== null && category.series_count !== undefined) {
@@ -369,7 +369,7 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
             ]);
         } else {
             let targetStatus = series.status;
-            if (series.status === 'En espera' || series.status === 'Terminado') targetStatus = 'Mirando';
+            if (series.status === 'En espera' || series.status === 'Terminado' || series.status === 'Pausado') targetStatus = 'Mirando';
             performUpdate(targetStatus);
         }
     };
@@ -387,11 +387,21 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
         ]);
     };
 
+    const handleTogglePauseSeries = async (series) => {
+        let newStatus;
+        if (series.status === 'Pausado') newStatus = 'Mirando';
+        else if (series.status === 'Mirando' || series.status === 'Nueva') newStatus = 'Pausado';
+        else return;
+        const res = await db.updateSeriesProgress(series.id, series.current_season, series.current_episode, newStatus);
+        if (res.success) fetchSeries();
+    };
+
     const renderSeriesItem = ({ item, index }) => {
         let badgeStyle = styles.badgeWatching;
         if (item.status === 'Nueva') badgeStyle = styles.badgeNew;
         if (item.status === 'En espera') badgeStyle = styles.badgeHold;
         if (item.status === 'Terminado') badgeStyle = styles.badgeFinished;
+        if (item.status === 'Pausado') badgeStyle = { backgroundColor: '#FFF9C4' };
         const isViendo = currentStatusTab === 'Viendo';
 
         return (
@@ -434,6 +444,11 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
                             <TouchableOpacity onPress={() => { setActiveSeries(item); setProgressModalVisible(true); }} style={[styles.gridBtn, { backgroundColor: theme.inputBackground }]}>
                                 <Text style={{ fontSize: 18 }}>👁️</Text>
                             </TouchableOpacity>
+                            {(item.status === 'Nueva' || item.status === 'Mirando' || item.status === 'Pausado') && (
+                                <TouchableOpacity onPress={() => handleTogglePauseSeries(item)} style={[styles.gridBtn, { backgroundColor: theme.inputBackground, marginLeft: 2, paddingHorizontal: 10 }]}>
+                                    <Text style={{ fontSize: 16 }}>{item.status === 'Pausado' ? '▶️' : '⏸️'}</Text>
+                                </TouchableOpacity>
+                            )}
                             {isViendo && (
                                 <View style={styles.orderButtons}>
                                     <TouchableOpacity onPress={() => moveUp(index)} style={[styles.orderBtn, { backgroundColor: theme.inputBackground, borderColor: theme.border }]}>
@@ -477,7 +492,7 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
                             </Text>
                         )}
                         <Text style={[styles.headerSubtitle, { color: theme.subText, fontSize: 11 }]}>
-                            • Leyendo: {originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando').length}/{category.series_count !== null ? category.series_count : '∞'}
+                            • Leyendo: {originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando' || s.status === 'Pausado').length}/{category.series_count !== null ? category.series_count : '∞'}
                         </Text>
                     </View>
                 </View>
@@ -494,7 +509,7 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
             <View style={[styles.tabContainer, { backgroundColor: theme.header, borderBottomColor: theme.border }]}>
                 {['Viendo', 'En espera', 'Terminado'].map((tab) => {
                     const count = tab === 'Viendo'
-                        ? originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando').length
+                        ? originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando' || s.status === 'Pausado').length
                         : originalList.filter(s => s.status === tab).length;
 
                     return (
