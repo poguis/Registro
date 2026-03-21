@@ -74,6 +74,22 @@ class DatabaseService {
         );
       `);
 
+            // Services Table
+            await this.db.execAsync(`
+        CREATE TABLE IF NOT EXISTS services (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          user_id INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL CHECK(type IN ('Local', 'Internacional')),
+          status TEXT NOT NULL CHECK(status IN ('Activo', 'Inactivo')),
+          original_value REAL NOT NULL,
+          additional_value REAL DEFAULT 0,
+          total_value REAL NOT NULL,
+          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+      `);
+
             // Entertainment Categories (Series/Anime/Reading)
             await this.db.execAsync(`
         CREATE TABLE IF NOT EXISTS entertainment_categories (
@@ -543,6 +559,80 @@ class DatabaseService {
     }
 
     // --- ENTERTAINMENT (Series/Anime/Lectura) ---
+
+    // --- SERVICIOS ---
+
+    async addService(userId, data) {
+        if (!this.db) await this.init();
+        try {
+            const { name, type, status, originalValue, additionalValue, totalValue } = data;
+            const result = await this.db.runAsync(
+                `INSERT INTO services 
+                (user_id, name, type, status, original_value, additional_value, total_value) 
+                VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                [userId, name, type, status, originalValue, additionalValue || 0, totalValue]
+            );
+            return { success: true, id: result.lastInsertRowId };
+        } catch (error) {
+            console.error('Error adding service:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async getServices(userId) {
+        if (!this.db) await this.init();
+        try {
+            const services = await this.db.getAllAsync(
+                'SELECT * FROM services WHERE user_id = ? ORDER BY status ASC, name ASC',
+                [userId]
+            );
+            return { success: true, services };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async updateService(id, data) {
+        if (!this.db) await this.init();
+        try {
+            const { name, type, status, originalValue, additionalValue, totalValue } = data;
+            await this.db.runAsync(
+                `UPDATE services 
+                SET name = ?, type = ?, status = ?, original_value = ?, additional_value = ?, total_value = ?
+                WHERE id = ?`,
+                [name, type, status, originalValue, additionalValue || 0, totalValue, id]
+            );
+            return { success: true };
+        } catch (error) {
+            console.error('Error updating service:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async deleteService(id) {
+        if (!this.db) await this.init();
+        try {
+            await this.db.runAsync('DELETE FROM services WHERE id = ?', [id]);
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async toggleServiceStatus(id, currentStatus) {
+        if (!this.db) await this.init();
+        try {
+            const newStatus = currentStatus === 'Activo' ? 'Inactivo' : 'Activo';
+            await this.db.runAsync(
+                `UPDATE services SET status = ? WHERE id = ?`,
+                [newStatus, id]
+            );
+            return { success: true, newStatus };
+        } catch (error) {
+            console.error('Error toggling service status:', error);
+            return { success: false, error: error.message };
+        }
+    }
 
     async addEntertainmentCategory(userId, data) {
         if (!this.db) await this.init();

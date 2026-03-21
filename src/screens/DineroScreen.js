@@ -397,6 +397,9 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                 </TouchableOpacity>
 
                 <View style={{ flexDirection: 'row', gap: 15 }}>
+                    <TouchableOpacity onPress={() => onNavigate('SERVICIOS')}>
+                        <Text style={{ fontSize: 22 }}>🔌</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity onPress={() => onNavigate('STATISTICS')}>
                         <Text style={{ fontSize: 22 }}>📊</Text>
                     </TouchableOpacity>

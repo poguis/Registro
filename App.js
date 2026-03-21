@@ -16,6 +16,7 @@ import ReadingRegistryScreen from './src/screens/ReadingRegistryScreen';
 import BacklogScreen from './src/screens/BacklogScreen';
 import StatisticsScreen from './src/screens/StatisticsScreen';
 import TrabajoScreen from './src/screens/TrabajoScreen';
+import ServiciosScreen from './src/screens/ServiciosScreen';
 import { ThemeProvider } from './src/contexts/ThemeContext';
 
 export default function App() {
@@ -130,6 +131,13 @@ export default function App() {
           <LoginScreen onLoginSuccess={handleLogin} />
         ) : (() => {
           switch (currentView) {
+            case 'SERVICIOS':
+              return (
+                <ServiciosScreen
+                  user={user}
+                  onBack={handleBack}
+                />
+              );
             case 'DINERO':
               return (
                 <DineroScreen
