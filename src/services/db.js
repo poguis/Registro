@@ -898,35 +898,15 @@ class DatabaseService {
             );
             const nextOrder = (maxOrderRes?.maxOrder || 0) + 1;
 
-            // --- ACOPLAMIENTO DE CICLOS ---
-            // Buscamos el máximo de (capítulos_vistos + cycle_offset) en la categoría
-            // para que la serie nueva se una al ritmo actual.
-            const seriesInCategory = await this.db.getAllAsync(
-                'SELECT id, current_season, current_episode, initial_season, initial_episode, cycle_offset FROM series WHERE category_id = ?',
-                [category_id]
-            );
-
-            let maxCycle = 0;
-            for (const s of seriesInCategory) {
-                const seasons = await this.db.getAllAsync('SELECT * FROM seasons WHERE series_id = ?', [s.id]);
-                const getAbs = (sn, en) => {
-                    let c = 0;
-                    for (let i = 1; i < sn; i++) {
-                        const sea = seasons.find(se => se.season_number === i);
-                        c += sea ? sea.episode_count : 0;
-                    }
-                    return c + (en - 1);
-                };
-                const watched = getAbs(s.current_season, s.current_episode) - getAbs(s.initial_season || 1, s.initial_episode || 1);
-                const totalCycle = (watched > 0 ? watched : 0) + (s.cycle_offset || 0);
-                if (totalCycle > maxCycle) maxCycle = totalCycle;
-            }
+            // ACOPLAMIENTO ELIMINADO: Ya no se suma el `maxCycle` al `cycle_offset` de las nuevas
+            // series, dado que el total general de la categoría se calcula sumando TODAS 
+            // las series por separado. Añadir un maxCycle aquí causaba duplicación de historial.
 
             // 1. Insert Series
             const result = await this.db.runAsync(
                 `INSERT INTO series (category_id, name, description, status, current_season, current_episode, initial_season, initial_episode, total_seasons, sort_order, cycle_offset, last_watched_at) 
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [category_id, name, description, status, current_season, current_episode, current_season, current_episode, total_seasons, nextOrder, maxCycle, 0]
+                [category_id, name, description, status, current_season, current_episode, current_season, current_episode, total_seasons, nextOrder, 0, 0]
             );
             const seriesId = result.lastInsertRowId;
 
@@ -958,68 +938,10 @@ class DatabaseService {
 
             let newOffset = currentSeries.cycle_offset;
 
-            // Check if activating (was NOT Mirando, now IS Mirando)
-            // Or if user specifically requested a status change to Mirando via the UI
-            const isActivating = (currentSeries.status === 'En espera' || currentSeries.status === 'Terminado' || currentSeries.status === 'Nueva') && (status === 'Mirando');
-
-            if (isActivating) {
-                // Calculate Max Cycle in Category to sync
-                const seriesInCategory = await this.db.getAllAsync(
-                    'SELECT id, current_season, current_episode, initial_season, initial_episode, cycle_offset FROM series WHERE category_id = ? AND id != ?',
-                    [currentSeries.category_id, seriesId]
-                );
-
-                let maxCycle = 0;
-                for (const s of seriesInCategory) {
-                    const seasons = await this.db.getAllAsync('SELECT * FROM seasons WHERE series_id = ?', [s.id]);
-                    const getAbs = (sn, en) => {
-                        let c = 0;
-                        for (let i = 1; i < sn; i++) {
-                            const sea = seasons.find(se => se.season_number === i);
-                            c += sea ? sea.episode_count : 0;
-                        }
-                        return c + (en - 1);
-                    };
-                    const watched = getAbs(s.current_season, s.current_episode) - getAbs(s.initial_season || 1, s.initial_episode || 1);
-                    // If watched is negative (shouldn't happen but safe check), treat as 0
-                    const totalCycle = (watched > 0 ? watched : 0) + (s.cycle_offset || 0);
-                    if (totalCycle > maxCycle) maxCycle = totalCycle;
-                }
-
-                // Calculate THIS series current watched count (based on its NEW position if provided, else current)
-                // We need the seasons for THIS series to calculate its own internal progress
-                // If seasonsData is provided (it usually is during update), use it. otherwise fetch.
-                let mySeasons = [];
-                if (seasonsData && seasonsData.length > 0) {
-                    mySeasons = seasonsData;
-                } else {
-                    mySeasons = await this.db.getAllAsync('SELECT * FROM seasons WHERE series_id = ? ORDER BY season_number ASC', [seriesId]);
-                }
-
-                const myTargetS = seriesData.current_season !== undefined ? seriesData.current_season : currentSeries.current_season;
-                const myTargetE = seriesData.current_episode !== undefined ? seriesData.current_episode : currentSeries.current_episode;
-                const myInitS = currentSeries.initial_season || 1;
-                const myInitE = currentSeries.initial_episode || 1;
-
-                const getMyAbs = (sn, en) => {
-                    let c = 0;
-                    for (let i = 1; i < sn; i++) {
-                        // Find in mySeasons (which might be raw DB rows or the passed object)
-                        // passed object uses 'season_number', 'episode_count'. DB rows same.
-                        const sea = mySeasons.find(se => se.season_number === i);
-                        c += sea ? sea.episode_count : 0;
-                    }
-                    return c + (en - 1);
-                };
-
-                const myWatched = getMyAbs(myTargetS, myTargetE) - getMyAbs(myInitS, myInitE);
-
-                // New Offset = MaxCycle - MyWatched
-                // So (MyWatched + NewOffset) = MaxCycle
-                newOffset = maxCycle - (myWatched > 0 ? myWatched : 0);
-
-                // console.log(`Resyncing Series ${name}: MaxCycle=${maxCycle}, MyWatched=${myWatched}, NewOffset=${newOffset}`);
-            }
+            // ACOPLAMIENTO ELIMINADO: Anteriormente, al cambiar de estado a 'Mirando', 
+            // la serie intentaba igualar su `cycle_offset` al `maxCycle` de la categoría.
+            // Dado que el total progresivo suma todas las series de la categoría, sumar el maxCycle
+            // causaba conteos duplicados cada vez que se activaba una serie.
 
             // 1. Update Series
             let query = `UPDATE series SET name = ?, description = ?, total_seasons = ?, cycle_offset = ?`;
