@@ -246,7 +246,10 @@ export default function BacklogScreen({ user, onBack }) {
                             key={cat.id}
                             style={[
                                 styles.tab,
-                                activeTab === cat.id && { backgroundColor: cat.color, borderColor: cat.color }
+                                { 
+                                    backgroundColor: activeTab === cat.id ? cat.color : theme.card, 
+                                    borderColor: activeTab === cat.id ? cat.color : theme.border 
+                                }
                             ]}
                             onPress={() => setActiveTab(cat.id)}
                         >
@@ -265,13 +268,16 @@ export default function BacklogScreen({ user, onBack }) {
             {/* Franchise Tabs (For Movie/Series) */}
             {(activeTab === 'movie' || activeTab === 'series') && (
                 <View style={[styles.tabsContainer, { paddingTop: 0, paddingBottom: 10 }]}>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsScroll}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.tabsScroll, { flexGrow: 1, justifyContent: 'center' }]}>
                         {['Todos', 'Marvel', 'DC Comics', 'Otros'].map(franchise => (
                             <TouchableOpacity
                                 key={franchise}
                                 style={[
                                     styles.franchiseTab,
-                                    activeFranchise === franchise && { backgroundColor: theme.accent, borderColor: theme.accent }
+                                    { 
+                                        backgroundColor: activeFranchise === franchise ? theme.accent : theme.inputBackground, 
+                                        borderColor: activeFranchise === franchise ? theme.accent : theme.border 
+                                    }
                                 ]}
                                 onPress={() => setActiveFranchise(franchise)}
                             >
@@ -425,10 +431,16 @@ export default function BacklogScreen({ user, onBack }) {
                                         {['Marvel', 'DC Comics', 'Otros'].map(f => (
                                             <TouchableOpacity
                                                 key={f}
-                                                style={[styles.formatOption, formData.franchise === f && { backgroundColor: theme.accent, borderColor: theme.accent }]}
+                                                style={[
+                                                    styles.formatOption, 
+                                                    {
+                                                        backgroundColor: formData.franchise === f ? theme.accent : theme.inputBackground, 
+                                                        borderColor: formData.franchise === f ? theme.accent : theme.border
+                                                    }
+                                                ]}
                                                 onPress={() => setFormData({ ...formData, franchise: f })}
                                             >
-                                                <Text style={[styles.formatText, formData.franchise === f && { color: '#fff' }]}>{f}</Text>
+                                                <Text style={[styles.formatText, { color: formData.franchise === f ? '#fff' : theme.text }]}>{f}</Text>
                                             </TouchableOpacity>
                                         ))}
                                     </View>
@@ -456,10 +468,16 @@ export default function BacklogScreen({ user, onBack }) {
                                         {['24 min', '40 min'].map(f => (
                                             <TouchableOpacity
                                                 key={f}
-                                                style={[styles.formatOption, formData.format === f && { backgroundColor: theme.accent }]}
+                                                style={[
+                                                    styles.formatOption, 
+                                                    {
+                                                        backgroundColor: formData.format === f ? theme.accent : theme.inputBackground, 
+                                                        borderColor: formData.format === f ? theme.accent : theme.border
+                                                    }
+                                                ]}
                                                 onPress={() => setFormData({ ...formData, format: f })}
                                             >
-                                                <Text style={[styles.formatText, formData.format === f && { color: '#fff' }]}>{f}</Text>
+                                                <Text style={[styles.formatText, { color: formData.format === f ? '#fff' : theme.text }]}>{f}</Text>
                                             </TouchableOpacity>
                                         ))}
                                     </View>
@@ -592,21 +610,17 @@ const styles = StyleSheet.create({
         borderRadius: 20,
         marginRight: 10,
         borderWidth: 1,
-        borderColor: '#eee',
-        backgroundColor: '#fff',
     },
     tabIcon: { fontSize: 18, marginRight: 8 },
     tabLabel: { fontSize: 14, fontWeight: 'bold' },
     franchiseTab: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 15,
-        marginRight: 8,
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderRadius: 20,
+        marginRight: 10,
         borderWidth: 1,
-        borderColor: '#eee',
-        backgroundColor: '#fff',
     },
     franchiseLabel: { fontSize: 12, fontWeight: 'bold' },
     listContent: { padding: 15, paddingBottom: 100 },
@@ -707,10 +721,9 @@ const styles = StyleSheet.create({
         padding: 12,
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: '#ddd',
         alignItems: 'center',
     },
-    formatText: { fontWeight: 'bold', color: '#666' },
+    formatText: { fontWeight: 'bold' },
     modalButtons: { flexDirection: 'row', gap: 15, marginTop: 30 },
     modalButton: { flex: 1, padding: 18, borderRadius: 15, alignItems: 'center' },
     modalButtonText: { fontSize: 16, fontWeight: 'bold' },

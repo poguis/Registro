@@ -308,7 +308,8 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
         const [y, m, d] = startStr.split('-').map(Number);
         const start = new Date(y, m - 1, d);
 
-        if (start > now) return { diffDays: 0, backlogItems: 0, unit: type === 'video' ? 'Caps' : 'Tomos' };
+        // Si la fecha de inicio está en el futuro, `targetItems` será 0 porque el bucle (`current <= now`) no se ejecutará,
+        // lo cual es correcto y permite calcular correctamente los días/ítems "Adelantados" en caso de que ya se haya visto algo.
 
         let targetItems = 0;
         let current = new Date(start);
