@@ -196,6 +196,7 @@ class DatabaseService {
                     format TEXT, -- For series: '24 min', '40 min'
                     start_year INTEGER, -- For series, anime, reading
                     end_year INTEGER, -- For series, anime
+                    franchise TEXT DEFAULT 'Otros',
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
                 );
@@ -208,7 +209,8 @@ class DatabaseService {
                 `ALTER TABLE series ADD COLUMN initial_season INTEGER DEFAULT 1;`,
                 `ALTER TABLE series ADD COLUMN initial_episode INTEGER DEFAULT 1;`,
                 `ALTER TABLE series ADD COLUMN last_watched_at INTEGER DEFAULT 0;`,
-                `ALTER TABLE work_people ADD COLUMN sort_order INTEGER DEFAULT 0;`
+                `ALTER TABLE work_people ADD COLUMN sort_order INTEGER DEFAULT 0;`,
+                `ALTER TABLE backlog ADD COLUMN franchise TEXT DEFAULT 'Otros';`
             ];
 
             for (const m of migrations) {
@@ -235,6 +237,21 @@ class DatabaseService {
                     start_date TEXT NOT NULL,
                     cycle TEXT NOT NULL, -- JSON string
                     sort_order INTEGER DEFAULT 0,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
+            `);
+
+            // Cards (Tarjetas)
+            await this.db.execAsync(`
+                CREATE TABLE IF NOT EXISTS cards (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    type TEXT NOT NULL CHECK(type IN ('debit', 'credit')),
+                    cutoff_date INTEGER,
+                    payment_due_date INTEGER,
+                    limit_amount REAL,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
                 );
@@ -1303,11 +1320,11 @@ class DatabaseService {
     async addBacklogItem(userId, data) {
         if (!this.db) await this.init();
         try {
-            const { type, title, year, format, start_year, end_year } = data;
+            const { type, title, year, format, start_year, end_year, franchise } = data;
             await this.db.runAsync(
-                `INSERT INTO backlog (user_id, type, title, year, format, start_year, end_year) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [userId, type, title, year, format, start_year, end_year]
+                `INSERT INTO backlog (user_id, type, title, year, format, start_year, end_year, franchise) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                [userId, type, title, year, format, start_year, end_year, franchise || 'Otros']
             );
             return { success: true };
         } catch (error) {
@@ -1316,7 +1333,7 @@ class DatabaseService {
         }
     }
 
-    async getBacklogItems(userId, type, status = null, sortBy = 'title', order = 'ASC') {
+    async getBacklogItems(userId, type, status = null, sortBy = 'title', order = 'ASC', franchise = 'Todos') {
         if (!this.db) await this.init();
         try {
             // Determine the column to sort by for "year" based on type
@@ -1334,6 +1351,11 @@ class DatabaseService {
                 params.push(status);
             }
 
+            if (franchise && franchise !== 'Todos') {
+                query += ` AND franchise = ?`;
+                params.push(franchise);
+            }
+
             query += ` ORDER BY ${sortCol} ${order}`;
 
             const rows = await this.db.getAllAsync(query, params);
@@ -1344,7 +1366,7 @@ class DatabaseService {
         }
     }
 
-    async getBacklogCounts(userId, type) {
+    async getBacklogCounts(userId, type, franchise = 'Todos') {
         if (!this.db) await this.init();
         try {
             const counts = {
@@ -1354,10 +1376,17 @@ class DatabaseService {
                 'Total': 0
             };
 
-            const rows = await this.db.getAllAsync(
-                'SELECT status, COUNT(*) as count FROM backlog WHERE user_id = ? AND type = ? GROUP BY status',
-                [userId, type]
-            );
+            let query = 'SELECT status, COUNT(*) as count FROM backlog WHERE user_id = ? AND type = ?';
+            const params = [userId, type];
+
+            if (franchise && franchise !== 'Todos') {
+                query += ' AND franchise = ?';
+                params.push(franchise);
+            }
+
+            query += ' GROUP BY status';
+
+            const rows = await this.db.getAllAsync(query, params);
 
             let total = 0;
             rows.forEach(row => {
@@ -1391,12 +1420,12 @@ class DatabaseService {
     async updateBacklogItem(id, data) {
         if (!this.db) await this.init();
         try {
-            const { title, year, format, start_year, end_year } = data;
+            const { title, year, format, start_year, end_year, franchise } = data;
             await this.db.runAsync(
                 `UPDATE backlog 
-                 SET title = ?, year = ?, format = ?, start_year = ?, end_year = ? 
+                 SET title = ?, year = ?, format = ?, start_year = ?, end_year = ?, franchise = ? 
                  WHERE id = ?`,
-                [title, year, format, start_year, end_year, id]
+                [title, year, format, start_year, end_year, franchise || 'Otros', id]
             );
             return { success: true };
         } catch (error) {
@@ -1479,6 +1508,59 @@ class DatabaseService {
             return { success: true };
         } catch (error) {
             console.error('Error deleteWorkPerson:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    // --- CARDS (Tarjetas) ---
+    async addCard(userId, data) {
+        if (!this.db) await this.init();
+        try {
+            const { name, type, cutoff_date, payment_due_date, limit_amount } = data;
+            const result = await this.db.runAsync(
+                `INSERT INTO cards (user_id, name, type, cutoff_date, payment_due_date, limit_amount) VALUES (?, ?, ?, ?, ?, ?)`,
+                [userId, name, type, cutoff_date || null, payment_due_date || null, limit_amount === null ? null : limit_amount]
+            );
+            return { success: true, id: result.lastInsertRowId };
+        } catch (error) {
+            console.error('Error adding card:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    async getCards(userId) {
+        if (!this.db) await this.init();
+        try {
+            const cards = await this.db.getAllAsync(
+                'SELECT * FROM cards WHERE user_id = ? ORDER BY type DESC, name ASC',
+                [userId]
+            );
+            return { success: true, cards };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async updateCard(id, data) {
+        if (!this.db) await this.init();
+        try {
+            const { name, type, cutoff_date, payment_due_date, limit_amount } = data;
+            await this.db.runAsync(
+                `UPDATE cards SET name = ?, type = ?, cutoff_date = ?, payment_due_date = ?, limit_amount = ? WHERE id = ?`,
+                [name, type, cutoff_date || null, payment_due_date || null, limit_amount === null ? null : limit_amount, id]
+            );
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
+    async deleteCard(id) {
+        if (!this.db) await this.init();
+        try {
+            await this.db.runAsync('DELETE FROM cards WHERE id = ?', [id]);
+            return { success: true };
+        } catch (error) {
             return { success: false, error: error.message };
         }
     }

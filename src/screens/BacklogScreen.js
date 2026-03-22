@@ -42,6 +42,7 @@ export default function BacklogScreen({ user, onBack }) {
     const [modalVisible, setModalVisible] = useState(false);
     const [filterModalVisible, setFilterModalVisible] = useState(false);
     const [editingItem, setEditingItem] = useState(null);
+    const [activeFranchise, setActiveFranchise] = useState('Todos');
 
     // Sort states
     const [sortBy, setSortBy] = useState('created_at'); // 'title', 'year_start', 'created_at'
@@ -54,21 +55,26 @@ export default function BacklogScreen({ user, onBack }) {
         format: '24 min',
         start_year: '',
         end_year: '',
+        franchise: 'Otros',
     });
 
     useEffect(() => {
         loadItems();
-    }, [activeTab, activeStatus, sortBy, order]);
+    }, [activeTab, activeStatus, sortBy, order, activeFranchise]);
+
+    useEffect(() => {
+        setActiveFranchise('Todos');
+    }, [activeTab]);
 
     const loadItems = async () => {
         setLoading(true);
         // Load items
-        const res = await db.getBacklogItems(user.id, activeTab, activeStatus, sortBy, order);
+        const res = await db.getBacklogItems(user.id, activeTab, activeStatus, sortBy, order, activeFranchise);
         if (res.success) {
             setItems(res.data);
         }
         // Load counts
-        const countsRes = await db.getBacklogCounts(user.id, activeTab);
+        const countsRes = await db.getBacklogCounts(user.id, activeTab, activeFranchise);
         if (countsRes.success) {
             setCounts(countsRes.counts);
         }
@@ -94,7 +100,7 @@ export default function BacklogScreen({ user, onBack }) {
             if (res.success) {
                 setModalVisible(false);
                 setEditingItem(null);
-                setFormData({ title: '', year: '', format: '24 min', start_year: '', end_year: '' });
+                setFormData({ title: '', year: '', format: '24 min', start_year: '', end_year: '', franchise: 'Otros' });
                 loadItems();
             } else {
                 Alert.alert('Error', 'No se pudo actualizar');
@@ -103,7 +109,7 @@ export default function BacklogScreen({ user, onBack }) {
             const res = await db.addBacklogItem(user.id, data);
             if (res.success) {
                 setModalVisible(false);
-                setFormData({ title: '', year: '', format: '24 min', start_year: '', end_year: '' });
+                setFormData({ title: '', year: '', format: '24 min', start_year: '', end_year: '', franchise: 'Otros' });
                 setActiveStatus('Pendiente');
                 loadItems();
             } else {
@@ -120,6 +126,7 @@ export default function BacklogScreen({ user, onBack }) {
             format: item.format || '24 min',
             start_year: item.start_year ? item.start_year.toString() : '',
             end_year: item.end_year ? item.end_year.toString() : '',
+            franchise: item.franchise || 'Otros',
         });
         setModalVisible(true);
     };
@@ -170,6 +177,11 @@ export default function BacklogScreen({ user, onBack }) {
 
                 <View style={styles.cardFooter}>
                     <View style={styles.metadataContainer}>
+                        {item.franchise && item.franchise !== 'Otros' && (
+                            <Text style={[styles.itemSubtext, { color: item.franchise === 'Marvel' ? '#e23636' : '#0476F2', fontWeight: 'bold' }]}>
+                                {item.franchise === 'Marvel' ? '🦸‍♂️ Marvel' : '🦇 DC Comics'}
+                            </Text>
+                        )}
                         {activeTab === 'movie' && item.year && (
                             <Text style={[styles.itemSubtext, { color: theme.subText }]}>🎬 {item.year}</Text>
                         )}
@@ -250,6 +262,31 @@ export default function BacklogScreen({ user, onBack }) {
                 </ScrollView>
             </View>
 
+            {/* Franchise Tabs (For Movie/Series) */}
+            {(activeTab === 'movie' || activeTab === 'series') && (
+                <View style={[styles.tabsContainer, { paddingTop: 0, paddingBottom: 10 }]}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsScroll}>
+                        {['Todos', 'Marvel', 'DC Comics', 'Otros'].map(franchise => (
+                            <TouchableOpacity
+                                key={franchise}
+                                style={[
+                                    styles.franchiseTab,
+                                    activeFranchise === franchise && { backgroundColor: theme.accent, borderColor: theme.accent }
+                                ]}
+                                onPress={() => setActiveFranchise(franchise)}
+                            >
+                                <Text style={[
+                                    styles.franchiseLabel,
+                                    { color: activeFranchise === franchise ? '#fff' : theme.text }
+                                ]}>
+                                    {franchise}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
+                    </ScrollView>
+                </View>
+            )}
+
             {/* Sub Tabs (Status) */}
             <View style={styles.statusTabsContainer}>
                 {['Pendiente', 'Mirando', 'Terminado', 'Total'].map(status => (
@@ -293,7 +330,7 @@ export default function BacklogScreen({ user, onBack }) {
                 style={[styles.fab, { backgroundColor: currentCat.color }]}
                 onPress={() => {
                     setEditingItem(null);
-                    setFormData({ title: '', year: '', format: '24 min', start_year: '', end_year: '' });
+                    setFormData({ title: '', year: '', format: '24 min', start_year: '', end_year: '', franchise: 'Otros' });
                     setModalVisible(true);
                 }}
             >
@@ -380,6 +417,23 @@ export default function BacklogScreen({ user, onBack }) {
                                 placeholder="Ingresa el título..."
                                 placeholderTextColor={theme.subText}
                             />
+
+                            {(activeTab === 'movie' || activeTab === 'series') && (
+                                <>
+                                    <Text style={[styles.inputLabel, { color: theme.accent }]}>Universo / Franquicia</Text>
+                                    <View style={styles.formatContainer}>
+                                        {['Marvel', 'DC Comics', 'Otros'].map(f => (
+                                            <TouchableOpacity
+                                                key={f}
+                                                style={[styles.formatOption, formData.franchise === f && { backgroundColor: theme.accent, borderColor: theme.accent }]}
+                                                onPress={() => setFormData({ ...formData, franchise: f })}
+                                            >
+                                                <Text style={[styles.formatText, formData.franchise === f && { color: '#fff' }]}>{f}</Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                </>
+                            )}
 
                             {activeTab === 'movie' && (
                                 <>
@@ -543,6 +597,18 @@ const styles = StyleSheet.create({
     },
     tabIcon: { fontSize: 18, marginRight: 8 },
     tabLabel: { fontSize: 14, fontWeight: 'bold' },
+    franchiseTab: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 12,
+        paddingVertical: 6,
+        borderRadius: 15,
+        marginRight: 8,
+        borderWidth: 1,
+        borderColor: '#eee',
+        backgroundColor: '#fff',
+    },
+    franchiseLabel: { fontSize: 12, fontWeight: 'bold' },
     listContent: { padding: 15, paddingBottom: 100 },
     itemCard: {
         borderRadius: 15,
