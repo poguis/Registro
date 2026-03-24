@@ -923,7 +923,7 @@ class DatabaseService {
             const result = await this.db.runAsync(
                 `INSERT INTO series (category_id, name, description, status, current_season, current_episode, initial_season, initial_episode, total_seasons, sort_order, cycle_offset, last_watched_at) 
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [category_id, name, description, status, current_season, current_episode, current_season, current_episode, total_seasons, nextOrder, 0, 0]
+                [category_id, name, description, status, current_season, current_episode, current_season, current_episode, total_seasons, nextOrder, seriesData.cycle_offset || 0, 0]
             );
             const seriesId = result.lastInsertRowId;
 
@@ -1009,7 +1009,7 @@ class DatabaseService {
         }
     }
 
-    async updateSeriesProgress(seriesId, currentSeason, currentEpisode, status = null, customSortOrder = null, customLastWatchedAt = undefined) {
+    async updateSeriesProgress(seriesId, currentSeason, currentEpisode, status = null, customSortOrder = null, customLastWatchedAt = undefined, cycleOffset = undefined) {
         if (!this.db) await this.init();
         try {
             const timestamp = customLastWatchedAt !== undefined ? customLastWatchedAt : Date.now();
@@ -1024,6 +1024,11 @@ class DatabaseService {
             if (customSortOrder !== null) {
                 query += ', sort_order = ?';
                 params.push(customSortOrder);
+            }
+
+            if (cycleOffset !== undefined) {
+                query += ', cycle_offset = ?';
+                params.push(cycleOffset);
             }
 
             query += ' WHERE id = ?';

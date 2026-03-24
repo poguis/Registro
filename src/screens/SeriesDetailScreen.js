@@ -105,6 +105,8 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
         const getActiveQuotasForDate = (checkDate) => {
             const dStr = checkDate.toISOString().split('T')[0];
+            if (dStr < startStr) return {}; // No quota before start_date
+            
             let activeQ = null;
             if (history.length > 0) {
                 const record = history.find(h => dStr >= h.start_date && dStr <= (h.end_date || '9999-12-31'));
@@ -231,16 +233,20 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 }
 
                 if (!activeQuotas) {
-                    // Fallback to currentQuotas
-                    activeQuotas = {};
-                    try {
-                        const parsed = typeof currentQuotas === 'string' ? JSON.parse(currentQuotas || '[]') : currentQuotas;
-                        if (Array.isArray(parsed)) {
-                            parsed.forEach(day => { activeQuotas[day] = category.frequency || 0; });
-                        } else if (parsed && typeof parsed === 'object') {
-                            activeQuotas = { ...parsed };
-                        }
-                    } catch (e) {}
+                    if (dStr < startStr) {
+                        activeQuotas = {};
+                    } else {
+                        // Fallback to currentQuotas
+                        activeQuotas = {};
+                        try {
+                            const parsed = typeof currentQuotas === 'string' ? JSON.parse(currentQuotas || '[]') : currentQuotas;
+                            if (Array.isArray(parsed)) {
+                                parsed.forEach(day => { activeQuotas[day] = category.frequency || 0; });
+                            } else if (parsed && typeof parsed === 'object') {
+                                activeQuotas = { ...parsed };
+                            }
+                        } catch (e) {}
+                    }
                 }
 
                 total += activeQuotas[dayName] || 0;
@@ -275,10 +281,14 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 }
 
                 if (!activeQuotas) {
-                    // Fallback to current daysOfWeek
-                    try {
-                        activeQuotas = typeof daysOfWeek === 'string' ? JSON.parse(daysOfWeek || '[]') : daysOfWeek;
-                    } catch (e) { activeQuotas = []; }
+                    if (dStr < startStr) {
+                        activeQuotas = [];
+                    } else {
+                        // Fallback to current daysOfWeek
+                        try {
+                            activeQuotas = typeof daysOfWeek === 'string' ? JSON.parse(daysOfWeek || '[]') : daysOfWeek;
+                        } catch (e) { activeQuotas = []; }
+                    }
                 }
 
                 const dayName = dayMap[current.getDay()];
@@ -458,6 +468,14 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
             }
             result = await db.updateSeriesWithSeasons(editingSeriesId, seriesData, seasonsData);
         } else {
+            // Al agregar UNA NUEVA SERIE, acoplamos su ciclo al máximo de las series actuales 
+            // de la categoría para evitar que GENERE ATRASO por ciclos pasados.
+            let maxTotalWatched = 0;
+            activeSeriesItems.forEach(s => {
+                const watched = getWatchedCountSinceStart(s);
+                if (watched > maxTotalWatched) maxTotalWatched = watched;
+            });
+
             const seriesData = {
                 category_id: category.id,
                 name,
@@ -465,7 +483,8 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 status: status,
                 current_season: status === 'Nueva' ? 1 : parseInt(currentSeason),
                 current_episode: status === 'Nueva' ? 1 : parseInt(currentEpisode),
-                total_seasons: validSeasons.length
+                total_seasons: validSeasons.length,
+                cycle_offset: maxTotalWatched
             };
             result = await db.addSeriesWithSeasons(seriesData, seasonsData);
         }
@@ -544,10 +563,25 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
     const handleTogglePauseSeries = async (series) => {
         let newStatus;
-        if (series.status === 'Pausado') newStatus = 'Mirando';
+        let newOffset = series.cycle_offset || 0;
+
+        if (series.status === 'Pausado') {
+            newStatus = 'Mirando';
+            // Al REANUDAR, acoplamos el ciclo saltando los ciclos que pasaron durante la pausa.
+            const activeItems = originalList.filter(s => (s.status === 'Nueva' || s.status === 'Mirando' || s.status === 'Pausado') && s.id !== series.id);
+            let maxCycle = 0;
+            activeItems.forEach(s => {
+                const cycle = getWatchedCountSinceStart(s);
+                if (cycle > maxCycle) maxCycle = cycle;
+            });
+            const myCycle = getWatchedCountSinceStart(series);
+            const additionalOffset = Math.max(0, maxCycle - myCycle);
+            newOffset += additionalOffset;
+        }
         else if (series.status === 'Mirando' || series.status === 'Nueva') newStatus = 'Pausado';
         else return;
-        const result = await db.updateSeriesProgress(series.id, series.current_season, series.current_episode, newStatus);
+
+        const result = await db.updateSeriesProgress(series.id, series.current_season, series.current_episode, newStatus, null, undefined, newOffset);
         if (result.success) fetchSeries();
     };
 

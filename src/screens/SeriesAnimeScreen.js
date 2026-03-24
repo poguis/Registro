@@ -319,6 +319,9 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
         const getQuotasForDate = (date) => {
             const dStr = date.toISOString().split('T')[0];
             
+            // 0. If before start, no quota
+            if (dStr < startStr) return { Monday: 0, Tuesday: 0, Wednesday: 0, Thursday: 0, Friday: 0, Saturday: 0, Sunday: 0 };
+
             // 1. Check History first
             if (history && history.length > 0) {
                 const record = history.find(h => {

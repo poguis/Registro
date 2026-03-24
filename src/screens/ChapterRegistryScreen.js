@@ -91,6 +91,8 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
 
             const getActiveQuotasForDate = (checkDate) => {
                 const dStr = checkDate.toISOString().split('T')[0];
+                if (dStr < startStr) return {}; // No quota before start_date
+
                 let activeQ = null;
                 if (history.length > 0) {
                     const record = history.find(h => dStr >= h.start_date && dStr <= (h.end_date || '9999-12-31'));
@@ -213,15 +215,19 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
                 }
 
                 if (!activeQuotas) {
-                    activeQuotas = {};
-                    try {
-                        const parsed = typeof currentQuotas === 'string' ? JSON.parse(currentQuotas || '[]') : currentQuotas;
-                        if (Array.isArray(parsed)) {
-                            parsed.forEach(day => { activeQuotas[day] = category?.frequency || 0; });
-                        } else if (parsed && typeof parsed === 'object') {
-                            activeQuotas = { ...parsed };
-                        }
-                    } catch (e) {}
+                    if (dStr < startStr) {
+                        activeQuotas = {};
+                    } else {
+                        activeQuotas = {};
+                        try {
+                            const parsed = typeof currentQuotas === 'string' ? JSON.parse(currentQuotas || '[]') : currentQuotas;
+                            if (Array.isArray(parsed)) {
+                                parsed.forEach(day => { activeQuotas[day] = category?.frequency || 0; });
+                            } else if (parsed && typeof parsed === 'object') {
+                                activeQuotas = { ...parsed };
+                            }
+                        } catch (e) {}
+                    }
                 }
                 total += activeQuotas[dayName] || 0;
             }
@@ -265,9 +271,13 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
                 }
 
                 if (!activeQuotas) {
-                    try {
-                        activeQuotas = typeof daysOfWeek === 'string' ? JSON.parse(daysOfWeek || '[]') : daysOfWeek;
-                    } catch (e) { activeQuotas = []; }
+                    if (dStr < startStr) {
+                        activeQuotas = [];
+                    } else {
+                        try {
+                            activeQuotas = typeof daysOfWeek === 'string' ? JSON.parse(daysOfWeek || '[]') : daysOfWeek;
+                        } catch (e) { activeQuotas = []; }
+                    }
                 }
 
                 const dayName = dayMap[current.getDay()];
