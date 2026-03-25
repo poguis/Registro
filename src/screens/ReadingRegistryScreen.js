@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, FlatList, Alert, ActivityIndi
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import db from '../services/db';
+import { calculateBacklog } from '../services/backlogUtils';
 import { useTheme } from '../contexts/ThemeContext';
 
 export default function ReadingRegistryScreen({ user, category, onBack }) {
@@ -24,135 +25,29 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
             if (seriesResult.success) {
                 setRawSeries(seriesResult.data);
                 const freq = category.frequency, startStr = category.start_date, dOfWeek = category.days_of_week;
-                const isDatePaused = (date, pauses) => {
-                    if (!pauses || pauses.length === 0) return false;
-                    const dStr = date.toISOString().split('T')[0];
-                    return pauses.some(p => {
-                        const start = p.pause_start;
-                        const end = p.pause_end || '9999-12-31';
-                        return dStr >= start && dStr <= end;
-                    });
-                };
-                const getValidDays = (s, dw, history = []) => {
-                    if (!s) return 0;
-                    
-                    const now = new Date(); now.setHours(0, 0, 0, 0);
-                    const [y, m, d] = s.split('-').map(Number);
-                    const start = new Date(y, m - 1, d);
-                    if (start > now) return 0;
-                    
-                    let c = 0, curr = new Date(start);
-                    const pauses = category?.pauses || [];
-                    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-                    while (curr <= now) {
-                        if (!isDatePaused(curr, pauses)) {
-                            const dStr = curr.toISOString().split('T')[0];
-                            let activeQuotas = null;
-
-                            if (history && history.length > 0) {
-                                const record = history.find(h => dStr >= h.start_date && dStr <= (h.end_date || '9999-12-31'));
-                                if (record) activeQuotas = record.quotas;
-                            }
-
-                            if (!activeQuotas) {
-                                try {
-                                    activeQuotas = typeof dw === 'string' ? JSON.parse(dw || '[]') : dw;
-                                } catch (e) { activeQuotas = []; }
-                            }
-
-                            const dayName = dayNames[curr.getDay()];
-                            if (Array.isArray(activeQuotas)) {
-                                if (activeQuotas.includes(dayName)) c++;
-                            } else if (activeQuotas && activeQuotas[dayName] > 0) {
-                                c++;
-                            }
-                        }
-                        curr.setDate(curr.getDate() + 1);
-                    }
-                    return c;
-                };
-                const validDays = getValidDays(startStr, dOfWeek, category?.quotas_history);
-                let targetTotal = freq > 0 ? (validDays * freq) : Math.floor(validDays / Math.abs(freq));
+                // Redundant functions removed
                 let totalRead = 0;
                 seriesResult.data.forEach(s => {
                     const getAbs = (sn, en) => {
                         let c = 0;
-                        for (let i = 1; i < sn; i++) c += s.seasons.find(se => se.season_number === i)?.episode_count || 0;
+                        for (let i = 1; i < sn; i++) {
+                            const sobj = s.seasons.find(se => se.season_number === i);
+                            c += sobj ? sobj.episode_count : 0;
+                        }
                         return c + (en - 1);
                     };
                     const diff = getAbs(s.current_season, s.current_episode) - getAbs(s.initial_season || 1, s.initial_episode || 1);
                     totalRead += Math.max(0, diff) + (s.cycle_offset || 0) + (s.status === 'Terminado' || s.status === 'En espera' ? 1 : 0);
                 });
-                const totalBacklogItems = targetTotal - totalRead;
-                const bItems = totalBacklogItems < 0 ? 0 : totalBacklogItems;
-                const adelantoItems = totalBacklogItems < 0 ? Math.abs(totalBacklogItems) : 0;
-                
-                let bDays = 0;
-                let adelantoDays = 0;
 
-                if (bItems > 0) {
-                    bDays = freq > 0 ? Math.ceil(bItems / freq) : bItems * Math.abs(freq);
-                } else if (adelantoItems > 0) {
-                    // Logic for adelantoDays
-                    // Use a full checkDate loop counting forward from tomorrow
-                    let tempAdelanto = adelantoItems;
-                    let checkDate = new Date();
-                    checkDate.setHours(0, 0, 0, 0);
-                    checkDate.setDate(checkDate.getDate() + 1); // Start from tomorrow
-                    const safetyMax = 3650;
-                    let safety = 0;
-                    const history = category?.quotas_history || [];
-                    const pauses = category?.pauses || [];
-                    const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-                    // FIX: Prevent infinite loop when calculating days forward during an indefinite pause
-                    const todayStr = new Date().toISOString().split('T')[0];
-                    const workingPauses = pauses.map(p => {
-                        if (!p.pause_end) return { ...p, pause_end: todayStr };
-                        return p;
-                    });
-
-                    while (tempAdelanto > 0 && safety < safetyMax) {
-                        if (!isDatePaused(checkDate, workingPauses)) {
-                            const dStr = checkDate.toISOString().split('T')[0];
-                            let activeQuotas = null;
-
-                            if (history && history.length > 0) {
-                                const record = history.find(h => dStr >= h.start_date && dStr <= (h.end_date || '9999-12-31'));
-                                if (record) activeQuotas = record.quotas;
-                            }
-
-                            if (!activeQuotas) {
-                                try {
-                                    activeQuotas = typeof dOfWeek === 'string' ? JSON.parse(dOfWeek || '[]') : dOfWeek;
-                                } catch (e) { activeQuotas = []; }
-                            }
-
-                            const dayName = dayMap[checkDate.getDay()];
-                            let quota = 0;
-                            let isActive = false;
-                            if (Array.isArray(activeQuotas)) {
-                                isActive = activeQuotas.includes(dayName);
-                            } else if (activeQuotas && activeQuotas[dayName] > 0) {
-                                isActive = true;
-                            }
-                            
-                            if (isActive) {
-                                quota = freq > 0 ? freq : (1 / Math.abs(freq || 1));
-                            }
-
-                            if (quota > 0) {
-                                tempAdelanto -= quota;
-                                adelantoDays++;
-                            }
-                        }
-                        checkDate.setDate(checkDate.getDate() + 1);
-                        safety++;
-                    }
-                }
-                
-                setBacklogInfo({ items: bItems, days: bDays, adelantoItems, adelantoDays });
+                // Centralized backlog calculation
+                const calc = calculateBacklog(cat, totalRead);
+                setBacklogInfo({ 
+                    items: calc.backlogItems, 
+                    days: calc.diffDays, 
+                    adelantoItems: calc.adelantoItems, 
+                    adelantoDays: calc.adelantoDays 
+                });
                 const pendingList = generateInterleavedList(seriesResult.data);
                 let watchedList = historyResult.success ? historyResult.data.map(h => ({ uniqueId: `${h.series_id}-s${h.season_number}-e${h.episode_number}-rh${h.id}`, seriesId: h.series_id, seriesName: h.s_name, season: h.season_number, episode: h.episode_number, status: 'watched', readAt: h.read_at })) : [];
                 setCounts({ pending: pendingList.length, watched: watchedList.length });
