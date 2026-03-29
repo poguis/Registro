@@ -41,7 +41,7 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
                 });
 
                 // Centralized backlog calculation
-                const calc = calculateBacklog(cat, totalRead);
+                const calc = calculateBacklog(category, totalRead);
                 setBacklogInfo({ 
                     items: calc.backlogItems, 
                     days: calc.diffDays, 
