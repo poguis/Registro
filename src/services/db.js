@@ -205,6 +205,7 @@ class DatabaseService {
             // Migrations for missing columns
             const migrations = [
                 `ALTER TABLE series ADD COLUMN cycle_offset INTEGER DEFAULT 0;`,
+                `ALTER TABLE series ADD COLUMN interleave_offset INTEGER DEFAULT 0;`,
                 `ALTER TABLE series ADD COLUMN sort_order INTEGER DEFAULT 0;`,
                 `ALTER TABLE series ADD COLUMN initial_season INTEGER DEFAULT 1;`,
                 `ALTER TABLE series ADD COLUMN initial_episode INTEGER DEFAULT 1;`,
@@ -921,9 +922,9 @@ class DatabaseService {
 
             // 1. Insert Series
             const result = await this.db.runAsync(
-                `INSERT INTO series (category_id, name, description, status, current_season, current_episode, initial_season, initial_episode, total_seasons, sort_order, cycle_offset, last_watched_at) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [category_id, name, description, status, current_season, current_episode, current_season, current_episode, total_seasons, nextOrder, seriesData.cycle_offset || 0, 0]
+                `INSERT INTO series (category_id, name, description, status, current_season, current_episode, initial_season, initial_episode, total_seasons, sort_order, cycle_offset, interleave_offset, last_watched_at) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [category_id, name, description, status, current_season, current_episode, current_season, current_episode, total_seasons, nextOrder, seriesData.cycle_offset || 0, seriesData.interleave_offset || 0, 0]
             );
             const seriesId = result.lastInsertRowId;
 
@@ -961,8 +962,8 @@ class DatabaseService {
             // causaba conteos duplicados cada vez que se activaba una serie.
 
             // 1. Update Series
-            let query = `UPDATE series SET name = ?, description = ?, total_seasons = ?, cycle_offset = ?`;
-            let params = [name, description, total_seasons, newOffset];
+            let query = `UPDATE series SET name = ?, description = ?, total_seasons = ?, cycle_offset = ?, interleave_offset = ?`;
+            let params = [name, description, total_seasons, newOffset, currentSeries.interleave_offset];
 
             if (status) {
                 query += `, status = ?`;
@@ -1009,7 +1010,7 @@ class DatabaseService {
         }
     }
 
-    async updateSeriesProgress(seriesId, currentSeason, currentEpisode, status = null, customSortOrder = null, customLastWatchedAt = undefined, cycleOffset = undefined) {
+    async updateSeriesProgress(seriesId, currentSeason, currentEpisode, status = null, customSortOrder = null, customLastWatchedAt = undefined, cycleOffset = undefined, interleaveOffset = undefined) {
         if (!this.db) await this.init();
         try {
             const timestamp = customLastWatchedAt !== undefined ? customLastWatchedAt : Date.now();
@@ -1029,6 +1030,11 @@ class DatabaseService {
             if (cycleOffset !== undefined) {
                 query += ', cycle_offset = ?';
                 params.push(cycleOffset);
+            }
+
+            if (interleaveOffset !== undefined) {
+                query += ', interleave_offset = ?';
+                params.push(interleaveOffset);
             }
 
             query += ' WHERE id = ?';
@@ -1079,6 +1085,7 @@ class DatabaseService {
                     series.total_seasons, 
                     series.sort_order, 
                     series.cycle_offset,
+                    series.interleave_offset,
                     series.last_watched_at,
                     entertainment_categories.id AS c_id, 
                     entertainment_categories.start_date, 

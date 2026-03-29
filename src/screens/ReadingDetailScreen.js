@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, FlatList, Modal, TextInput, A
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import db from '../services/db';
-import { calculateBacklog } from '../services/backlogUtils';
+import { calculateBacklog, calculateBacklogV2, getLocalDateString } from '../services/backlogUtils';
 import { useTheme } from '../contexts/ThemeContext';
 
 export default function ReadingDetailScreen({ user, category, onBack, onNavigateRegistry }) {
@@ -35,6 +35,15 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
     // Tab State
     const [currentStatusTab, setCurrentStatusTab] = useState('Viendo'); // 'Viendo' | 'En espera' | 'Terminado'
     const [originalList, setOriginalList] = useState([]);
+    const [currentCategory, setCurrentCategory] = useState(category);
+
+    const refreshCategory = async () => {
+        const result = await db.getEntertainmentCategories(user.id);
+        if (result.success) {
+            const updated = result.categories.find(c => c.id === category.id);
+            if (updated) setCurrentCategory(updated);
+        }
+    };
 
     const fetchSeries = async () => {
         if (category?.id) {
@@ -63,25 +72,17 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
     }, [category]);
 
     const calculateHeaderBacklog = (currentSeriesList = originalList) => {
-        let totalWatchedSinceStart = 0;
-        currentSeriesList.forEach(s => { 
-            const currentAbsolute = getAbsoluteEpisodeCount(s, s.current_season, s.current_episode);
-            const initialAbsolute = getAbsoluteEpisodeCount(s, s.initial_season || 1, s.initial_episode || 1);
-            let diff = currentAbsolute - initialAbsolute;
-            if (s.status === 'Terminado' || s.status === 'En espera') diff += 1;
-            totalWatchedSinceStart += (diff < 0 ? 0 : diff) + (s.cycle_offset || 0);
-        });
-
-        const calc = calculateBacklog(category, totalWatchedSinceStart);
+        const calc = calculateBacklogV2(category, currentSeriesList);
         if (calc) {
             setBacklogInfo({ 
-                days: calc.diffDays, 
-                items: calc.backlogItems, 
-                adelantoDays: calc.adelantoDays, 
-                adelantoItems: calc.adelantoItems 
+                items: calc.items, 
+                days: calc.days, 
+                adelantoItems: calc.adelantoItems, 
+                adelantoDays: calc.adelantoDays 
             });
         }
     };
+
 
     // calculateScheduleDays and isDatePaused are no longer needed here as they are in backlogUtils
 
@@ -192,15 +193,33 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
                     }
                 }
             }
+
+            // 1. Calcular el progreso actual para el acoplamiento (UI Order)
+            let maxTotalWatched = 0;
+            activeItems.forEach(s => {
+                const getAbs = (sn, en) => {
+                    let c = 0;
+                    if (!s.seasons) return en - 1;
+                    for (let i = 1; i < sn; i++) c += s.seasons.find(se => se.season_number === i)?.episode_count || 0;
+                    return c + (en - 1);
+                };
+                const diff = getAbs(s.current_season, s.current_episode) - getAbs(s.initial_season || 1, s.initial_episode || 1);
+                const watched = Math.max(0, diff) + (s.cycle_offset || 0) + (s.interleave_offset || 0);
+                if (watched > maxTotalWatched) maxTotalWatched = watched;
+            });
+
             const seriesData = {
                 category_id: category.id,
                 name, description, status,
                 current_season: status === 'Nueva' ? 1 : parseInt(currentSeason),
                 current_episode: status === 'Nueva' ? 1 : parseInt(currentEpisode),
-                total_seasons: validS.length
+                total_seasons: validS.length,
+                cycle_offset: 0,
+                interleave_offset: maxTotalWatched
             };
             result = await db.addSeriesWithSeasons(seriesData, seasonsData);
         }
+
 
         if (result.success) { setModalVisible(false); fetchSeries(); resetForm(); }
     };
@@ -258,6 +277,22 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
         else return;
         const res = await db.updateSeriesProgress(series.id, series.current_season, series.current_episode, newStatus);
         if (res.success) fetchSeries();
+    };
+
+    const handleTogglePauseCategory = async () => {
+        const todayStr = getLocalDateString();
+        let result;
+        if (currentCategory.is_paused) {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayStr = getLocalDateString(yesterday);
+            result = await db.resumeCategory(currentCategory.id, yesterdayStr);
+        } else {
+            result = await db.pauseCategory(currentCategory.id, todayStr);
+        }
+
+        if (result.success) { await refreshCategory(); }
+        else { Alert.alert('Error', 'No se pudo cambiar el estado de pausa'); }
     };
 
     const renderSeriesItem = ({ item, index }) => {
@@ -344,7 +379,14 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
                     <Text style={[styles.backButtonText, { color: theme.text }]}>←</Text>
                 </TouchableOpacity>
                 <View style={{ flex: 1, marginLeft: 10 }}>
-                    <Text style={[styles.headerTitle, { color: theme.text }]}>{category.name}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Text style={[styles.headerTitle, { color: theme.text }]}>{currentCategory.name}</Text>
+                        {currentCategory.is_paused && (
+                            <View style={[styles.badge, { backgroundColor: '#FFF9C4', marginLeft: 8 }]}>
+                                <Text style={[styles.badgeText, { fontSize: 8 }]}>PAUSADO</Text>
+                            </View>
+                        )}
+                    </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                         {backlogInfo && (
                             <Text style={[styles.headerSubtitle, (backlogInfo.days <= 0 && backlogInfo.items <= 0 && backlogInfo.adelantoItems <= 0) ? { color: '#4CAF50' } : (backlogInfo.adelantoItems > 0 ? { color: '#2E7D32' } : { color: '#EF6C00' })]}>
@@ -356,12 +398,12 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
                             </Text>
                         )}
                         <Text style={[styles.headerSubtitle, { color: theme.subText, fontSize: 11 }]}>
-                            • Leyendo: {originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando' || s.status === 'Pausado').length}/{category.series_count !== null ? category.series_count : '∞'}
+                            • Leyendo: {originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando' || s.status === 'Pausado').length}/{currentCategory.series_count !== null ? currentCategory.series_count : '∞'}
                         </Text>
                     </View>
                 </View>
                 <View style={{ flexDirection: 'row', gap: 10 }}>
-                    <TouchableOpacity onPress={() => onNavigateRegistry('READING_REGISTRY', { categoryId: category.id })} style={[styles.addButton, { backgroundColor: theme.inputBackground }]}>
+                    <TouchableOpacity onPress={() => onNavigateRegistry('READING_REGISTRY', { categoryId: currentCategory.id })} style={[styles.addButton, { backgroundColor: theme.inputBackground }]}>
                         <Text style={{ fontSize: 20 }}>📋</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={[styles.addButton, { backgroundColor: theme.accent }]} onPress={() => { resetForm(); setModalVisible(true); }}>

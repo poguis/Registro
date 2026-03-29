@@ -16,7 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '../contexts/ThemeContext';
 import db from '../services/db';
-import { calculateBacklog } from '../services/backlogUtils';
+import { calculateBacklog, getLocalDateString } from '../services/backlogUtils';
 
 const DAYS = [
     { key: 'Monday', label: 'L' },
@@ -144,7 +144,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
     // Form State
     const [name, setName] = useState('');
     const [type, setType] = useState('video');
-    const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+    const [startDate, setStartDate] = useState(getLocalDateString());
     const [selectedDays, setSelectedDays] = useState({
         Monday: 0, Tuesday: 0, Wednesday: 0, Thursday: 0, Friday: 0, Saturday: 0, Sunday: 0
     });
@@ -172,7 +172,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
             setEditingId(item.id);
             setName(item.name);
             setType(item.type);
-            setStartDate(item.start_date || new Date().toISOString().split('T')[0]);
+            setStartDate(item.start_date || getLocalDateString());
 
             // Handle daily quotas (stored as JSON object)
             let days = { Monday: 0, Tuesday: 0, Wednesday: 0, Thursday: 0, Friday: 0, Saturday: 0, Sunday: 0 };
@@ -195,7 +195,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
             setEditingId(null);
             setName('');
             setType('video');
-            setStartDate(new Date().toISOString().split('T')[0]);
+            setStartDate(getLocalDateString());
             setSelectedDays({ Monday: 0, Tuesday: 0, Wednesday: 0, Thursday: 0, Friday: 0, Saturday: 0, Sunday: 0 });
             setFrequency('');
             setSeriesCount('');
@@ -254,16 +254,16 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
     };
 
     const handleTogglePause = async (item) => {
-        const today = new Date().toISOString().split('T')[0];
+        const todayStr = getLocalDateString();
         let result;
         if (item.is_paused) {
             // Para reanudar hoy, la pausa terminó ayer
             const yesterday = new Date();
             yesterday.setDate(yesterday.getDate() - 1);
-            const yesterdayStr = yesterday.toISOString().split('T')[0];
+            const yesterdayStr = getLocalDateString(yesterday);
             result = await db.resumeCategory(item.id, yesterdayStr);
         } else {
-            result = await db.pauseCategory(item.id, today);
+            result = await db.pauseCategory(item.id, todayStr);
         }
 
         if (result.success) {

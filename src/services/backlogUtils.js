@@ -1,10 +1,13 @@
-/**
- * Centralized utility for backlog and progress calculations
- */
+export const getLocalDateString = (date = new Date()) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
 
 export const isDatePaused = (date, pauses) => {
     if (!pauses || pauses.length === 0) return false;
-    const dStr = date.toISOString().split('T')[0];
+    const dStr = getLocalDateString(date);
     return pauses.some(p => {
         const start = p.pause_start;
         const end = p.pause_end || '9999-12-31';
@@ -12,8 +15,9 @@ export const isDatePaused = (date, pauses) => {
     });
 };
 
+
 export const getQuotasForDate = (date, category) => {
-    const dStr = date.toISOString().split('T')[0];
+    const dStr = getLocalDateString(date);
     const { start_date: startStr, days_of_week: daysOfWeek, frequency, quotas_history: history } = category;
     
     // 0. If before start, no quota
@@ -109,7 +113,7 @@ export const calculateBacklog = (category, totalWatched = 0) => {
     let adelantoDays = 0;
 
     // Use working pauses for projections (indefinite pause ends today for calculation purposes)
-    const todayStr = now.toISOString().split('T')[0];
+    const todayStr = getLocalDateString(now);
     const workingPauses = pauses.map(p => {
         if (!p.pause_end) return { ...p, pause_end: todayStr };
         return p;
@@ -136,7 +140,7 @@ export const calculateBacklog = (category, totalWatched = 0) => {
                 }
                 checkDate.setDate(checkDate.getDate() - 1);
                 safety++;
-                if (checkDate.toISOString().split('T')[0] < startStr) break;
+                if (getLocalDateString(checkDate) < startStr) break;
             }
         }
 
@@ -188,5 +192,93 @@ export const calculateBacklog = (category, totalWatched = 0) => {
         unit: unitLabel,
         targetItems,
         validDaysPassed
+    };
+};
+
+export const calculateBacklogV2 = (category, seriesList = []) => {
+    // 1. Calcular el Target Global (Cuantos capítulos debería llevar el total de la categoría)
+    const baseCalc = calculateBacklog(category, 0);
+    if (!baseCalc) return null;
+    const totalTarget = baseCalc.targetItems;
+
+    // 2. Determinar series activas para repartir la cuota
+    const activeSeriesList = seriesList.filter(s => s.status === 'Nueva' || s.status === 'Mirando');
+    const activeCount = activeSeriesList.length;
+
+    // Si no hay series activas pero hay un target, el atraso es el totalTarget 
+    // (a menos que haya series terminadas que ya cubrieron parte del cupo).
+    if (activeCount === 0) {
+        let totalW = 0;
+        seriesList.forEach(s => {
+            const getAbs = (sn, en) => {
+                let c = 0;
+                if (!s.seasons || !Array.isArray(s.seasons)) return en - 1;
+                for (let i = 1; i < sn; i++) {
+                    const sobj = s.seasons.find(sea => sea.season_number === i);
+                    c += sobj ? sobj.episode_count : 0;
+                }
+                return c + (en - 1);
+            };
+            const currentAbs = getAbs(s.current_season, s.current_episode);
+            const initialAbs = getAbs(s.initial_season || 1, s.initial_episode || 1);
+            let diff = currentAbs - initialAbs;
+            if (s.status === 'Terminado' || s.status === 'En espera') diff += 1;
+            totalW += (diff < 0 ? 0 : diff) + (s.cycle_offset || 0);
+        });
+
+        const finalCalc = calculateBacklog(category, totalW);
+        return { 
+            items: finalCalc.backlogItems, 
+            days: finalCalc.diffDays, 
+            adelantoItems: finalCalc.adelantoItems, 
+            adelantoDays: finalCalc.adelantoDays, 
+            targetItems: totalTarget 
+        };
+    }
+
+    const targetPerSeries = totalTarget / activeCount;
+    let totalAtraso = 0;
+    let totalAdelanto = 0;
+
+    seriesList.forEach(s => {
+        if (s.status === 'Terminado' || s.status === 'En espera') return;
+
+        const getAbs = (sn, en) => {
+            let c = 0;
+            if (!s.seasons || !Array.isArray(s.seasons)) return en - 1;
+            for (let i = 1; i < sn; i++) {
+                const sobj = s.seasons.find(sea => sea.season_number === i);
+                c += sobj ? sobj.episode_count : 0;
+            }
+            return c + (en - 1);
+        };
+
+        const currentAbs = getAbs(s.current_season, s.current_episode);
+        const initialAbs = getAbs(s.initial_season || 1, s.initial_episode || 1);
+        let diff = currentAbs - initialAbs;
+        if (s.status === 'Terminado' || s.status === 'En espera') diff += 1;
+        const watched = (diff < 0 ? 0 : diff) + (s.cycle_offset || 0);
+
+        const isCurrentlyActive = s.status === 'Nueva' || s.status === 'Mirando';
+        const individualTarget = isCurrentlyActive ? targetPerSeries : 0;
+
+        if (watched < individualTarget) {
+            totalAtraso += (individualTarget - watched);
+        } else {
+            totalAdelanto += (watched - individualTarget);
+        }
+    });
+
+    // Para calcular los DÍAS de atraso/adelanto de forma precisa (especialmente con cuotas diarias)
+    // Usamos el calculateBacklog global como referencia pero con los items netos individuales
+    const backCalc = calculateBacklog(category, totalTarget - totalAtraso);
+    const adelCalc = calculateBacklog(category, totalTarget + totalAdelanto);
+
+    return {
+        items: Math.floor(totalAtraso),
+        days: backCalc ? backCalc.diffDays : 0,
+        adelantoItems: Math.floor(totalAdelanto),
+        adelantoDays: adelCalc ? adelCalc.adelantoDays : 0,
+        targetItems: totalTarget
     };
 };

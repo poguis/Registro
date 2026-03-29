@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import db from '../services/db';
 import { useTheme } from '../contexts/ThemeContext';
+import { calculateBacklog, calculateBacklogV2, getLocalDateString } from '../services/backlogUtils';
 
 export default function ChapterRegistryScreen({ user, category, onBack }) {
     const { theme, isDarkMode } = useTheme();
@@ -55,195 +56,15 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
     };
 
     const calculateGlobalBacklog = (seriesList) => {
-        let totalBacklogDays = 0;
-        let totalBacklogItems = 0;
-        if (category) {
-            const { start_date, frequency, days_of_week, type } = category;
-            let targetTotal = 0;
-            const dOfWeek = days_of_week; // Renamed for clarity with new function signature
-            const startStr = start_date; // Renamed for clarity with new function signature
-
-            if (type === 'video') {
-                targetTotal = calculateQuotasPassed(startStr, dOfWeek, category?.quotas_history);
-            } else {
-                if (!category?.frequency) return; // Ensure frequency exists for reading type
-                const scheduleCalc = calculateScheduleDays(startStr, dOfWeek, category?.quotas_history);
-                targetTotal = (frequency > 0) ? (scheduleCalc.validDays * frequency) : Math.floor(scheduleCalc.validDays / Math.abs(frequency || 1));
-            }
-
-            let totalWatchedSinceStart = 0;
-            seriesList.forEach(s => { totalWatchedSinceStart += getWatchedCountSinceStart(s); });
-            const totalBacklogValue = targetTotal - totalWatchedSinceStart;
-            totalBacklogItems = totalBacklogValue < 0 ? 0 : totalBacklogValue;
-            let totalAdelantoItems = totalBacklogValue < 0 ? Math.abs(totalBacklogValue) : 0;
-            
-            let bDays = 0;
-            let adelantoDays = 0;
-            const history = category?.quotas_history || [];
-            const pauses = category?.pauses || [];
-            const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-            const todayStr = new Date().toISOString().split('T')[0];
-            const workingPauses = pauses.map(p => {
-                if (!p.pause_end) return { ...p, pause_end: todayStr };
-                return p;
+        const calc = calculateBacklogV2(category, seriesList);
+        if (calc) {
+            setHeaderBacklog({ 
+                days: calc.days, 
+                items: calc.items, 
+                adelantoDays: calc.adelantoDays, 
+                adelantoItems: calc.adelantoItems 
             });
-
-            const getActiveQuotasForDate = (checkDate) => {
-                const dStr = checkDate.toISOString().split('T')[0];
-                if (dStr < startStr) return {}; // No quota before start_date
-
-                let activeQ = null;
-                if (history.length > 0) {
-                    const record = history.find(h => dStr >= h.start_date && dStr <= (h.end_date || '9999-12-31'));
-                    if (record) activeQ = record.quotas;
-                }
-                if (!activeQ) {
-                    try {
-                        const parsed = typeof dOfWeek === 'string' ? JSON.parse(dOfWeek || '[]') : dOfWeek;
-                        if (Array.isArray(parsed)) {
-                            activeQ = {};
-                            parsed.forEach(day => { activeQ[day] = frequency || 0; });
-                        } else {
-                            activeQ = parsed;
-                        }
-                    } catch (e) { activeQ = {}; }
-                }
-                return activeQ;
-            };
-
-            const getQuotaForDate = (checkDate, activeQ) => {
-                const dayName = dayMap[checkDate.getDay()];
-                let quota = 0;
-                if (type === 'video') {
-                    quota = activeQ?.[dayName] || 0;
-                } else {
-                    let isActive = false;
-                    if (Array.isArray(activeQ)) {
-                        isActive = activeQ.includes(dayName);
-                    } else {
-                        isActive = activeQ?.[dayName] > 0;
-                    }
-                    if (isActive) {
-                        quota = frequency > 0 ? frequency : (1 / Math.abs(frequency || 1));
-                    }
-                }
-                return quota;
-            };
-
-            if (totalBacklogItems > 0) {
-                let tempBacklog = totalBacklogItems;
-                let checkDate = new Date();
-                checkDate.setHours(0, 0, 0, 0);
-                const safetyMax = 3650;
-                let safety = 0;
-
-                while (tempBacklog > 0 && safety < safetyMax) {
-                    if (!isDatePaused(checkDate, workingPauses)) {
-                        const activeQuotas = getActiveQuotasForDate(checkDate);
-                        const quota = getQuotaForDate(checkDate, activeQuotas);
-
-                        if (quota > 0) {
-                            tempBacklog -= quota;
-                            bDays++;
-                        }
-                    }
-                    checkDate.setDate(checkDate.getDate() - 1);
-                    safety++;
-                    if (checkDate.toISOString().split('T')[0] < startStr) break;
-                }
-            } else if (totalAdelantoItems > 0) {
-                let tempAdelanto = totalAdelantoItems;
-                let checkDate = new Date();
-                checkDate.setHours(0, 0, 0, 0);
-                checkDate.setDate(checkDate.getDate() + 1); // Start checking from tomorrow
-                const safetyMax = 3650;
-                let safety = 0;
-
-                while (tempAdelanto > 0 && safety < safetyMax) {
-                    if (!isDatePaused(checkDate, workingPauses)) {
-                        const activeQuotas = getActiveQuotasForDate(checkDate);
-                        const quota = getQuotaForDate(checkDate, activeQuotas);
-
-                        if (quota > 0) {
-                            tempAdelanto -= quota;
-                            adelantoDays++;
-                        }
-                    }
-                    checkDate.setDate(checkDate.getDate() + 1);
-                    safety++;
-                }
-            }
-            totalBacklogDays = Math.ceil(bDays);
-            setHeaderBacklog({ days: totalBacklogDays, items: totalBacklogItems, adelantoDays: Math.ceil(adelantoDays), adelantoItems: totalAdelantoItems });
-        } else {
-            // Global without category
-            let globalAdelantoDays = 0;
-            let globalAdelantoItems = 0;
-            seriesList.forEach(s => {
-                const b = calculateBacklogCount(s);
-                totalBacklogItems += b.items;
-                if (s.frequency) totalBacklogDays += Math.ceil(b.items / s.frequency);
-                
-                globalAdelantoItems += b.adelantoItems;
-                if (s.frequency) globalAdelantoDays += Math.ceil(b.adelantoItems / s.frequency);
-            });
-            setHeaderBacklog({ days: totalBacklogDays, items: totalBacklogItems, adelantoDays: globalAdelantoDays, adelantoItems: globalAdelantoItems });
         }
-    };
-
-
-    const calculateQuotasPassed = (startStr, currentQuotas, history = []) => {
-        if (!startStr) return 0;
-        const now = new Date();
-        now.setHours(0, 0, 0, 0);
-        const [y, m, d] = startStr.split('-').map(Number);
-        const current = new Date(y, m - 1, d);
-        if (current > now) return 0;
-        let total = 0;
-        const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        const pauses = category?.pauses || [];
-        while (current <= now) {
-            if (!isDatePaused(current, pauses)) {
-                const dayName = dayMap[current.getDay()];
-                const dStr = current.toISOString().split('T')[0];
-                
-                let activeQuotas = null;
-                if (history && history.length > 0) {
-                    const record = history.find(h => dStr >= h.start_date && dStr <= (h.end_date || '9999-12-31'));
-                    if (record) activeQuotas = record.quotas;
-                }
-
-                if (!activeQuotas) {
-                    if (dStr < startStr) {
-                        activeQuotas = {};
-                    } else {
-                        activeQuotas = {};
-                        try {
-                            const parsed = typeof currentQuotas === 'string' ? JSON.parse(currentQuotas || '[]') : currentQuotas;
-                            if (Array.isArray(parsed)) {
-                                parsed.forEach(day => { activeQuotas[day] = category?.frequency || 0; });
-                            } else if (parsed && typeof parsed === 'object') {
-                                activeQuotas = { ...parsed };
-                            }
-                        } catch (e) {}
-                    }
-                }
-                total += activeQuotas[dayName] || 0;
-            }
-            current.setDate(current.getDate() + 1);
-        }
-        return total;
-    };
-
-    const isDatePaused = (date, pauses) => {
-        if (!pauses || pauses.length === 0) return false;
-        const dStr = date.toISOString().split('T')[0];
-        return pauses.some(p => {
-            const start = p.pause_start;
-            const end = p.pause_end || '9999-12-31';
-            return dStr >= start && dStr <= end;
-        });
     };
 
     const calculateScheduleDays = (startStr, daysOfWeek, history = []) => {
@@ -326,7 +147,8 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
         let allEpisodes = [];
         seriesList.forEach((series, sIndex) => {
             const seriesEpisodes = generateEpisodesForSeries(series);
-            const baseCount = getWatchedCountSinceStart(series);
+            // Include both offsets for order, but only cycle_offset affects backlog
+            const baseCount = getWatchedCountSinceStart(series) + (series.interleave_offset || 0);
             seriesEpisodes.forEach((ep, index) => {
                 const BATCH_SIZE = 1000000;
                 // Use (baseCount + index) to align with global cycle

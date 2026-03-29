@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, FlatList, Alert, ActivityIndi
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import db from '../services/db';
-import { calculateBacklog } from '../services/backlogUtils';
+import { calculateBacklog, calculateBacklogV2 } from '../services/backlogUtils';
 import { useTheme } from '../contexts/ThemeContext';
 
 export default function ReadingRegistryScreen({ user, category, onBack }) {
@@ -26,28 +26,15 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
                 setRawSeries(seriesResult.data);
                 const freq = category.frequency, startStr = category.start_date, dOfWeek = category.days_of_week;
                 // Redundant functions removed
-                let totalRead = 0;
-                seriesResult.data.forEach(s => {
-                    const getAbs = (sn, en) => {
-                        let c = 0;
-                        for (let i = 1; i < sn; i++) {
-                            const sobj = s.seasons.find(se => se.season_number === i);
-                            c += sobj ? sobj.episode_count : 0;
-                        }
-                        return c + (en - 1);
-                    };
-                    const diff = getAbs(s.current_season, s.current_episode) - getAbs(s.initial_season || 1, s.initial_episode || 1);
-                    totalRead += Math.max(0, diff) + (s.cycle_offset || 0) + (s.status === 'Terminado' || s.status === 'En espera' ? 1 : 0);
-                });
-
-                // Centralized backlog calculation
-                const calc = calculateBacklog(cat, totalRead);
-                setBacklogInfo({ 
-                    items: calc.backlogItems, 
-                    days: calc.diffDays, 
-                    adelantoItems: calc.adelantoItems, 
-                    adelantoDays: calc.adelantoDays 
-                });
+                const calc = calculateBacklogV2(category, seriesResult.data);
+                if (calc) {
+                    setBacklogInfo({ 
+                        items: calc.items, 
+                        days: calc.days, 
+                        adelantoItems: calc.adelantoItems, 
+                        adelantoDays: calc.adelantoDays 
+                    });
+                }
                 const pendingList = generateInterleavedList(seriesResult.data);
                 let watchedList = historyResult.success ? historyResult.data.map(h => ({ uniqueId: `${h.series_id}-s${h.season_number}-e${h.episode_number}-rh${h.id}`, seriesId: h.series_id, seriesName: h.s_name, season: h.season_number, episode: h.episode_number, status: 'watched', readAt: h.read_at })) : [];
                 setCounts({ pending: pendingList.length, watched: watchedList.length });
@@ -67,11 +54,13 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
             // Calculate baseCount inline
             const getAbs = (sn, en) => {
                 let c = 0;
+                if (!s.seasons) return en - 1;
                 for (let i = 1; i < sn; i++) c += s.seasons.find(se => se.season_number === i)?.episode_count || 0;
                 return c + (en - 1);
             };
             const diff = getAbs(s.current_season, s.current_episode) - getAbs(s.initial_season || 1, s.initial_episode || 1);
-            const baseCount = Math.max(0, diff) + (s.cycle_offset || 0);
+            // baseCount includes both offsets for ordering
+            const baseCount = Math.max(0, diff) + (s.cycle_offset || 0) + (s.interleave_offset || 0);
 
             seriesEps.forEach((ep, idx) => {
                 // Use (baseCount + idx) to align with global cycle
@@ -83,6 +72,7 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
         episodes.sort((a, b) => a.interleavedOrder !== b.interleavedOrder ? a.interleavedOrder - b.interleavedOrder : a.sortOrder - b.sortOrder);
         return episodes;
     };
+
 
     const generateEpisodesForSeries = (s) => {
         const eps = []; let { current_season: sn, current_episode: en, total_seasons: ts } = s;

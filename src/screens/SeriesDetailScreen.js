@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, FlatList, Modal, TextInput, A
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import db from '../services/db';
-import { calculateBacklog } from '../services/backlogUtils';
+import { calculateBacklog, calculateBacklogV2, getLocalDateString } from '../services/backlogUtils';
 import { useTheme } from '../contexts/ThemeContext';
 
 export default function SeriesDetailScreen({ user, category, onBack, onNavigateRegistry }) {
@@ -36,6 +36,15 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
     // Tab State
     const [currentStatusTab, setCurrentStatusTab] = useState('Viendo'); // 'Viendo' | 'En espera' | 'Terminado'
     const [originalList, setOriginalList] = useState([]);
+    const [currentCategory, setCurrentCategory] = useState(category);
+
+    const refreshCategory = async () => {
+        const result = await db.getEntertainmentCategories(user.id);
+        if (result.success) {
+            const updated = result.categories.find(c => c.id === category.id);
+            if (updated) setCurrentCategory(updated);
+        }
+    };
 
     const fetchSeries = async () => {
         if (category?.id) {
@@ -64,25 +73,18 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
     }, [category]);
 
     const calculateHeaderBacklog = (currentSeriesList = originalList) => {
-        let totalWatchedSinceStart = 0;
-        currentSeriesList.forEach(s => { 
-            const currentAbsolute = getAbsoluteEpisodeCount(s, s.current_season, s.current_episode);
-            const initialAbsolute = getAbsoluteEpisodeCount(s, s.initial_season || 1, s.initial_episode || 1);
-            let diff = currentAbsolute - initialAbsolute;
-            if (s.status === 'Terminado' || s.status === 'En espera') diff += 1;
-            totalWatchedSinceStart += (diff < 0 ? 0 : diff) + (s.cycle_offset || 0);
-        });
-
-        const calc = calculateBacklog(category, totalWatchedSinceStart);
+        const calc = calculateBacklogV2(category, currentSeriesList);
         if (calc) {
             setBacklogInfo({ 
-                days: calc.diffDays, 
-                items: calc.backlogItems, 
-                adelantoDays: calc.adelantoDays, 
-                adelantoItems: calc.adelantoItems 
+                items: calc.items, 
+                days: calc.days, 
+                adelantoItems: calc.adelantoItems, 
+                adelantoDays: calc.adelantoDays 
             });
         }
     };
+
+
 
     // Redundant internal functions removed
 
@@ -227,11 +229,12 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         }));
 
         let result;
+        let seriesDataObj;
         if (isEditing) {
             const currentSeries = originalList.find(s => s.id === editingSeriesId);
-            const seriesData = { name, description, total_seasons: validSeasons.length };
+            seriesDataObj = { name, description, total_seasons: validSeasons.length };
             if (currentSeries && (currentSeries.status === 'En espera' || currentSeries.status === 'Terminado')) {
-                seriesData.status = 'Mirando';
+                seriesDataObj.status = 'Mirando';
                 let nextS = currentSeries.current_season;
                 let nextE = currentSeries.current_episode;
                 const prevSeasonObj = currentSeries.seasons.find(s => s.season_number === nextS);
@@ -246,20 +249,19 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                         nextE = 1;
                     }
                 }
-                seriesData.current_season = nextS;
-                seriesData.current_episode = nextE;
+                seriesDataObj.current_season = nextS;
+                seriesDataObj.current_episode = nextE;
             }
-            result = await db.updateSeriesWithSeasons(editingSeriesId, seriesData, seasonsData);
+            result = await db.updateSeriesWithSeasons(editingSeriesId, seriesDataObj, seasonsData);
         } else {
-            // Al agregar UNA NUEVA SERIE, acoplamos su ciclo al máximo de las series actuales 
-            // de la categoría para evitar que GENERE ATRASO por ciclos pasados.
+            // 1. Calcular el progreso actual para el acoplamiento (UI Order)
             let maxTotalWatched = 0;
             activeSeriesItems.forEach(s => {
-                const watched = getWatchedCountSinceStart(s);
+                const watched = getWatchedCountSinceStart(s) + (s.interleave_offset || 0);
                 if (watched > maxTotalWatched) maxTotalWatched = watched;
             });
 
-            const seriesData = {
+            seriesDataObj = {
                 category_id: category.id,
                 name,
                 description,
@@ -267,10 +269,13 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 current_season: status === 'Nueva' ? 1 : parseInt(currentSeason),
                 current_episode: status === 'Nueva' ? 1 : parseInt(currentEpisode),
                 total_seasons: validSeasons.length,
-                cycle_offset: maxTotalWatched
+                cycle_offset: 0, // Las nuevas series NO afectan el atraso del pasado
+                interleave_offset: maxTotalWatched // Solo afecta el ORDEN en el registro
             };
-            result = await db.addSeriesWithSeasons(seriesData, seasonsData);
+            result = await db.addSeriesWithSeasons(seriesDataObj, seasonsData);
         }
+
+
 
         if (result.success) {
             setModalVisible(false);
@@ -368,6 +373,25 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         if (result.success) fetchSeries();
     };
 
+    const handleTogglePauseCategory = async () => {
+        const todayStr = getLocalDateString();
+        let result;
+        if (currentCategory.is_paused) {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayStr = getLocalDateString(yesterday);
+            result = await db.resumeCategory(currentCategory.id, yesterdayStr);
+        } else {
+            result = await db.pauseCategory(currentCategory.id, todayStr);
+        }
+
+        if (result.success) {
+            await refreshCategory();
+        } else {
+            Alert.alert('Error', 'No se pudo cambiar el estado de pausa de la categoría');
+        }
+    };
+
     const renderSeriesItem = ({ item, index }) => {
         let badgeStyle = styles.badgeWatching;
         if (item.status === 'Nueva') badgeStyle = styles.badgeNew;
@@ -452,7 +476,14 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                     <Text style={[styles.backButtonText, { color: theme.text }]}>←</Text>
                 </TouchableOpacity>
                 <View style={{ flex: 1, marginLeft: 10 }}>
-                    <Text style={[styles.headerTitle, { color: theme.text }]}>{category.name}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Text style={[styles.headerTitle, { color: theme.text }]}>{currentCategory.name}</Text>
+                        {currentCategory.is_paused && (
+                            <View style={[styles.badge, { backgroundColor: '#FFF9C4', marginLeft: 8 }]}>
+                                <Text style={[styles.badgeText, { fontSize: 8 }]}>PAUSADO</Text>
+                            </View>
+                        )}
+                    </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                         {backlogInfo && (
                             <Text style={[styles.headerSubtitle, (backlogInfo.days <= 0 && backlogInfo.items <= 0 && backlogInfo.adelantoItems <= 0) ? { color: '#4CAF50' } : (backlogInfo.adelantoItems > 0 ? { color: '#2E7D32' } : { color: '#EF6C00' })]}>
@@ -464,12 +495,12 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                             </Text>
                         )}
                         <Text style={[styles.headerSubtitle, { color: theme.subText, fontSize: 11 }]}>
-                            • Mirando: {originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando').length}/{category.series_count !== null ? category.series_count : '∞'}
+                            • Mirando: {originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando').length}/{currentCategory.series_count !== null ? currentCategory.series_count : '∞'}
                         </Text>
                     </View>
                 </View>
                 <View style={{ flexDirection: 'row', gap: 10 }}>
-                    <TouchableOpacity onPress={() => onNavigateRegistry('CHAPTER_REGISTRY', { categoryId: category.id })} style={[styles.addButton, { backgroundColor: theme.inputBackground }]}>
+                    <TouchableOpacity onPress={() => onNavigateRegistry('CHAPTER_REGISTRY', { categoryId: currentCategory.id })} style={[styles.addButton, { backgroundColor: theme.inputBackground }]}>
                         <Text style={{ fontSize: 20 }}>📋</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={[styles.addButton, { backgroundColor: theme.accent }]} onPress={() => { resetForm(); setModalVisible(true); }}>
