@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, FlatList, Modal, TextInput, A
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import db from '../services/db';
+import { calculateBacklog } from '../services/backlogUtils';
 import { useTheme } from '../contexts/ThemeContext';
 
 export default function SeriesDetailScreen({ user, category, onBack, onNavigateRegistry }) {
@@ -63,245 +64,27 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
     }, [category]);
 
     const calculateHeaderBacklog = (currentSeriesList = originalList) => {
-        if (!category?.start_date) return;
-
-        const startStr = category.start_date;
-        const daysOfWeek = category.days_of_week;
-        const type = category.type || 'video';
-
-        let targetTotal = 0;
-        if (type === 'video') {
-            // New Quota logic
-            targetTotal = calculateQuotasPassed(startStr, daysOfWeek, category.quotas_history);
-        } else {
-            // Old Reading logic
-            if (!category.frequency) return;
-            const scheduleCalc = calculateScheduleDays(startStr, daysOfWeek);
-            targetTotal = scheduleCalc.validDays * category.frequency;
-        }
-
         let totalWatchedSinceStart = 0;
-        currentSeriesList.forEach(s => {
-            totalWatchedSinceStart += getWatchedCountSinceStart(s);
+        currentSeriesList.forEach(s => { 
+            const currentAbsolute = getAbsoluteEpisodeCount(s, s.current_season, s.current_episode);
+            const initialAbsolute = getAbsoluteEpisodeCount(s, s.initial_season || 1, s.initial_episode || 1);
+            let diff = currentAbsolute - initialAbsolute;
+            if (s.status === 'Terminado' || s.status === 'En espera') diff += 1;
+            totalWatchedSinceStart += (diff < 0 ? 0 : diff) + (s.cycle_offset || 0);
         });
 
-        const totalBacklogItems = targetTotal - totalWatchedSinceStart;
-        const backlogValue = totalBacklogItems < 0 ? 0 : totalBacklogItems;
-        const adelantoValue = totalBacklogItems < 0 ? Math.abs(totalBacklogItems) : 0;
-
-        let backlogDays = 0;
-        let adelantoDays = 0;
-
-        const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        const pauses = category.pauses || [];
-        const history = category.quotas_history || [];
-
-        // FIX: Ensure backward/forward loop does not get stuck evaluating a pause forever
-        const todayStr = new Date().toISOString().split('T')[0];
-        const workingPauses = pauses.map(p => {
-            if (!p.pause_end) return { ...p, pause_end: todayStr };
-            return p;
-        });
-
-        const getActiveQuotasForDate = (checkDate) => {
-            const dStr = checkDate.toISOString().split('T')[0];
-            if (dStr < startStr) return {}; // No quota before start_date
-            
-            let activeQ = null;
-            if (history.length > 0) {
-                const record = history.find(h => dStr >= h.start_date && dStr <= (h.end_date || '9999-12-31'));
-                if (record) activeQ = record.quotas;
-            }
-            if (!activeQ) {
-                try {
-                    const parsed = typeof daysOfWeek === 'string' ? JSON.parse(daysOfWeek || '[]') : daysOfWeek;
-                    if (Array.isArray(parsed)) {
-                        activeQ = {};
-                        parsed.forEach(day => { activeQ[day] = category.frequency || 0; });
-                    } else {
-                        activeQ = parsed;
-                    }
-                } catch (e) { activeQ = {}; }
-            }
-            return activeQ;
-        };
-
-        const getQuotaForDate = (checkDate, activeQ) => {
-            const dayName = dayMap[checkDate.getDay()];
-            let quota = 0;
-            if (type === 'video') {
-                quota = activeQ?.[dayName] || 0;
-            } else {
-                let isActive = false;
-                if (Array.isArray(activeQ)) {
-                    isActive = activeQ.includes(dayName);
-                } else {
-                    isActive = activeQ?.[dayName] > 0;
-                }
-                if (isActive) {
-                    const freq = category.frequency || 0;
-                    quota = freq > 0 ? freq : (1 / Math.abs(freq || 1));
-                }
-            }
-            return quota;
-        };
-
-        if (backlogValue > 0) {
-            let tempBacklog = backlogValue;
-            let checkDate = new Date();
-            checkDate.setHours(0, 0, 0, 0);
-            const safetyMax = 3650;
-            let safety = 0;
-
-            while (tempBacklog > 0 && safety < safetyMax) {
-                if (!isDatePaused(checkDate, workingPauses)) {
-                    const activeQuotas = getActiveQuotasForDate(checkDate);
-                    const quota = getQuotaForDate(checkDate, activeQuotas);
-
-                    if (quota > 0) {
-                        tempBacklog -= quota;
-                        backlogDays++;
-                    }
-                }
-                checkDate.setDate(checkDate.getDate() - 1);
-                safety++;
-                if (checkDate.toISOString().split('T')[0] < startStr) break;
-            }
-        } else if (adelantoValue > 0) {
-            let tempAdelanto = adelantoValue;
-            let checkDate = new Date();
-            checkDate.setHours(0, 0, 0, 0);
-            checkDate.setDate(checkDate.getDate() + 1); // Start from tomorrow
-            const safetyMax = 3650;
-            let safety = 0;
-
-            while (tempAdelanto > 0 && safety < safetyMax) {
-                if (!isDatePaused(checkDate, workingPauses)) {
-                    const activeQuotas = getActiveQuotasForDate(checkDate);
-                    const quota = getQuotaForDate(checkDate, activeQuotas);
-
-                    if (quota > 0) {
-                        tempAdelanto -= quota;
-                        adelantoDays++;
-                    }
-                }
-                checkDate.setDate(checkDate.getDate() + 1);
-                safety++;
-            }
+        const calc = calculateBacklog(category, totalWatchedSinceStart);
+        if (calc) {
+            setBacklogInfo({ 
+                days: calc.diffDays, 
+                items: calc.backlogItems, 
+                adelantoDays: calc.adelantoDays, 
+                adelantoItems: calc.adelantoItems 
+            });
         }
-
-        setBacklogInfo({ days: Math.ceil(backlogDays), items: backlogValue, adelantoDays, adelantoItems: adelantoValue });
     };
 
-
-    const isDatePaused = (date, pauses) => {
-        if (!pauses || pauses.length === 0) return false;
-        const dStr = date.toISOString().split('T')[0];
-        return pauses.some(p => {
-            const start = p.pause_start;
-            const end = p.pause_end || '9999-12-31';
-            return dStr >= start && dStr <= end;
-        });
-    };
-
-    const calculateQuotasPassed = (startStr, currentQuotas, history = []) => {
-        if (!startStr) return 0;
-        const now = new Date();
-        now.setHours(0, 0, 0, 0);
-        const [y, m, d] = startStr.split('-').map(Number);
-        const current = new Date(y, m - 1, d);
-
-        if (current > now) return 0;
-
-        let total = 0;
-        const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-        const pauses = category.pauses || [];
-
-        while (current <= now) {
-            if (!isDatePaused(current, pauses)) {
-                const dayName = dayMap[current.getDay()];
-                const dStr = current.toISOString().split('T')[0];
-                
-                let activeQuotas = null;
-                if (history && history.length > 0) {
-                    const record = history.find(h => {
-                        const hStart = h.start_date;
-                        const hEnd = h.end_date || '9999-12-31';
-                        return dStr >= hStart && dStr <= hEnd;
-                    });
-                    if (record) activeQuotas = record.quotas;
-                }
-
-                if (!activeQuotas) {
-                    if (dStr < startStr) {
-                        activeQuotas = {};
-                    } else {
-                        // Fallback to currentQuotas
-                        activeQuotas = {};
-                        try {
-                            const parsed = typeof currentQuotas === 'string' ? JSON.parse(currentQuotas || '[]') : currentQuotas;
-                            if (Array.isArray(parsed)) {
-                                parsed.forEach(day => { activeQuotas[day] = category.frequency || 0; });
-                            } else if (parsed && typeof parsed === 'object') {
-                                activeQuotas = { ...parsed };
-                            }
-                        } catch (e) {}
-                    }
-                }
-
-                total += activeQuotas[dayName] || 0;
-            }
-            current.setDate(current.getDate() + 1);
-        }
-        return total;
-    };
-
-    const calculateScheduleDays = (startStr, daysOfWeek, history = []) => {
-        if (!startStr) return { validDays: 0 };
-        
-        const now = new Date();
-        now.setHours(0, 0, 0, 0);
-        const [y, m, d] = startStr.split('-').map(Number);
-        const start = new Date(y, m - 1, d);
-        if (start > now) return { validDays: 0 };
-        
-        let count = 0;
-        let current = new Date(start);
-        const pauses = category.pauses || [];
-        const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-        while (current <= now) {
-            if (!isDatePaused(current, pauses)) {
-                const dStr = current.toISOString().split('T')[0];
-                let activeQuotas = null;
-
-                if (history && history.length > 0) {
-                    const record = history.find(h => dStr >= h.start_date && dStr <= (h.end_date || '9999-12-31'));
-                    if (record) activeQuotas = record.quotas;
-                }
-
-                if (!activeQuotas) {
-                    if (dStr < startStr) {
-                        activeQuotas = [];
-                    } else {
-                        // Fallback to current daysOfWeek
-                        try {
-                            activeQuotas = typeof daysOfWeek === 'string' ? JSON.parse(daysOfWeek || '[]') : daysOfWeek;
-                        } catch (e) { activeQuotas = []; }
-                    }
-                }
-
-                const dayName = dayMap[current.getDay()];
-                if (Array.isArray(activeQuotas)) {
-                    if (activeQuotas.includes(dayName)) count++;
-                } else if (activeQuotas && activeQuotas[dayName] > 0) {
-                    count++;
-                }
-            }
-            current.setDate(current.getDate() + 1);
-        }
-        return { validDays: count };
-    };
+    // Redundant internal functions removed
 
     const getWatchedCountSinceStart = (series) => {
         if (!series.seasons || !Array.isArray(series.seasons)) return 0;
