@@ -16,7 +16,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '../contexts/ThemeContext';
 import db from '../services/db';
-import { calculateBacklog } from '../services/backlogUtils';
 
 const DAYS = [
     { key: 'Monday', label: 'L' },
@@ -291,8 +290,195 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
         );
     };
 
-    // isDatePaused removed
-    // calculateBacklog removed
+    const isDatePaused = (date, pauses) => {
+        if (!pauses || pauses.length === 0) return false;
+        const dStr = date.toISOString().split('T')[0];
+        return pauses.some(p => {
+            const start = p.pause_start;
+            const end = p.pause_end || '9999-12-31';
+            return dStr >= start && dStr <= end;
+        });
+    };
+    const calculateBacklog = (startStr, freq, daysOfWeek, totalWatched = 0, type = 'video', pauses = [], history = []) => {
+        if (!startStr) return null;
+
+        const now = new Date();
+        now.setHours(0, 0, 0, 0);
+
+        const [y, m, d] = startStr.split('-').map(Number);
+        const start = new Date(y, m - 1, d);
+
+        // Si la fecha de inicio está en el futuro, `targetItems` será 0 porque el bucle (`current <= now`) no se ejecutará,
+        // lo cual es correcto y permite calcular correctamente los días/ítems "Adelantados" en caso de que ya se haya visto algo.
+
+        let targetItems = 0;
+        let current = new Date(start);
+        const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+        // Helper to get quotas for a specific date
+        const getQuotasForDate = (date) => {
+            const dStr = date.toISOString().split('T')[0];
+            
+            // 0. If before start, no quota
+            if (dStr < startStr) return { Monday: 0, Tuesday: 0, Wednesday: 0, Thursday: 0, Friday: 0, Saturday: 0, Sunday: 0 };
+
+            // 1. Check History first
+            if (history && history.length > 0) {
+                const record = history.find(h => {
+                    const hStart = h.start_date;
+                    const hEnd = h.end_date || '9999-12-31';
+                    return dStr >= hStart && dStr <= hEnd;
+                });
+                if (record) return record.quotas;
+            }
+
+            // 2. Fallback to current daysOfWeek
+            let q = { Monday: 0, Tuesday: 0, Wednesday: 0, Thursday: 0, Friday: 0, Saturday: 0, Sunday: 0 };
+            try {
+                const parsed = typeof daysOfWeek === 'string' ? JSON.parse(daysOfWeek) : daysOfWeek;
+                if (Array.isArray(parsed)) {
+                    parsed.forEach(day => { if (q.hasOwnProperty(day)) q[day] = freq || 0; });
+                } else if (parsed && typeof parsed === 'object') {
+                    q = { ...q, ...parsed };
+                }
+            } catch (e) {}
+            return q;
+        };
+
+        if (type === 'video') {
+            // Video logic: Sum quotas for each day passed using history if available
+            while (current <= now) {
+                if (!isDatePaused(current, pauses)) {
+                    const dayName = dayMap[current.getDay()];
+                    const activeQuotas = getQuotasForDate(current);
+                    targetItems += activeQuotas[dayName] || 0;
+                }
+                current.setDate(current.getDate() + 1);
+            }
+        } else {
+            // Lecture/Reading logic (stays original but skips pauses)
+            if (!freq) return null;
+            let validDaysPassed = 0;
+            while (current <= now) {
+                if (!isDatePaused(current, pauses)) {
+                    const dayName = dayMap[current.getDay()];
+                    const activeQuotas = getQuotasForDate(current);
+                    // For reading, activeQuotas might be an array (legacy) or object
+                    if (Array.isArray(activeQuotas)) {
+                        if (activeQuotas.includes(dayName)) validDaysPassed++;
+                    } else if (activeQuotas && activeQuotas[dayName] > 0) {
+                        validDaysPassed++;
+                    }
+                }
+                current.setDate(current.getDate() + 1);
+            }
+            
+            if (freq > 0) {
+                targetItems = validDaysPassed * freq;
+            } else {
+                targetItems = Math.floor(validDaysPassed / Math.abs(freq));
+            }
+        }
+
+        let backlogItems = targetItems - totalWatched;
+        if (backlogItems < 0) backlogItems = 0;
+
+        // FIX: For atraso and adelanto calculations, we don't want an open-ended pause to freeze projections forever.
+        // If a pause is indefinite, we limit its effect to 'today' so backward/forward counts can still measure working days correctly!
+        const todayStr = new Date().toISOString().split('T')[0];
+        const workingPauses = pauses.map(p => {
+            if (!p.pause_end) return { ...p, pause_end: todayStr };
+            return p;
+        });
+
+        // Days of Atraso calculation: Count backward from now
+        let daysAtraso = 0;
+        if (backlogItems > 0) {
+            let tempBacklog = backlogItems;
+            let checkDate = new Date(now);
+            const safetyMax = 3650; // 10 years
+            let safety = 0;
+
+            while (tempBacklog > 0 && safety < safetyMax) {
+                if (!isDatePaused(checkDate, workingPauses)) {
+                    const activeQuotas = getQuotasForDate(checkDate);
+                    const dayName = dayMap[checkDate.getDay()];
+                    let quotaForDay = 0;
+
+                    if (type === 'video') {
+                        quotaForDay = activeQuotas[dayName] || 0;
+                    } else {
+                        let isActive = false;
+                        if (Array.isArray(activeQuotas)) {
+                            isActive = activeQuotas.includes(dayName);
+                        } else if (activeQuotas && activeQuotas[dayName] > 0) {
+                            isActive = true;
+                        }
+                        if (isActive) {
+                            quotaForDay = Math.abs(freq) || 1;
+                        }
+                    }
+
+                    if (quotaForDay > 0) {
+                        tempBacklog -= quotaForDay;
+                        daysAtraso++;
+                    }
+                }
+                
+                checkDate.setDate(checkDate.getDate() - 1);
+                safety++;
+
+                // Stop if we go before start_date
+                if (checkDate.toISOString().split('T')[0] < startStr) break;
+            }
+        }
+
+        // Adelantado calculation: Count forward from tomorrow
+        let adelantoDays = 0;
+        let adelantoItems = 0;
+        if (targetItems - totalWatched < 0) {
+            adelantoItems = totalWatched - targetItems;
+            let tempAdelanto = adelantoItems;
+            let checkDate = new Date(now);
+            checkDate.setDate(checkDate.getDate() + 1); // Start checking from tomorrow
+            const safetyMax = 3650; // 10 years
+            let safety = 0;
+
+            while (tempAdelanto > 0 && safety < safetyMax) {
+                if (!isDatePaused(checkDate, workingPauses)) {
+                    const activeQuotas = getQuotasForDate(checkDate);
+                    const dayName = dayMap[checkDate.getDay()];
+                    let quotaForDay = 0;
+
+                    if (type === 'video') {
+                        quotaForDay = activeQuotas[dayName] || 0;
+                    } else {
+                        let isActive = false;
+                        if (Array.isArray(activeQuotas)) {
+                            isActive = activeQuotas.includes(dayName);
+                        } else if (activeQuotas && activeQuotas[dayName] > 0) {
+                            isActive = true;
+                        }
+                        if (isActive) {
+                            quotaForDay = Math.abs(freq) || 1;
+                        }
+                    }
+
+                    if (quotaForDay > 0) {
+                        tempAdelanto -= quotaForDay;
+                        // Count a day of 'adelanto' once the quota for this future day is 'paid off'
+                        adelantoDays++;
+                    }
+                }
+                // Stop even if we don't fully pay off the last day, as real days are whole
+                checkDate.setDate(checkDate.getDate() + 1);
+                safety++;
+            }
+        }
+
+        let unitLabel = type === 'video' ? 'Caps' : 'Tomos';
+        return { diffDays: daysAtraso, backlogItems, adelantoDays, adelantoItems, unit: unitLabel };
+    };
 
     const renderItem = ({ item }) => {
         // Parse quotas
@@ -312,7 +498,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
             }
         } catch (e) { item._displayDays = 'No definido'; }
 
-        const calc = calculateBacklog(item, item.totalWatched);
+        const calc = calculateBacklog(item.start_date, item.frequency, item.days_of_week, item.totalWatched, item.type, item.pauses, item.quotas_history);
 
         return (
             <TouchableOpacity
