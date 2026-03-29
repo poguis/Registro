@@ -251,10 +251,14 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
             }
             result = await db.updateSeriesWithSeasons(editingSeriesId, seriesData, seasonsData);
         } else {
-            // Nueva serie: cycle_offset = 0.
-            // La DB guarda initial_season/initial_episode igual al punto de inicio actual,
-            // por lo que diff = 0. Así, agregar una nueva serie NO modifica el totalWatched
-            // de la categoría ni altera el cálculo de atraso/adelanto en ninguna pantalla.
+            // Al agregar UNA NUEVA SERIE, acoplamos su ciclo al máximo de las series actuales 
+            // de la categoría para evitar que GENERE ATRASO por ciclos pasados.
+            let maxTotalWatched = 0;
+            activeSeriesItems.forEach(s => {
+                const watched = getWatchedCountSinceStart(s);
+                if (watched > maxTotalWatched) maxTotalWatched = watched;
+            });
+
             const seriesData = {
                 category_id: category.id,
                 name,
@@ -263,7 +267,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 current_season: status === 'Nueva' ? 1 : parseInt(currentSeason),
                 current_episode: status === 'Nueva' ? 1 : parseInt(currentEpisode),
                 total_seasons: validSeasons.length,
-                cycle_offset: 0
+                cycle_offset: maxTotalWatched
             };
             result = await db.addSeriesWithSeasons(seriesData, seasonsData);
         }
