@@ -202,7 +202,11 @@ export const calculateBacklogV2 = (category, seriesList = []) => {
     const totalTarget = baseCalc.targetItems;
 
     // 2. Determinar series activas para repartir la cuota
-    const activeSeriesList = seriesList.filter(s => s.status === 'Nueva' || s.status === 'Mirando');
+    // "Pausado" mantiene su lugar en el ciclo para que pausar/reanudar
+    // no altere artificialmente el atraso/adelanto de la categoría.
+    const activeSeriesList = seriesList.filter(
+        s => s.status === 'Nueva' || s.status === 'Mirando' || s.status === 'Pausado'
+    );
     const activeCount = activeSeriesList.length;
 
     // Si no hay series activas pero hay un target, el atraso es el totalTarget 
@@ -259,7 +263,7 @@ export const calculateBacklogV2 = (category, seriesList = []) => {
         if (s.status === 'Terminado' || s.status === 'En espera') diff += 1;
         const watched = (diff < 0 ? 0 : diff) + (s.cycle_offset || 0);
 
-        const isCurrentlyActive = s.status === 'Nueva' || s.status === 'Mirando';
+        const isCurrentlyActive = s.status === 'Nueva' || s.status === 'Mirando' || s.status === 'Pausado';
         const individualTarget = isCurrentlyActive ? targetPerSeries : 0;
 
         if (watched < individualTarget) {

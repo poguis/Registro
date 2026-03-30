@@ -272,9 +272,22 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
 
     const handleTogglePauseSeries = async (series) => {
         let newStatus;
-        if (series.status === 'Pausado') newStatus = 'Mirando';
+        if (series.status === 'Pausado') {
+            newStatus = 'Mirando';
+            // Lectura: al reanudar solo se cambia estado, sin tocar offsets.
+            const res = await db.updateSeriesProgress(
+                series.id,
+                series.current_season,
+                series.current_episode,
+                newStatus
+            );
+            if (res.success) fetchSeries();
+            return;
+        }
         else if (series.status === 'Mirando' || series.status === 'Nueva') newStatus = 'Pausado';
         else return;
+
+        // Lectura: al pausar solo se cambia estado, sin tocar offsets.
         const res = await db.updateSeriesProgress(series.id, series.current_season, series.current_episode, newStatus);
         if (res.success) fetchSeries();
     };

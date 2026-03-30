@@ -351,10 +351,10 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
     const handleTogglePauseSeries = async (series) => {
         let newStatus;
-        let newOffset = series.cycle_offset || 0;
 
         if (series.status === 'Pausado') {
             newStatus = 'Mirando';
+            let newOffset = series.cycle_offset || 0;
             // Al REANUDAR, acoplamos el ciclo saltando los ciclos que pasaron durante la pausa.
             const activeItems = originalList.filter(s => (s.status === 'Nueva' || s.status === 'Mirando' || s.status === 'Pausado') && s.id !== series.id);
             let maxCycle = 0;
@@ -365,11 +365,24 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
             const myCycle = getWatchedCountSinceStart(series);
             const additionalOffset = Math.max(0, maxCycle - myCycle);
             newOffset += additionalOffset;
+
+            const result = await db.updateSeriesProgress(
+                series.id,
+                series.current_season,
+                series.current_episode,
+                newStatus,
+                null,
+                undefined,
+                newOffset
+            );
+            if (result.success) fetchSeries();
+            return;
         }
         else if (series.status === 'Mirando' || series.status === 'Nueva') newStatus = 'Pausado';
         else return;
 
-        const result = await db.updateSeriesProgress(series.id, series.current_season, series.current_episode, newStatus, null, undefined, newOffset);
+        // Al pausar, no alteramos cycle_offset para evitar desalineaciones de atraso.
+        const result = await db.updateSeriesProgress(series.id, series.current_season, series.current_episode, newStatus);
         if (result.success) fetchSeries();
     };
 

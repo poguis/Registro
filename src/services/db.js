@@ -12,6 +12,7 @@ class DatabaseService {
         try {
             console.log('Starting SQLite initialization...');
             this.db = await SQLite.openDatabaseAsync(dbName);
+            await this.db.execAsync('PRAGMA foreign_keys = ON;');
             console.log('DB File opened:', dbName);
 
             // Users
@@ -1348,11 +1349,14 @@ class DatabaseService {
     async getBacklogItems(userId, type, status = null, sortBy = 'title', order = 'ASC', franchise = 'Todos') {
         if (!this.db) await this.init();
         try {
+            const allowedSortBy = new Set(['title', 'year_start', 'created_at']);
+            const safeSortBy = allowedSortBy.has(sortBy) ? sortBy : 'title';
+            const safeOrder = order === 'DESC' ? 'DESC' : 'ASC';
+
             // Determine the column to sort by for "year" based on type
-            let sortCol = sortBy;
-            if (sortBy === 'year_start') {
-                if (type === 'movie') sortCol = 'year';
-                else sortCol = 'start_year';
+            let sortCol = safeSortBy;
+            if (safeSortBy === 'year_start') {
+                sortCol = type === 'movie' ? 'year' : 'start_year';
             }
 
             let query = `SELECT * FROM backlog WHERE user_id = ? AND type = ?`;
@@ -1368,7 +1372,7 @@ class DatabaseService {
                 params.push(franchise);
             }
 
-            query += ` ORDER BY ${sortCol} ${order}`;
+            query += ` ORDER BY ${sortCol} ${safeOrder}`;
 
             const rows = await this.db.getAllAsync(query, params);
             return { success: true, data: rows };

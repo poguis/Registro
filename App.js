@@ -42,9 +42,18 @@ export default function App() {
         // Recuperar usuario de AsyncStorage
         const storedUser = await AsyncStorage.getItem('@user_session');
         if (storedUser) {
-          const userData = JSON.parse(storedUser);
-          setUser(userData);
-          setCurrentView('HOME');
+          try {
+            const userData = JSON.parse(storedUser);
+            if (userData && typeof userData === 'object' && userData.id) {
+              setUser(userData);
+              setCurrentView('HOME');
+            } else {
+              await AsyncStorage.removeItem('@user_session');
+            }
+          } catch (parseError) {
+            console.error('Invalid stored session:', parseError);
+            await AsyncStorage.removeItem('@user_session');
+          }
         }
       } catch (error) {
         console.error('Error in init:', error);
