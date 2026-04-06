@@ -1,8 +1,8 @@
 # Registro
 
-Aplicación móvil construida con Expo/React Native para gestión personal:
+Aplicaciï¿½n mï¿½vil construida con Expo/React Native para gestiï¿½n personal:
 - Finanzas y balance
-- Deudas/préstamos
+- Deudas/prï¿½stamos
 - Series/Anime/Lectura
 - Backlog
 - Trabajo/Servicios/Tarjetas
@@ -10,9 +10,9 @@ Aplicación móvil construida con Expo/React Native para gestión personal:
 ## Requisitos
 - Node.js LTS
 - npm
-- Expo CLI vía `npx`
+- Expo CLI vï¿½a `npx`
 
-## Ejecución local
+## Ejecuciï¿½n local
 ```bash
 npm install
 npx expo start
@@ -27,15 +27,24 @@ set EAS_NO_VCS=1 && npx eas-cli build --profile preview --platform android
 ```
 
 ## Arquitectura actual
-La app usa una arquitectura por pantallas con estado de navegación en `App.js` y acceso a datos centralizado en SQLite:
+La app usa una arquitectura por pantallas con estado de navegaciï¿½n en `App.js` y acceso a datos centralizado en SQLite:
 
 - Entrada: `index.js` -> `App.js`
-- Navegación principal: estado local en `App.js` (`currentView` + historial)
+- Navegaciï¿½n principal: estado local en `App.js` (`currentView` + historial)
 - UI: `src/screens/`
 - Tema global: `src/contexts/ThemeContext.js`
 - Base de datos y reglas de negocio: `src/services/db.js`
-- Utilidades de cálculo backlog: `src/services/backlogUtils.js`
+- Utilidades de cï¿½lculo backlog: `src/services/backlogUtils.js`
 
 ## Notas de mantenimiento
-- Se removió la capa MVC antigua (`src/views`, `src/controllers`, `src/database`, `src/models`) porque no estaba conectada al flujo principal.
-- Si se desea reintroducir MVC, conviene hacerlo en un módulo nuevo y migrar gradualmente desde `src/services/db.js`.
+- Se removiï¿½ la capa MVC antigua (`src/views`, `src/controllers`, `src/database`, `src/models`) porque no estaba conectada al flujo principal.
+- Si se desea reintroducir MVC, conviene hacerlo en un mï¿½dulo nuevo y migrar gradualmente desde `src/services/db.js`.
+
+
+## Generar apk localmente
+npm install
+npx expo prebuild -p android
+
+## cd android
+.\gradlew.bat assembleDebug
+

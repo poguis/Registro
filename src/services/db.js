@@ -1,6 +1,12 @@
 import * as SQLite from 'expo-sqlite';
 
 const dbName = 'app_registro_v3.db'; // Changed to v3 for schema update
+const getLocalDateString = (date = new Date()) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
 
 class DatabaseService {
     constructor() {
@@ -671,7 +677,7 @@ class DatabaseService {
                 // Initial quota record
                 await this.db.runAsync(
                     'INSERT INTO entertainment_quotas_history (category_id, quotas, start_date) VALUES (?, ?, ?)',
-                    [categoryId, daysString, startDate || new Date().toISOString().split('T')[0]]
+                    [categoryId, daysString, startDate || getLocalDateString()]
                 );
             }
 
@@ -836,10 +842,10 @@ class DatabaseService {
             );
 
             if (currentCat && currentCat.days_of_week !== daysString) {
-                const today = new Date().toISOString().split('T')[0];
+                const today = getLocalDateString();
                 const yesterday = new Date();
                 yesterday.setDate(yesterday.getDate() - 1);
-                const yesterdayStr = yesterday.toISOString().split('T')[0];
+                const yesterdayStr = getLocalDateString(yesterday);
 
                 // 1. Close current history record (end_date = yesterday)
                 await this.db.runAsync(

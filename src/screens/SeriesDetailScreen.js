@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, FlatList, Modal, TextInput, A
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import db from '../services/db';
-import { calculateBacklog, calculateBacklogV2, getLocalDateString } from '../services/backlogUtils';
+import { calculateBacklog, calculateBacklogV2, getLocalDateString, getAbsoluteEpisodeCount, getWatchedCountSinceStart } from '../services/backlogUtils';
 import { useTheme } from '../contexts/ThemeContext';
 
 export default function SeriesDetailScreen({ user, category, onBack, onNavigateRegistry }) {
@@ -22,6 +22,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
     // Progress Grid Modal
     const [progressModalVisible, setProgressModalVisible] = useState(false);
     const [activeSeries, setActiveSeries] = useState(null);
+    const [seasonVisibleCounts, setSeasonVisibleCounts] = useState({});
 
     // Form Progress State (for creation)
     const [currentSeason, setCurrentSeason] = useState(1);
@@ -60,7 +61,6 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                         };
                     }));
                     setOriginalList(enrichedList);
-                    calculateHeaderBacklog(enrichedList);
                 }
             } catch (error) {
                 console.error("Error fetching series:", error);
@@ -72,8 +72,12 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         fetchSeries();
     }, [category]);
 
-    const calculateHeaderBacklog = (currentSeriesList = originalList) => {
-        const calc = calculateBacklogV2(category, currentSeriesList);
+    useEffect(() => {
+        setCurrentCategory(category);
+    }, [category]);
+
+    const calculateHeaderBacklog = (currentSeriesList = originalList, targetCategory = currentCategory) => {
+        const calc = calculateBacklogV2(targetCategory, currentSeriesList);
         if (calc) {
             setBacklogInfo({ 
                 items: calc.items, 
@@ -84,33 +88,27 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         }
     };
 
-
-
-    // Redundant internal functions removed
-
-    const getWatchedCountSinceStart = (series) => {
-        if (!series.seasons || !Array.isArray(series.seasons)) return 0;
-        const currentAbsolute = getAbsoluteEpisodeCount(series, series.current_season, series.current_episode);
-        const initS = series.initial_season || 1;
-        const initE = series.initial_episode || 1;
-        const initialAbsolute = getAbsoluteEpisodeCount(series, initS, initE);
-        let diff = currentAbsolute - initialAbsolute;
-        if (series.status === 'Terminado' || series.status === 'En espera') {
-            diff += 1;
+    useEffect(() => {
+        if (originalList.length > 0 || currentCategory) {
+            calculateHeaderBacklog(originalList, currentCategory);
         }
-        const cleanDiff = diff < 0 ? 0 : diff;
-        return cleanDiff + (series.cycle_offset || 0);
-    };
+    }, [originalList, currentCategory]);
 
-    const getAbsoluteEpisodeCount = (series, seasonNum, episodeNum) => {
-        let count = 0;
-        for (let i = 1; i < seasonNum; i++) {
-            const sobj = series.seasons.find(sea => sea.season_number === i);
-            count += sobj ? sobj.episode_count : 0;
+    useEffect(() => {
+        if (!activeSeries?.seasons) {
+            setSeasonVisibleCounts({});
+            return;
         }
-        count += (episodeNum - 1);
-        return count;
-    };
+
+        const initialCounts = {};
+        activeSeries.seasons.forEach((season) => {
+            const isCurrentSeason = season.season_number === activeSeries.current_season;
+            const currentPointer = isCurrentSeason ? (activeSeries.current_episode || 1) : 1;
+            const baseVisible = isCurrentSeason ? Math.max(120, currentPointer + 20) : 120;
+            initialCounts[season.season_number] = Math.min(season.episode_count, baseVisible);
+        });
+        setSeasonVisibleCounts(initialCounts);
+    }, [activeSeries]);
 
     const handleAddSeason = () => {
         setSeasons([...seasons, { number: seasons.length + 1, episodes: '' }]);
@@ -223,59 +221,36 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
             }
         }
 
+        const seriesDataObj = {
+            category_id: category.id,
+            name,
+            description,
+            status,
+            current_season: parseInt(currentSeason),
+            current_episode: parseInt(currentEpisode),
+            total_seasons: validSeasons.length
+        };
+
         const seasonsData = validSeasons.map(s => ({
             season_number: s.number,
             episode_count: parseInt(s.episodes)
         }));
 
         let result;
-        let seriesDataObj;
         if (isEditing) {
-            const currentSeries = originalList.find(s => s.id === editingSeriesId);
-            seriesDataObj = { name, description, total_seasons: validSeasons.length };
-            if (currentSeries && (currentSeries.status === 'En espera' || currentSeries.status === 'Terminado')) {
-                seriesDataObj.status = 'Mirando';
-                let nextS = currentSeries.current_season;
-                let nextE = currentSeries.current_episode;
-                const prevSeasonObj = currentSeries.seasons.find(s => s.season_number === nextS);
-                const prevMax = prevSeasonObj ? prevSeasonObj.episode_count : 0;
-                const wasAtEnd = (nextE >= prevMax) || (currentSeries.status === 'Terminado');
-                if (wasAtEnd) {
-                    const newSeasonObj = seasonsData.find(s => s.season_number === nextS);
-                    if ((newSeasonObj?.episode_count || 0) > prevMax) {
-                        nextE = prevMax + 1;
-                    } else if (seasonsData.length > nextS) {
-                        nextS += 1;
-                        nextE = 1;
-                    }
-                }
-                seriesDataObj.current_season = nextS;
-                seriesDataObj.current_episode = nextE;
-            }
             result = await db.updateSeriesWithSeasons(editingSeriesId, seriesDataObj, seasonsData);
         } else {
-            // 1. Calcular el progreso actual para el acoplamiento (UI Order)
-            let maxTotalWatched = 0;
+            const nextOrder = activeSeriesItems.length + 1;
+            seriesDataObj.sort_order = nextOrder;
+            // Interleave logic: next items should match current category pace
+            let maxInterleave = 0;
             activeSeriesItems.forEach(s => {
-                const watched = getWatchedCountSinceStart(s) + (s.interleave_offset || 0);
-                if (watched > maxTotalWatched) maxTotalWatched = watched;
+                const progress = getWatchedCountSinceStart(s) + (s.interleave_offset || 0);
+                if (progress > maxInterleave) maxInterleave = progress;
             });
-
-            seriesDataObj = {
-                category_id: category.id,
-                name,
-                description,
-                status: status,
-                current_season: status === 'Nueva' ? 1 : parseInt(currentSeason),
-                current_episode: status === 'Nueva' ? 1 : parseInt(currentEpisode),
-                total_seasons: validSeasons.length,
-                cycle_offset: 0, // Las nuevas series NO afectan el atraso del pasado
-                interleave_offset: maxTotalWatched // Solo afecta el ORDEN en el registro
-            };
+            seriesDataObj.interleave_offset = maxInterleave;
             result = await db.addSeriesWithSeasons(seriesDataObj, seasonsData);
         }
-
-
 
         if (result.success) {
             setModalVisible(false);
@@ -354,17 +329,19 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
         if (series.status === 'Pausado') {
             newStatus = 'Mirando';
-            let newOffset = series.cycle_offset || 0;
-            // Al REANUDAR, acoplamos el ciclo saltando los ciclos que pasaron durante la pausa.
-            const activeItems = originalList.filter(s => (s.status === 'Nueva' || s.status === 'Mirando' || s.status === 'Pausado') && s.id !== series.id);
-            let maxCycle = 0;
+            const activeItems = originalList.filter(
+                s => (s.status === 'Nueva' || s.status === 'Mirando' || s.status === 'Pausado') && s.id !== series.id
+            );
+
+            let maxInterleave = 0;
             activeItems.forEach(s => {
-                const cycle = getWatchedCountSinceStart(s);
-                if (cycle > maxCycle) maxCycle = cycle;
+                const progress = getWatchedCountSinceStart(s) + (s.interleave_offset || 0);
+                if (progress > maxInterleave) maxInterleave = progress;
             });
-            const myCycle = getWatchedCountSinceStart(series);
-            const additionalOffset = Math.max(0, maxCycle - myCycle);
-            newOffset += additionalOffset;
+
+            const myInterleave = getWatchedCountSinceStart(series) + (series.interleave_offset || 0);
+            const additionalInterleave = Math.max(0, maxInterleave - myInterleave);
+            const newInterleaveOffset = (series.interleave_offset || 0) + additionalInterleave;
 
             const result = await db.updateSeriesProgress(
                 series.id,
@@ -373,7 +350,8 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 newStatus,
                 null,
                 undefined,
-                newOffset
+                undefined,
+                newInterleaveOffset
             );
             if (result.success) fetchSeries();
             return;
@@ -381,7 +359,6 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         else if (series.status === 'Mirando' || series.status === 'Nueva') newStatus = 'Pausado';
         else return;
 
-        // Al pausar, no alteramos cycle_offset para evitar desalineaciones de atraso.
         const result = await db.updateSeriesProgress(series.id, series.current_season, series.current_episode, newStatus);
         if (result.success) fetchSeries();
     };
@@ -417,65 +394,44 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
             <TouchableOpacity
                 style={[styles.card, { backgroundColor: theme.card }]}
                 activeOpacity={0.9}
-                onPress={() => { setActiveSeries(item); setProgressModalVisible(true); }}
+                onPress={() => {
+                    setActiveSeries(item);
+                    setProgressModalVisible(true);
+                }}
             >
-                <View style={styles.cardContent}>
-                    {/* Title Row */}
-                    <View style={{ marginBottom: 12 }}>
-                        <Text
-                            style={[styles.cardTitle, { color: theme.text, fontSize: 18, lineHeight: 22 }]}
-                            numberOfLines={3}
-                            ellipsizeMode="tail"
-                        >
-                            {item.name}
-                        </Text>
-                    </View>
-
-                    {/* Info and Actions Row */}
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-                        <View style={{ flex: 1 }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                                <View style={[styles.badge, badgeStyle, { marginLeft: 0 }]}>
-                                    <Text style={styles.badgeText}>{item.status}</Text>
-                                </View>
-                                {item.description ? (
-                                    <Text style={[styles.cardDesc, { marginTop: 0, marginLeft: 10, flex: 1 }]} numberOfLines={1}>
-                                        • {item.description}
-                                    </Text>
-                                ) : null}
-                            </View>
-                            <Text style={[styles.cardProgress, { color: theme.accent, fontSize: 14 }]}>
-                                T{item.current_season} - E{item.current_episode} <Text style={{ fontWeight: 'normal', color: theme.subText }}>de {item.total_seasons} T.</Text>
-                            </Text>
+                <View style={styles.cardHeader}>
+                    <View style={styles.cardHeaderLeft}>
+                        <Text style={[styles.seriesName, { color: theme.text }]}>{item.name}</Text>
+                        <View style={[styles.badge, badgeStyle]}>
+                            <Text style={styles.badgeText}>{item.status}</Text>
                         </View>
-
-                        <View style={[styles.cardActions, { marginLeft: 10 }]}>
-                            <TouchableOpacity onPress={() => { setActiveSeries(item); setProgressModalVisible(true); }} style={[styles.gridBtn, { backgroundColor: theme.inputBackground }]}>
-                                <Text style={{ fontSize: 18 }}>👁️</Text>
-                            </TouchableOpacity>
-                            {(item.status === 'Nueva' || item.status === 'Mirando' || item.status === 'Pausado') && (
-                                <TouchableOpacity onPress={() => handleTogglePauseSeries(item)} style={[styles.gridBtn, { backgroundColor: theme.inputBackground, marginLeft: 2, paddingHorizontal: 10 }]}>
-                                    <Text style={{ fontSize: 16 }}>{item.status === 'Pausado' ? '▶️' : '⏸️'}</Text>
+                    </View>
+                    <View style={styles.actionButtons}>
+                        {isViendo && (
+                            <>
+                                <TouchableOpacity onPress={() => moveUp(index)} style={styles.iconButton}>
+                                    <Text style={{ fontSize: 20, color: theme.accent }}>↑</Text>
                                 </TouchableOpacity>
-                            )}
-                            {isViendo && (
-                                <View style={styles.orderButtons}>
-                                    <TouchableOpacity onPress={() => moveUp(index)} style={[styles.orderBtn, { backgroundColor: theme.inputBackground, borderColor: theme.border }]}>
-                                        <Text style={[styles.orderBtnText, { color: theme.accent }]}>↑</Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity onPress={() => moveDown(index)} style={[styles.orderBtn, { backgroundColor: theme.inputBackground, borderColor: theme.border }]}>
-                                        <Text style={[styles.orderBtnText, { color: theme.accent }]}>↓</Text>
-                                    </TouchableOpacity>
-                                </View>
-                            )}
-                            <TouchableOpacity onPress={() => handleEdit(item)} style={[styles.editBtn, { backgroundColor: theme.accent + '22' }]}>
-                                <Text style={{ fontSize: 16 }}>✏️</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={() => handleDelete(item.id)} style={[styles.deleteBtn, { backgroundColor: '#FFEBEE' }]}>
-                                <Text style={{ fontSize: 16 }}>🗑️</Text>
-                            </TouchableOpacity>
-                        </View>
+                                <TouchableOpacity onPress={() => moveDown(index)} style={styles.iconButton}>
+                                    <Text style={{ fontSize: 20, color: theme.accent }}>↓</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={() => handleTogglePauseSeries(item)} style={styles.iconButton}>
+                                    <Text style={{ fontSize: 20 }}>{item.status === 'Pausado' ? '▶️' : '⏸️'}</Text>
+                                </TouchableOpacity>
+                            </>
+                        )}
+                        <TouchableOpacity onPress={() => handleEdit(item)} style={styles.iconButton}>
+                            <Text style={{ fontSize: 18 }}>✏️</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => handleDelete(item.id)} style={styles.iconButton}>
+                            <Text style={{ fontSize: 18 }}>🗑️</Text>
+                        </TouchableOpacity>
                     </View>
+                </View>
+                <Text style={[styles.seriesDescription, { color: theme.subText }]}>{item.description || 'Sin descripción'}</Text>
+                <View style={styles.cardProgress}>
+                    <Text style={[styles.progressText, { color: theme.text }]}>T{item.current_season} - E{item.current_episode}</Text>
+                    <Text style={[styles.totalText, { color: theme.subText }]}>Total Caps: {item.total_episodes || 0}</Text>
                 </View>
             </TouchableOpacity>
         );
@@ -483,174 +439,172 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-            <StatusBar style={isDarkMode ? "light" : "dark"} />
-            <View style={[styles.header, { backgroundColor: theme.header, borderBottomColor: theme.border }]}>
-                <TouchableOpacity onPress={onBack} style={styles.backButton}>
-                    <Text style={[styles.backButtonText, { color: theme.text }]}>←</Text>
-                </TouchableOpacity>
-                <View style={{ flex: 1, marginLeft: 10 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <StatusBar style={isDarkMode ? 'light' : 'dark'} />
+            <View style={[styles.header, { borderBottomColor: theme.border }]}>
+                <View style={styles.headerTop}>
+                    <TouchableOpacity onPress={onBack} style={styles.backButton}>
+                        <Text style={[styles.backText, { color: theme.text }]}>←</Text>
+                    </TouchableOpacity>
+                    <View style={{ flex: 1, marginLeft: 10 }}>
                         <Text style={[styles.headerTitle, { color: theme.text }]}>{currentCategory.name}</Text>
-                        {currentCategory.is_paused && (
-                            <View style={[styles.badge, { backgroundColor: '#FFF9C4', marginLeft: 8 }]}>
-                                <Text style={[styles.badgeText, { fontSize: 8 }]}>PAUSADO</Text>
-                            </View>
-                        )}
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        {backlogInfo && (
-                            <Text style={[styles.headerSubtitle, (backlogInfo.days <= 0 && backlogInfo.items <= 0 && backlogInfo.adelantoItems <= 0) ? { color: '#4CAF50' } : (backlogInfo.adelantoItems > 0 ? { color: '#2E7D32' } : { color: '#EF6C00' })]}>
-                                {backlogInfo.adelantoItems > 0 
-                                    ? `Adelantado: ${backlogInfo.adelantoDays}d, ${backlogInfo.adelantoItems}c`
-                                    : (backlogInfo.days <= 0 && backlogInfo.items <= 0) 
-                                        ? '¡Al día! 🎉' 
-                                        : `Atraso: ${backlogInfo.days}d, ${backlogInfo.items}c`}
-                            </Text>
-                        )}
-                        <Text style={[styles.headerSubtitle, { color: theme.subText, fontSize: 11 }]}>
-                            • Mirando: {originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando').length}/{currentCategory.series_count !== null ? currentCategory.series_count : '∞'}
+                        <Text style={[styles.headerSubtitle, { color: theme.subText }]}>
+                            {backlogInfo 
+                                ? (backlogInfo.items > 0 
+                                    ? `Atraso: ${backlogInfo.days}d (${backlogInfo.items} Caps)`
+                                    : (backlogInfo.adelantoItems > 0 
+                                        ? `Adelanto: ${backlogInfo.adelantoDays}d (${backlogInfo.adelantoItems} Caps)`
+                                        : '¡Al día! 🎉'))
+                                : 'Calculando...'}
                         </Text>
                     </View>
-                </View>
-                <View style={{ flexDirection: 'row', gap: 10 }}>
-                    <TouchableOpacity onPress={() => onNavigateRegistry('CHAPTER_REGISTRY', { categoryId: currentCategory.id })} style={[styles.addButton, { backgroundColor: theme.inputBackground }]}>
-                        <Text style={{ fontSize: 20 }}>📋</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={[styles.addButton, { backgroundColor: theme.accent }]} onPress={() => { resetForm(); setModalVisible(true); }}>
-                        <Text style={styles.addButtonText}>+</Text>
-                    </TouchableOpacity>
-                </View>
-            </View>
-
-            <View style={[styles.tabContainer, { backgroundColor: theme.header, borderBottomColor: theme.border }]}>
-                {['Viendo', 'En espera', 'Terminado'].map((tab) => {
-                    const count = tab === 'Viendo'
-                        ? originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando' || s.status === 'Pausado').length
-                        : originalList.filter(s => s.status === tab).length;
-
-                    return (
-                        <TouchableOpacity
-                            key={tab}
-                            style={[styles.tabButton, { backgroundColor: theme.inputBackground, borderColor: theme.border }, currentStatusTab === tab && { backgroundColor: theme.accent, borderColor: theme.accent }]}
-                            onPress={() => setCurrentStatusTab(tab)}
-                        >
-                            <Text style={[styles.tabText, { color: theme.subText }, currentStatusTab === tab && { color: '#fff' }]}>
-                                {tab === 'Viendo' ? '📺 ' : tab === 'En espera' ? '⏳ ' : '✅ '}
-                                {tab} ({count})
-                            </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <TouchableOpacity onPress={handleTogglePauseCategory} style={[styles.pauseCategoryBtn, currentCategory.is_paused && { backgroundColor: '#FFCDD2' }]}>
+                            <Text style={{ fontSize: 20 }}>{currentCategory.is_paused ? '▶️' : '⏸️'}</Text>
                         </TouchableOpacity>
-                    );
-                })}
+                        <TouchableOpacity 
+                            onPress={() => onNavigateRegistry(currentCategory)}
+                            style={styles.registryButton}
+                        >
+                            <Text style={styles.registryButtonText}>Registro</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+
+                <View style={styles.tabContainer}>
+                    {['Viendo', 'En espera', 'Terminado'].map((t) => (
+                        <TouchableOpacity
+                            key={t}
+                            onPress={() => setCurrentStatusTab(t)}
+                            style={[styles.tab, currentStatusTab === t && { borderBottomColor: theme.accent, borderBottomWidth: 3 }]}
+                        >
+                            <Text style={[styles.tabTextHeader, { color: currentStatusTab === t ? theme.accent : theme.subText }]}>{t}</Text>
+                        </TouchableOpacity>
+                    ))}
+                </View>
             </View>
 
             <FlatList
                 data={getFilteredSeries()}
                 renderItem={renderSeriesItem}
-                keyExtractor={item => item.id.toString()}
+                keyExtractor={(item) => item.id.toString()}
                 contentContainerStyle={styles.listContent}
-                ListEmptyComponent={<Text style={[styles.emptyText, { color: theme.subText }]}>No hay series.</Text>}
+                ListHeaderComponent={() => (
+                    currentStatusTab === 'Viendo' && (
+                        <TouchableOpacity style={[styles.addButton, { backgroundColor: theme.accent }]} onPress={() => { resetForm(); setModalVisible(true); }}>
+                            <Text style={styles.addButtonText}>+ Nueva Serie</Text>
+                        </TouchableOpacity>
+                    )
+                )}
             />
 
-            <Modal visible={modalVisible} animationType="slide">
-                <SafeAreaView style={[styles.modalContainer, { backgroundColor: theme.background }]}>
-                    <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
-                        <Text style={[styles.modalTitle, { color: theme.text }]}>{isEditing ? 'Editar Serie' : 'Nueva Serie'}</Text>
-                        <TouchableOpacity onPress={() => setModalVisible(false)}>
-                            <Text style={styles.closeText}>Cerrar</Text>
-                        </TouchableOpacity>
-                    </View>
-                    <ScrollView style={styles.modalForm}>
-                        <Text style={[styles.label, { color: theme.accent }]}>Nombre</Text>
-                        <TextInput style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]} value={name} onChangeText={setName} placeholder="Ej: Breaking Bad" placeholderTextColor={theme.subText} />
-                        <Text style={[styles.label, { color: theme.accent }]}>Descripción</Text>
-                        <TextInput style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]} value={description} onChangeText={setDescription} placeholder="Opcional" placeholderTextColor={theme.subText} />
-                        <Text style={[styles.label, { color: theme.accent }]}>Estado</Text>
-                        <View style={styles.statusContainer}>
-                            {['Nueva', 'Mirando'].map(opt => (
-                                <TouchableOpacity key={opt} style={[styles.statusOption, { backgroundColor: theme.card, borderColor: theme.border }, status === opt && { backgroundColor: theme.accent, borderColor: theme.accent }]} onPress={() => setStatus(opt)}>
-                                    <Text style={[styles.statusText, { color: theme.subText }, status === opt && { color: '#fff' }]}>{opt}</Text>
-                                </TouchableOpacity>
+            {/* Creation/Edit Modal */}
+            <Modal visible={modalVisible} animationType="slide" transparent={true}>
+                <View style={styles.modalOverlay}>
+                    <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+                        <Text style={[styles.modalTitle, { color: theme.text }]}>{isEditing ? 'Editar Serie' : 'Añadir Serie'}</Text>
+                        <ScrollView style={{ maxHeight: 400 }}>
+                            <TextInput placeholder="Nombre" style={[styles.input, { color: theme.text, backgroundColor: theme.inputBackground, borderColor: theme.border }]} placeholderTextColor={theme.subText} value={name} onChangeText={setName} />
+                            <TextInput placeholder="Descripción" style={[styles.input, { color: theme.text, backgroundColor: theme.inputBackground, borderColor: theme.border }]} placeholderTextColor={theme.subText} value={description} onChangeText={setDescription} />
+                            
+                            <Text style={[styles.modalSubtitle, { color: theme.text, marginTop: 10 }]}>Temporadas y Capítulos</Text>
+                            {seasons.map((s, idx) => (
+                                <View key={idx} style={styles.seasonRow}>
+                                    <Text style={{ color: theme.text, width: 30 }}>T{s.number}</Text>
+                                    <TextInput
+                                        placeholder="Caps"
+                                        keyboardType="numeric"
+                                        style={[styles.inputSeason, { color: theme.text, backgroundColor: theme.inputBackground, borderColor: theme.border }]}
+                                        placeholderTextColor={theme.subText}
+                                        value={s.episodes}
+                                        onChangeText={(val) => updateSeasonEpisodes(idx, val)}
+                                    />
+                                </View>
                             ))}
-                        </View>
-                        {!isEditing && status === 'Mirando' && (
-                            <View style={[styles.row, { gap: 10, marginTop: 15 }]}>
+                            <View style={{ flexDirection: 'row', gap: 10 }}>
+                                <TouchableOpacity onPress={handleAddSeason} style={styles.smallButton}><Text style={{ color: '#fff' }}>+ Temporada</Text></TouchableOpacity>
+                                <TouchableOpacity onPress={handleRemoveSeason} style={[styles.smallButton, { backgroundColor: '#EF5350' }]}><Text style={{ color: '#fff' }}>- Temporada</Text></TouchableOpacity>
+                            </View>
+
+                            <Text style={[styles.modalSubtitle, { color: theme.text, marginTop: 20 }]}>Progreso Actual</Text>
+                            <View style={styles.progressInputRow}>
                                 <View style={{ flex: 1 }}>
-                                    <Text style={[styles.label, { color: theme.accent }]}>Temporada</Text>
-                                    <TextInput
-                                        style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
-                                        keyboardType="numeric"
-                                        value={String(currentSeason)}
-                                        onChangeText={(v) => {
-                                            const num = parseInt(v);
-                                            setCurrentSeason(isNaN(num) ? '' : num);
-                                        }}
-                                    />
+                                    <Text style={{ color: theme.subText, fontSize: 12 }}>Temp.</Text>
+                                    <TextInput keyboardType="numeric" style={[styles.input, { color: theme.text, backgroundColor: theme.inputBackground, borderColor: theme.border }]} value={String(currentSeason)} onChangeText={setCurrentSeason} />
                                 </View>
                                 <View style={{ flex: 1 }}>
-                                    <Text style={[styles.label, { color: theme.accent }]}>Capítulo</Text>
-                                    <TextInput
-                                        style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
-                                        keyboardType="numeric"
-                                        value={String(currentEpisode)}
-                                        onChangeText={(v) => {
-                                            const num = parseInt(v);
-                                            setCurrentEpisode(isNaN(num) ? '' : num);
-                                        }}
-                                    />
+                                    <Text style={{ color: theme.subText, fontSize: 12 }}>Cap.</Text>
+                                    <TextInput keyboardType="numeric" style={[styles.input, { color: theme.text, backgroundColor: theme.inputBackground, borderColor: theme.border }]} value={String(currentEpisode)} onChangeText={setCurrentEpisode} />
                                 </View>
                             </View>
-                        )}
-                        <Text style={[styles.sectionTitle, { color: theme.text }]}>Temporadas</Text>
-                        {seasons.map((s, i) => (
-                            <View key={i} style={[styles.seasonRow, { backgroundColor: theme.card }]}>
-                                <Text style={[styles.seasonLabel, { color: theme.text }]}>Temporada {s.number}:</Text>
-                                <TextInput style={[styles.seasonInput, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]} keyboardType="numeric" value={s.episodes} onChangeText={(v) => updateSeasonEpisodes(i, v)} placeholder="Capítulos" placeholderTextColor={theme.subText} />
-                            </View>
-                        ))}
-                        <View style={styles.seasonActions}>
-                            <TouchableOpacity onPress={handleAddSeason}><Text style={{ color: theme.accent, fontWeight: 'bold' }}>+ Agregar</Text></TouchableOpacity>
-                            <TouchableOpacity onPress={handleRemoveSeason}><Text style={{ color: '#FF5252', fontWeight: 'bold' }}>- Quitar</Text></TouchableOpacity>
+                        </ScrollView>
+
+                        <View style={styles.modalButtons}>
+                            <TouchableOpacity style={[styles.modalButton, { backgroundColor: theme.border }]} onPress={() => setModalVisible(false)}>
+                                <Text style={{ color: theme.text }}>Cancelar</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.modalButton, { backgroundColor: theme.accent }]} onPress={handleSave}>
+                                <Text style={styles.modalButtonText}>Guardar</Text>
+                            </TouchableOpacity>
                         </View>
-                        <TouchableOpacity style={[styles.saveButton, { backgroundColor: theme.accent }]} onPress={handleSave}><Text style={styles.saveButtonText}>Guardar</Text></TouchableOpacity>
-                        <View style={{ height: 50 }} />
-                    </ScrollView>
-                </SafeAreaView>
+                    </View>
+                </View>
             </Modal>
 
-            <Modal transparent visible={progressModalVisible} animationType="fade">
-                <View style={[styles.overlay, { backgroundColor: theme.modalOverlay }]}>
-                    <View style={[styles.progressModalContent, { backgroundColor: theme.card }]}>
-                        <View style={[styles.progressHeader, { borderBottomColor: theme.border }]}>
-                            <View style={{ flex: 1 }}>
-                                <Text style={[styles.progressSeriesName, { color: theme.text }]}>{activeSeries?.name}</Text>
-                                <Text style={[styles.progressStatus, { color: theme.subText }]}>{activeSeries?.status} - T{activeSeries?.current_season} E{activeSeries?.current_episode}</Text>
-                            </View>
-                            <TouchableOpacity onPress={() => setProgressModalVisible(false)} style={[styles.closeGridBtn, { backgroundColor: theme.inputBackground }]}><Text style={{ color: theme.text }}>✕</Text></TouchableOpacity>
+            {/* Progress Grid Modal */}
+            <Modal visible={progressModalVisible} animationType="fade" transparent={true}>
+                <View style={styles.modalOverlay}>
+                    <View style={[styles.gridModalContent, { backgroundColor: theme.card }]}>
+                        <View style={styles.gridHeader}>
+                            <Text style={[styles.modalTitle, { color: theme.text }]}>{activeSeries?.name}</Text>
+                            <TouchableOpacity onPress={handleRestart} style={[styles.restartBtn, { backgroundColor: theme.accent + '22' }]}>
+                                <Text style={{ color: theme.accent, fontWeight: 'bold' }}>Reiniciar</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => setProgressModalVisible(false)}>
+                                <Text style={{ fontSize: 20, color: theme.text }}>✕</Text>
+                            </TouchableOpacity>
                         </View>
-                        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 15, paddingBottom: 50 }}>
-                            {activeSeries?.seasons.map(s => (
-                                <View key={s.season_number} style={styles.seasonGroup}>
-                                    <Text style={[styles.seasonTitle, { color: theme.text }]}>Temporada {s.season_number}</Text>
-                                    <View style={styles.episodeGrid}>
-                                        {Array.from({ length: s.episode_count }).map((_, i) => {
-                                            const ep = i + 1;
-                                            const isW = (s.season_number < activeSeries.current_season) || (s.season_number === activeSeries.current_season && ep < activeSeries.current_episode);
-                                            const isC = (s.season_number === activeSeries.current_season && ep === activeSeries.current_episode);
+
+                        <FlatList
+                            data={activeSeries?.seasons || []}
+                            keyExtractor={(s) => s.id.toString()}
+                            renderItem={({ item: season }) => (
+                                <View style={styles.seasonGridContainer}>
+                                    <Text style={[styles.seasonGridTitle, { color: theme.text }]}>Temporada {season.season_number}</Text>
+                                    <View style={styles.grid}>
+                                        {Array.from({ length: seasonVisibleCounts[season.season_number] || 0 }).map((_, i) => {
+                                            const epNum = i + 1;
+                                            const isWatched = (season.season_number < activeSeries.current_season) || 
+                                                              (season.season_number === activeSeries.current_season && epNum < activeSeries.current_episode) ||
+                                                              (activeSeries.status === 'Terminado');
+                                            const isCurrent = season.season_number === activeSeries.current_season && epNum === activeSeries.current_episode && activeSeries.status !== 'Terminado';
+
                                             return (
-                                                <TouchableOpacity key={ep} style={[styles.episodeBox, { backgroundColor: theme.inputBackground, borderColor: theme.border }, isW && styles.episodeWatched, isC && { backgroundColor: theme.accent, borderColor: theme.accent }]} onPress={() => updateToChapter(activeSeries.id, s.season_number, ep)}>
-                                                    <Text style={[styles.episodeNum, { color: theme.text }, (isW || isC) && { color: '#fff' }]}>{ep}</Text>
+                                                <TouchableOpacity
+                                                    key={i}
+                                                    style={[
+                                                        styles.gridItem,
+                                                        { backgroundColor: theme.inputBackground },
+                                                        isWatched && { backgroundColor: theme.accent },
+                                                        isCurrent && { borderWidth: 2, borderColor: theme.accent }
+                                                    ]}
+                                                    onPress={() => updateToChapter(activeSeries.id, season.season_number, epNum)}
+                                                >
+                                                    <Text style={[styles.gridItemText, { color: theme.text }, isWatched && { color: '#fff' }]}>{epNum}</Text>
                                                 </TouchableOpacity>
                                             );
                                         })}
                                     </View>
+                                    {season.episode_count > (seasonVisibleCounts[season.season_number] || 0) && (
+                                        <TouchableOpacity 
+                                            onPress={() => setSeasonVisibleCounts(prev => ({ ...prev, [season.season_number]: Math.min(season.episode_count, prev[season.season_number] + 100) }))}
+                                            style={{ marginTop: 10, alignSelf: 'center' }}
+                                        >
+                                            <Text style={{ color: theme.accent }}>Cargar más...</Text>
+                                        </TouchableOpacity>
+                                    )}
                                 </View>
-                            ))}
-                        </ScrollView>
-                        <View style={[styles.gridFooter, { backgroundColor: theme.header, borderTopColor: theme.border }]}>
-                            {activeSeries?.status === 'Terminado' && (
-                                <TouchableOpacity style={styles.restartBtn} onPress={handleRestart}><Text style={styles.restartBtnText}>🔄 Reiniciar Serie</Text></TouchableOpacity>
                             )}
-                        </View>
+                        />
                     </View>
                 </View>
             </Modal>
@@ -660,68 +614,55 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
 const styles = StyleSheet.create({
     container: { flex: 1 },
-    header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 15, borderBottomWidth: 1 },
+    header: { padding: 15, borderBottomWidth: 1 },
+    headerTop: { flexDirection: 'row', alignItems: 'center' },
     backButton: { padding: 5 },
-    backButtonText: { fontSize: 24, fontWeight: 'bold' },
-    headerTitle: { fontSize: 18, fontWeight: 'bold' },
-    headerSubtitle: { fontSize: 13, fontWeight: 'bold' },
-    addButton: { width: 35, height: 35, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-    addButtonText: { color: '#fff', fontSize: 24, paddingBottom: 2 },
-    tabContainer: { flexDirection: 'row', padding: 10, borderBottomWidth: 1, gap: 10 },
-    tabButton: { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center', borderWidth: 1 },
-    tabText: { fontSize: 12, fontWeight: 'bold' },
-    listContent: { padding: 15 },
-    card: { padding: 15, borderRadius: 16, marginBottom: 12, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, backgroundColor: '#fff' },
-    cardContent: { flex: 1 },
+    backText: { fontSize: 24, fontWeight: 'bold' },
+    headerTitle: { fontSize: 20, fontWeight: 'bold' },
+    headerSubtitle: { fontSize: 13 },
+    registryButton: { backgroundColor: '#4CAF50', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 8, marginLeft: 10 },
+    registryButtonText: { color: '#fff', fontWeight: 'bold' },
+    pauseCategoryBtn: { padding: 8, borderRadius: 8, backgroundColor: '#f0f0f0' },
+    tabContainer: { flexDirection: 'row', marginTop: 15, gap: 20 },
+    tab: { paddingVertical: 5 },
+    tabTextHeader: { fontWeight: 'bold', fontSize: 15 },
+    listContent: { padding: 15, paddingBottom: 100 },
+    addButton: { padding: 15, borderRadius: 12, alignItems: 'center', marginBottom: 20 },
+    addButtonText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+    card: { padding: 15, borderRadius: 15, marginBottom: 15, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
     cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-    cardTitle: { fontSize: 17, fontWeight: 'bold' },
-    cardProgress: { fontSize: 13, fontWeight: 'bold', marginTop: 2 },
-    cardDesc: { fontSize: 12, marginTop: 8, lineHeight: 16 },
-    badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, marginLeft: 8 },
-    badgeNew: { backgroundColor: '#E0F2F1' },
-    badgeWatching: { backgroundColor: '#E3F2FD' },
-    badgeHold: { backgroundColor: '#FFF3E0' },
-    badgeFinished: { backgroundColor: '#E8F5E9' },
-    badgeText: { fontSize: 9, fontWeight: 'bold', color: '#455A64', textTransform: 'uppercase' },
-    cardActions: { flexDirection: 'row', gap: 6 },
-    gridBtn: { padding: 8, borderRadius: 8 },
-    orderButtons: { flexDirection: 'row', gap: 4 },
-    orderBtn: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1 },
-    orderBtnText: { fontSize: 14, fontWeight: 'bold' },
-    editBtn: { padding: 8, borderRadius: 8 },
-    deleteBtn: { padding: 8, borderRadius: 8 },
-    emptyText: { textAlign: 'center', marginTop: 40 },
-    modalContainer: { flex: 1 },
-    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', padding: 20, alignItems: 'center', borderBottomWidth: 1 },
-    modalTitle: { fontSize: 20, fontWeight: 'bold' },
-    closeText: { color: '#FF5252', fontSize: 16, fontWeight: 'bold' },
-    modalForm: { padding: 20 },
-    label: { fontSize: 13, marginBottom: 5, marginTop: 10, fontWeight: 'bold' },
-    input: { borderWidth: 1, borderRadius: 10, padding: 12, fontSize: 16 },
-    statusContainer: { flexDirection: 'row', gap: 10, marginTop: 5 },
-    statusOption: { flex: 1, padding: 10, alignItems: 'center', borderWidth: 1, borderRadius: 10 },
-    statusText: { fontWeight: 'bold', fontSize: 13 },
-    sectionTitle: { fontSize: 18, fontWeight: 'bold', marginTop: 25, marginBottom: 15 },
-    seasonRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, padding: 10, borderRadius: 10 },
-    seasonLabel: { flex: 1, fontSize: 14, fontWeight: 'bold' },
-    seasonInput: { width: 80, borderWidth: 1, borderRadius: 8, padding: 6, textAlign: 'center' },
-    seasonActions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, paddingHorizontal: 5 },
-    saveButton: { padding: 15, borderRadius: 12, alignItems: 'center', marginTop: 30 },
-    saveButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-    overlay: { flex: 1, justifyContent: 'flex-end' },
-    progressModalContent: { borderTopLeftRadius: 25, borderTopRightRadius: 25, height: '85%' },
-    progressHeader: { flexDirection: 'row', padding: 20, borderBottomWidth: 1, alignItems: 'center' },
-    progressSeriesName: { fontSize: 20, fontWeight: 'bold' },
-    progressStatus: { fontSize: 13, marginTop: 2 },
-    closeGridBtn: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-    seasonGroup: { marginBottom: 20 },
-    seasonTitle: { fontSize: 15, fontWeight: 'bold', marginBottom: 10 },
-    episodeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-    episodeBox: { width: 40, height: 40, borderRadius: 8, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
-    episodeWatched: { backgroundColor: '#4CAF50', borderColor: '#4CAF50' },
-    episodeNum: { fontSize: 14, fontWeight: 'bold' },
-    gridFooter: { padding: 20, borderTopWidth: 1, alignItems: 'center' },
-    restartBtn: { backgroundColor: '#E8F5E9', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10, borderWidth: 1, borderColor: '#C8E6C9' },
-    restartBtnText: { color: '#2E7D32', fontWeight: 'bold' },
-    row: { flexDirection: 'row' }
+    cardHeaderLeft: { flex: 1 },
+    seriesName: { fontSize: 18, fontWeight: 'bold' },
+    badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 5, alignSelf: 'flex-start', marginTop: 5 },
+    badgeText: { fontSize: 10, fontWeight: 'bold', color: '#fff' },
+    badgeWatching: { backgroundColor: '#2196F3' },
+    badgeNew: { backgroundColor: '#4CAF50' },
+    badgeHold: { backgroundColor: '#FF9800' },
+    badgeFinished: { backgroundColor: '#9C27B0' },
+    actionButtons: { flexDirection: 'row', gap: 10 },
+    iconButton: { padding: 5 },
+    seriesDescription: { fontSize: 14, marginVertical: 10 },
+    cardProgress: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    progressText: { fontWeight: 'bold' },
+    totalText: { fontSize: 12 },
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
+    modalContent: { borderRadius: 20, padding: 20, elevation: 5 },
+    modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 20 },
+    modalSubtitle: { fontSize: 14, fontWeight: 'bold', marginBottom: 10 },
+    input: { borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 15 },
+    seasonRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
+    inputSeason: { flex: 1, borderWidth: 1, borderRadius: 8, padding: 8 },
+    smallButton: { backgroundColor: '#2196F3', padding: 8, borderRadius: 8 },
+    progressInputRow: { flexDirection: 'row', gap: 15 },
+    modalButtons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 20 },
+    modalButton: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10 },
+    modalButtonText: { color: '#fff', fontWeight: 'bold' },
+    gridModalContent: { flex: 0.9, borderRadius: 20, padding: 20 },
+    gridHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+    restartBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+    seasonGridContainer: { marginBottom: 25 },
+    seasonGridTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 15 },
+    grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    gridItem: { width: 45, height: 45, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+    gridItemText: { fontWeight: 'bold' }
 });

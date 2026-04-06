@@ -12,7 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import db from '../services/db';
 import { useTheme } from '../contexts/ThemeContext';
-import { calculateBacklog, calculateBacklogV2, getLocalDateString } from '../services/backlogUtils';
+import { calculateBacklog, calculateBacklogV2, getLocalDateString, isDatePaused, getAbsoluteEpisodeCount, getWatchedCountSinceStart } from '../services/backlogUtils';
 
 export default function ChapterRegistryScreen({ user, category, onBack }) {
     const { theme, isDarkMode } = useTheme();
@@ -22,6 +22,7 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
     const [counts, setCounts] = useState({ pending: 0, watched: 0 });
     const [rawSeries, setRawSeries] = useState([]);
     const [headerBacklog, setHeaderBacklog] = useState(null);
+    const [currentCategory, setCurrentCategory] = useState(category || null);
 
     useEffect(() => {
         loadData();
@@ -29,13 +30,19 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
 
     const loadData = async () => {
         setLoading(true);
-        const [watchlistResult, historyResult] = await Promise.all([
+        const [watchlistResult, historyResult, categoriesResult] = await Promise.all([
             db.getFullWatchlist(user.id, category ? category.id : null),
-            db.getHistory(user.id, category ? category.id : null)
+            db.getHistory(user.id, category ? category.id : null),
+            db.getEntertainmentCategories(user.id)
         ]);
         if (watchlistResult.success) {
             setRawSeries(watchlistResult.data);
-            calculateGlobalBacklog(watchlistResult.data);
+            const refreshedCategory = categoriesResult.success && category
+                ? categoriesResult.categories.find(c => c.id === category.id)
+                : null;
+            const effectiveCategory = refreshedCategory || category || null;
+            setCurrentCategory(effectiveCategory);
+            calculateGlobalBacklog(watchlistResult.data, effectiveCategory);
             const pendingList = generateInterleavedList(watchlistResult.data);
             let watchedList = [];
             if (historyResult.success) {
@@ -55,8 +62,12 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
         setLoading(false);
     };
 
-    const calculateGlobalBacklog = (seriesList) => {
-        const calc = calculateBacklogV2(category, seriesList);
+    const calculateGlobalBacklog = (seriesList, categoryData = currentCategory) => {
+        if (!categoryData) {
+            setHeaderBacklog(null);
+            return;
+        }
+        const calc = calculateBacklogV2(categoryData, seriesList);
         if (calc) {
             setHeaderBacklog({ 
                 days: calc.days, 
@@ -65,82 +76,6 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
                 adelantoItems: calc.adelantoItems 
             });
         }
-    };
-
-    const calculateScheduleDays = (startStr, daysOfWeek, history = []) => {
-        if (!startStr) return { validDays: 0 };
-        
-        const now = new Date();
-        now.setHours(0, 0, 0, 0);
-        const [y, m, d] = startStr.split('-').map(Number);
-        const start = new Date(y, m - 1, d);
-        if (start > now) return { validDays: 0 };
-        
-        let count = 0;
-        let current = new Date(start);
-        const pauses = category?.pauses || [];
-        const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-        while (current <= now) {
-            if (!isDatePaused(current, pauses)) {
-                const dStr = current.toISOString().split('T')[0];
-                let activeQuotas = null;
-
-                if (history && history.length > 0) {
-                    const record = history.find(h => dStr >= h.start_date && dStr <= (h.end_date || '9999-12-31'));
-                    if (record) activeQuotas = record.quotas;
-                }
-
-                if (!activeQuotas) {
-                    if (dStr < startStr) {
-                        activeQuotas = [];
-                    } else {
-                        try {
-                            activeQuotas = typeof daysOfWeek === 'string' ? JSON.parse(daysOfWeek || '[]') : daysOfWeek;
-                        } catch (e) { activeQuotas = []; }
-                    }
-                }
-
-                const dayName = dayMap[current.getDay()];
-                if (Array.isArray(activeQuotas)) {
-                    if (activeQuotas.includes(dayName)) count++;
-                } else if (activeQuotas && activeQuotas[dayName] > 0) {
-                    count++;
-                }
-            }
-            current.setDate(current.getDate() + 1);
-        }
-        return { validDays: count };
-    };
-
-    const getWatchedCountSinceStart = (series) => {
-        const currentAbsolute = getAbsoluteEpisodeCount(series, series.current_season, series.current_episode);
-        const initialAbsolute = getAbsoluteEpisodeCount(series, series.initial_season || 1, series.initial_episode || 1);
-        let diff = currentAbsolute - initialAbsolute;
-        if (series.status === 'Terminado' || series.status === 'En espera') diff += 1;
-        return Math.max(0, diff) + (series.cycle_offset || 0);
-    };
-
-    const getAbsoluteEpisodeCount = (series, seasonNum, episodeNum) => {
-        let count = 0;
-        for (let i = 1; i < seasonNum; i++) {
-            const sobj = series.seasons.find(sea => sea.season_number === i);
-            count += sobj ? sobj.episode_count : 0;
-        }
-        count += (episodeNum - 1);
-        return count;
-    };
-
-    const calculateBacklogCount = (series) => {
-        if (!series.start_date || !series.frequency) return 0;
-        const calc = calculateScheduleDays(series.start_date, series.days_of_week);
-        const targetCount = calc.validDays * series.frequency;
-        const watchedSinceStart = getWatchedCountSinceStart(series);
-        const diff = targetCount - watchedSinceStart;
-        return { 
-            items: Math.max(0, diff), 
-            adelantoItems: Math.max(0, -diff) 
-        };
     };
 
     const generateInterleavedList = (seriesList) => {
@@ -277,7 +212,7 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <TouchableOpacity onPress={onBack} style={styles.backButton}><Text style={[styles.backButtonText, { color: theme.text }]}>←</Text></TouchableOpacity>
                     <View style={{ marginLeft: 10 }}>
-                        <Text style={[styles.headerTitle, { color: theme.text }]}>Registro - {category?.name || 'Global'}</Text>
+                        <Text style={[styles.headerTitle, { color: theme.text }]}>Registro - {currentCategory?.name || category?.name || 'Global'}</Text>
                         {headerBacklog && (
                             <Text style={[styles.headerSubtitle, (headerBacklog.days <= 0 && headerBacklog.items <= 0 && headerBacklog.adelantoItems <= 0) && { color: '#4CAF50' }, headerBacklog.adelantoItems > 0 && { color: '#2E7D32' }]}>
                                 {headerBacklog.adelantoItems > 0 
@@ -319,7 +254,7 @@ const styles = StyleSheet.create({
     tabContainer: { flexDirection: 'row', padding: 5, margin: 15, borderRadius: 10 },
     tab: { flex: 1, padding: 10, alignItems: 'center', borderRadius: 8 },
     tabText: { fontWeight: '600' },
-    card: { padding: 15, borderRadius: 12, marginBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', elevation: 2, borderLeftWidth: 5 },
+    card: { padding: 15, borderRadius: 12, marginBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2.22, elevation: 2, borderLeftWidth: 5 },
     backlogBadge: { backgroundColor: '#EF6C00', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginLeft: 8 },
     backlogBadgeText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
     cardContent: { flex: 1 },
@@ -328,5 +263,6 @@ const styles = StyleSheet.create({
     watchedLabel: { fontSize: 12, color: '#4CAF50', fontWeight: 'bold', marginTop: 2 },
     checkButton: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
     checkText: { fontSize: 20, color: '#4CAF50', fontWeight: 'bold' },
-    emptyText: { textAlign: 'center', marginTop: 50 }
+    emptyText: { textAlign: 'center', marginTop: 50 },
+    emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' }
 });
