@@ -500,8 +500,9 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
             {/* Transaction Modal */}
             <Modal visible={showTransModal} transparent animationType="slide" onRequestClose={() => setShowTransModal(false)}>
                 <View style={[styles.overlay, { backgroundColor: theme.modalOverlay }]}>
-                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[styles.modalContent, { backgroundColor: theme.card }]}>
-                        <Text style={[styles.modalTitle, { color: theme.text }]}>{actionType === 'add' ? 'Nuevo Ingreso' : 'Nuevo Gasto'}</Text>
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[styles.modalContent, { backgroundColor: theme.card, maxHeight: '90%' }]}>
+                        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1, paddingBottom: 20 }}>
+                            <Text style={[styles.modalTitle, { color: theme.text }]}>{actionType === 'add' ? 'Nuevo Ingreso' : 'Nuevo Gasto'}</Text>
 
                         <TextInput
                             style={[styles.inputBig, { color: theme.text, borderColor: theme.border }]}
@@ -516,7 +517,23 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                         <View style={styles.catPickerWrapper}>
                             <Text style={[styles.label, { color: theme.subText, marginBottom: 10 }]}>Categoría:</Text>
                             <View style={styles.catGrid}>
-                                {availableCategories.map(cat => (
+                                {availableCategories.filter(cat => {
+                                    const baseIngresos = ['Sueldo', 'Interés'];
+                                    const baseGastos = ['Comida', 'Servicios', 'Cosas', 'Transporte', 'Videojuegos', 'Gasolina', 'Bebida', 'Interés'];
+                                    const systemKeys = ['Me deben', 'Préstamos'];
+
+                                    if (systemKeys.includes(cat)) return true;
+
+                                    if (actionType === 'add') {
+                                        // Es Ingreso: Ocultar si está solo en gastos
+                                        if (baseGastos.includes(cat) && !baseIngresos.includes(cat)) return false;
+                                        return true;
+                                    } else {
+                                        // Es Gasto: Ocultar si está solo en ingresos
+                                        if (baseIngresos.includes(cat) && !baseGastos.includes(cat)) return false;
+                                        return true;
+                                    }
+                                }).map(cat => (
                                     <TouchableOpacity
                                         key={cat}
                                         style={[
@@ -663,6 +680,7 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                             </TouchableOpacity>
                         </View>
 
+                        </ScrollView>
                     </KeyboardAvoidingView>
                 </View>
             </Modal>
@@ -865,7 +883,6 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         flexWrap: 'wrap',
         gap: 8,
-        maxHeight: 180,
     },
     catPill: {
         paddingHorizontal: 12,

@@ -390,6 +390,23 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         if (item.status === 'Pausado') badgeStyle = { backgroundColor: '#FFF9C4' };
         const isViendo = currentStatusTab === 'Viendo';
 
+        let percentDisplay = null;
+        if (item.seasons && item.seasons.length > 0) {
+            let totalEp = 0;
+            item.seasons.forEach(s => totalEp += s.episode_count);
+            if (totalEp > 0) {
+                let watched = getAbsoluteEpisodeCount(item, item.current_season, item.current_episode);
+                let percent = 0;
+                if (item.status === 'Terminado') {
+                    percent = 100;
+                    watched = totalEp;
+                } else {
+                    percent = Math.round((watched / totalEp) * 100);
+                }
+                percentDisplay = `${percent}% (${watched}/${totalEp})`;
+            }
+        }
+
         return (
             <TouchableOpacity
                 style={[styles.card, { backgroundColor: theme.card }]}
@@ -400,26 +417,28 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 }}
             >
                 <View style={styles.cardHeader}>
-                    <View style={styles.cardHeaderLeft}>
-                        <Text style={[styles.seriesName, { color: theme.text }]}>{item.name}</Text>
-                        <View style={[styles.badge, badgeStyle]}>
-                            <Text style={styles.badgeText}>{item.status}</Text>
+                    <View style={[styles.cardHeaderLeft, { marginRight: 10 }]}>
+                        <Text style={[styles.seriesName, { color: theme.text, fontSize: 16, lineHeight: 22 }]}>{item.name}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 15 }}>
+                            <View style={[styles.badge, badgeStyle, { marginTop: 0 }]}>
+                                <Text style={styles.badgeText}>{item.status}</Text>
+                            </View>
+                            {isViendo && (
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15, marginLeft: 5 }}>
+                                    <TouchableOpacity onPress={() => handleTogglePauseSeries(item)} hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+                                        <Text style={{ fontSize: 18 }}>{item.status === 'Pausado' ? '▶️' : '⏸️'}</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity onPress={() => moveUp(index)} hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+                                        <Text style={{ fontSize: 18, color: theme.accent, fontWeight: 'bold' }}>↑</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity onPress={() => moveDown(index)} hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
+                                        <Text style={{ fontSize: 18, color: theme.accent, fontWeight: 'bold' }}>↓</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            )}
                         </View>
                     </View>
                     <View style={styles.actionButtons}>
-                        {isViendo && (
-                            <>
-                                <TouchableOpacity onPress={() => moveUp(index)} style={styles.iconButton}>
-                                    <Text style={{ fontSize: 20, color: theme.accent }}>↑</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity onPress={() => moveDown(index)} style={styles.iconButton}>
-                                    <Text style={{ fontSize: 20, color: theme.accent }}>↓</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity onPress={() => handleTogglePauseSeries(item)} style={styles.iconButton}>
-                                    <Text style={{ fontSize: 20 }}>{item.status === 'Pausado' ? '▶️' : '⏸️'}</Text>
-                                </TouchableOpacity>
-                            </>
-                        )}
                         <TouchableOpacity onPress={() => handleEdit(item)} style={styles.iconButton}>
                             <Text style={{ fontSize: 18 }}>✏️</Text>
                         </TouchableOpacity>
@@ -431,7 +450,9 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 <Text style={[styles.seriesDescription, { color: theme.subText }]}>{item.description || 'Sin descripción'}</Text>
                 <View style={styles.cardProgress}>
                     <Text style={[styles.progressText, { color: theme.text }]}>T{item.current_season} - E{item.current_episode}</Text>
-                    <Text style={[styles.totalText, { color: theme.subText }]}>Total Caps: {item.total_episodes || 0}</Text>
+                    {percentDisplay && (
+                        <Text style={[styles.totalText, { color: theme.subText }]}>{percentDisplay}</Text>
+                    )}
                 </View>
             </TouchableOpacity>
         );
@@ -471,15 +492,29 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 </View>
 
                 <View style={styles.tabContainer}>
-                    {['Viendo', 'En espera', 'Terminado'].map((t) => (
-                        <TouchableOpacity
-                            key={t}
-                            onPress={() => setCurrentStatusTab(t)}
-                            style={[styles.tab, currentStatusTab === t && { borderBottomColor: theme.accent, borderBottomWidth: 3 }]}
-                        >
-                            <Text style={[styles.tabTextHeader, { color: currentStatusTab === t ? theme.accent : theme.subText }]}>{t}</Text>
-                        </TouchableOpacity>
-                    ))}
+                    {['Viendo', 'En espera', 'Terminado'].map((t) => {
+                        let label = t;
+                        if (originalList) {
+                            if (t === 'Viendo') {
+                                const activeCount = originalList.filter(s => ['Nueva', 'Mirando', 'Pausado'].includes(s.status)).length;
+                                const limit = currentCategory?.series_count;
+                                label = limit ? `Viendo (${activeCount}/${limit})` : `Viendo (${activeCount})`;
+                            } else {
+                                const count = originalList.filter(s => s.status === t).length;
+                                label = `${t} (${count})`;
+                            }
+                        }
+
+                        return (
+                            <TouchableOpacity
+                                key={t}
+                                onPress={() => setCurrentStatusTab(t)}
+                                style={[styles.tab, currentStatusTab === t && { borderBottomColor: theme.accent, borderBottomWidth: 3 }]}
+                            >
+                                <Text style={[styles.tabTextHeader, { color: currentStatusTab === t ? theme.accent : theme.subText }]}>{label}</Text>
+                            </TouchableOpacity>
+                        );
+                    })}
                 </View>
             </View>
 
@@ -554,14 +589,18 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
             <Modal visible={progressModalVisible} animationType="fade" transparent={true}>
                 <View style={styles.modalOverlay}>
                     <View style={[styles.gridModalContent, { backgroundColor: theme.card }]}>
-                        <View style={styles.gridHeader}>
-                            <Text style={[styles.modalTitle, { color: theme.text }]}>{activeSeries?.name}</Text>
-                            <TouchableOpacity onPress={handleRestart} style={[styles.restartBtn, { backgroundColor: theme.accent + '22' }]}>
-                                <Text style={{ color: theme.accent, fontWeight: 'bold' }}>Reiniciar</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={() => setProgressModalVisible(false)}>
-                                <Text style={{ fontSize: 20, color: theme.text }}>✕</Text>
-                            </TouchableOpacity>
+                        <View style={[styles.gridHeader, { alignItems: 'flex-start' }]}>
+                            <View style={{ flex: 1, paddingRight: 10 }}>
+                                <Text style={[styles.modalTitle, { color: theme.text, marginBottom: 0, fontSize: 18, lineHeight: 24 }]}>{activeSeries?.name}</Text>
+                            </View>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: 2 }}>
+                                <TouchableOpacity onPress={handleRestart} style={[styles.restartBtn, { backgroundColor: theme.accent + '22', marginRight: 15 }]}>
+                                    <Text style={{ color: theme.accent, fontWeight: 'bold' }}>Reiniciar</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={() => setProgressModalVisible(false)} style={{ padding: 5 }}>
+                                    <Text style={{ fontSize: 20, color: theme.text }}>✕</Text>
+                                </TouchableOpacity>
+                            </View>
                         </View>
 
                         <FlatList
