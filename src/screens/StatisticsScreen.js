@@ -310,8 +310,13 @@ export default function StatisticsScreen({ user, onBack }) {
                             keyExtractor={(item) => item.id.toString()}
                             contentContainerStyle={{ padding: 15 }}
                             renderItem={({ item }) => {
-                                // Format time from created_at
-                                const timeStr = new Date(item.created_at.replace(' ', 'T') + 'Z').toLocaleTimeString('es-ES', {
+                                const dateObj = new Date(item.created_at.replace(' ', 'T') + 'Z');
+                                const dateStr = dateObj.toLocaleDateString('es-ES', {
+                                    day: 'numeric',
+                                    month: 'short',
+                                    timeZone: 'America/Guayaquil'
+                                });
+                                const timeStr = dateObj.toLocaleTimeString('es-ES', {
                                     hour: '2-digit',
                                     minute: '2-digit',
                                     hour12: true,
@@ -324,7 +329,7 @@ export default function StatisticsScreen({ user, onBack }) {
                                             <Text style={[styles.historyLabel, { color: theme.text }]}>
                                                 {item.description || selectedCategory}
                                             </Text>
-                                            <Text style={[styles.historyDate, { color: theme.subText }]}>{timeStr}</Text>
+                                            <Text style={[styles.historyDate, { color: theme.subText }]}>{dateStr} • {timeStr}</Text>
                                         </View>
                                         <Text style={[styles.historyAmount, { color: item.amount > 0 ? '#4CAF50' : '#F44336' }]}>
                                             {item.amount > 0 ? '+' : '-'}${Math.abs(item.amount).toFixed(2)}
