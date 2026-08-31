@@ -1,4 +1,8 @@
 import * as SQLite from 'expo-sqlite';
+import bcrypt from 'bcryptjs';
+
+const BCRYPT_ROUNDS = 10;
+const isBcryptHash = (value) => typeof value === 'string' && /^\$2[aby]?\$/.test(value);
 
 const dbName = 'app_registro_v3.db'; // Changed to v3 for schema update
 const getLocalDateString = (date = new Date()) => {
@@ -278,9 +282,10 @@ class DatabaseService {
     async registerUser(username, password) {
         if (!this.db) await this.init();
         try {
+            const passwordHash = bcrypt.hashSync(password, BCRYPT_ROUNDS);
             const result = await this.db.runAsync(
                 'INSERT INTO users (username, password, current_balance) VALUES (?, ?, 0)',
-                [username, password]
+                [username, passwordHash]
             );
             const userId = result.lastInsertRowId;
             await this.seedDefaultCategories(userId);
@@ -297,10 +302,27 @@ class DatabaseService {
         if (!this.db) await this.init();
         try {
             const user = await this.db.getFirstAsync(
-                'SELECT * FROM users WHERE username = ? AND password = ?',
-                [username, password]
+                'SELECT * FROM users WHERE username = ?',
+                [username]
             );
-            return user ? { success: true, user } : { success: false, error: 'Credenciales inválidas' };
+            if (!user) return { success: false, error: 'Credenciales inválidas' };
+
+            const storedPassword = user.password;
+            const isValid = isBcryptHash(storedPassword)
+                ? bcrypt.compareSync(password, storedPassword)
+                : storedPassword === password; // Cuentas creadas antes del hashing
+
+            if (!isValid) return { success: false, error: 'Credenciales inválidas' };
+
+            // Migra transparentemente contraseñas antiguas en texto plano a bcrypt
+            if (!isBcryptHash(storedPassword)) {
+                const newHash = bcrypt.hashSync(password, BCRYPT_ROUNDS);
+                await this.db.runAsync('UPDATE users SET password = ? WHERE id = ?', [newHash, user.id]);
+                user.password = newHash;
+            }
+
+            delete user.password;
+            return { success: true, user };
         } catch (error) {
             return { success: false, error: 'Error al iniciar sesión' };
         }

@@ -13,7 +13,7 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT UNIQUE NOT NULL,
-  password TEXT NOT NULL,              -- ⚠️ texto plano, sin hash (ver notas)
+  password TEXT NOT NULL,              -- hash bcrypt (cuentas antiguas en texto plano se migran en el primer login)
   current_balance REAL DEFAULT 0
 );
 
