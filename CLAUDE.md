@@ -33,12 +33,14 @@ set EAS_NO_VCS=1 && eas build --profile preview --platform android
 ```
 
 Local build (no EAS credits), see `.agent/workflows/build-apk-windows.md` for the full checklist (verifying `android/local.properties`, `settings.gradle` autolinking, `ndkVersion` in `android/app/build.gradle`):
+
+⚠️ Antes de `npx expo prebuild` o de regenerar `android/`: respaldar el keystore que firma el release (hoy `android/app/debug.keystore`) fuera del repo. Después del build, comparar el certificado del APK nuevo con el instalado usando `apksigner verify --print-certs`. Si no coincide, NO instalar ni desinstalar.
 ```bash
 npx expo prebuild -p android
 cd android
 ./gradlew assembleDebug        # or assembleRelease
 ```
-Output APK: `android/app/build/outputs/apk/release/app-release.apk` (or `debug/`). When reinstalling after a schema change to `db.js`, uninstall the previous APK first — SQLite files persist across installs and old data can conflict with a new schema.
+Output APK: `android/app/build/outputs/apk/release/app-release.apk` (or `debug/`). Nunca desinstalar: los cambios de esquema van como migración versionada; instalar encima con el mismo keystore.
 
 ## Architecture
 
@@ -56,3 +58,26 @@ There is no router/navigation library despite `@react-navigation` being a depend
 ## Notes on history
 
 An earlier MVC-style layer (`src/views`, `src/controllers`, `src/database`, `src/models`) was removed because it was never wired into the actual app flow. If MVC is reintroduced, do it as a new module and migrate off `src/services/db.js` gradually rather than reviving the old files.
+
+## Migración offline-first (reglas vigentes)
+Leer DECISIONES.md y docs/AUDITORIA.md antes de cambiar código. Usar plan mode y esperar aprobación. Las secciones de arriba que dicen "sin backend", "login con contraseña" o "db.js único" describen el estado ANTERIOR; actualizarlas al cerrar cada fase.
+
+- La app debe funcionar 100% sin internet. Lectura y escritura siempre contra SQLite local.
+- Toda tabla sincronizable: id (UUID v4 cliente), user_id, created_at, updated_at, deleted_at.
+- Borrado siempre lógico. Cada cambio local se registra en `outbox` dentro de la misma transacción.
+- Operaciones de varios pasos en `withTransactionAsync`.
+- Cambios de esquema local solo con migraciones versionadas (`PRAGMA user_version`). Prohibido renombrar el `.db` o borrar datos.
+- Tokens solo en almacenamiento seguro. Nunca credenciales ni `service_role` en el repo.
+- Al cerrar cada fase: `npx expo-doctor`, `npx expo export --platform android` y verificación manual; listar qué se verificó. No existen scripts de lint/test: no asumirlos.
+
+## Git (estricto)
+- Trabajar siempre en `main`. No crear ni cambiar de rama.
+- NUNCA `git push` (ni `--force`), ni tocar remotos.
+- NUNCA `git merge`, `git rebase`, `git reset --hard`, `git clean`, `git checkout -- <ruta>` ni `git stash drop`.
+- No commitear salvo que el usuario lo pida. No PRs, no `gh`.
+
+## Supabase (estricto)
+- NUNCA ejecutar comandos contra el proyecto remoto. Solo generar SQL en `supabase/migrations/`.
+- Solo la clave publishable en `.env` (`EXPO_PUBLIC_*`); `.env` en `.gitignore`.
+
+Si una tarea requiere algo de lo prohibido, detenerse y preguntar.
