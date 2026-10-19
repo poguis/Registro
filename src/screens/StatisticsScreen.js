@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '../contexts/ThemeContext';
 import db from '../services/db';
+import { getUtcRange } from '../services/dateRange';
 
 const { width } = Dimensions.get('window');
 
@@ -35,42 +36,8 @@ export default function StatisticsScreen({ user, onBack }) {
         loadStats();
     }, [period, customRange]);
 
-    const getDates = () => {
-        let startDate = null;
-        let endDate = null;
-        let now = new Date();
-        const y = now.getFullYear();
-        const m = String(now.getMonth() + 1).padStart(2, '0');
-        const d = String(now.getDate()).padStart(2, '0');
-
-        if (period === 'today') {
-            startDate = `${y}-${m}-${d} 00:00:00`;
-            endDate = `${y}-${m}-${d} 23:59:59`;
-        } else if (period === 'week') {
-            // Monday to Sunday of the current week
-            const day = now.getDay();
-            const diff = now.getDate() - day + (day === 0 ? -6 : 1);
-            const monday = new Date(now.getFullYear(), now.getMonth(), diff);
-            const sunday = new Date(monday);
-            sunday.setDate(monday.getDate() + 6);
-            
-            startDate = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')} 00:00:00`;
-            endDate = `${sunday.getFullYear()}-${String(sunday.getMonth() + 1).padStart(2, '0')}-${String(sunday.getDate()).padStart(2, '0')} 23:59:59`;
-        } else if (period === 'month') {
-            // 1st to last day of the current month
-            const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-            startDate = `${y}-${m}-01 00:00:00`;
-            endDate = `${y}-${m}-${String(lastDay).padStart(2, '0')} 23:59:59`;
-        } else if (period === 'year') {
-            // Jan 1st to Dec 31st of the current year
-            startDate = `${y}-01-01 00:00:00`;
-            endDate = `${y}-12-31 23:59:59`;
-        } else if (period === 'custom') {
-            startDate = `${customRange.start.getFullYear()}-${String(customRange.start.getMonth() + 1).padStart(2, '0')}-${String(customRange.start.getDate()).padStart(2, '0')} 00:00:00`;
-            endDate = `${customRange.end.getFullYear()}-${String(customRange.end.getMonth() + 1).padStart(2, '0')}-${String(customRange.end.getDate()).padStart(2, '0')} 23:59:59`;
-        }
-        return { startDate, endDate };
-    };
+    // Días locales → límites UTC (created_at está en UTC)
+    const getDates = () => getUtcRange(period, new Date(), customRange);
 
     const loadStats = async () => {
         const { startDate, endDate } = getDates();

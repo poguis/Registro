@@ -18,6 +18,7 @@ import StatisticsScreen from './src/screens/StatisticsScreen';
 import TrabajoScreen from './src/screens/TrabajoScreen';
 import ServiciosScreen from './src/screens/ServiciosScreen';
 import CardsScreen from './src/screens/CardsScreen';
+import DatabaseErrorScreen from './src/screens/DatabaseErrorScreen';
 import { ThemeProvider } from './src/contexts/ThemeContext';
 
 export default function App() {
@@ -26,43 +27,47 @@ export default function App() {
   const [currentView, setCurrentView] = useState('LOGIN'); // LOGIN, HOME, DINERO, DEUDAS_PRESTAMOS, PENDIENTE
   const [navigationHistory, setNavigationHistory] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [dbError, setDbError] = useState(null);
 
-  useEffect(() => {
-    // Inicializar DB y recuperar sesión
-    const init = async () => {
-      try {
-        const success = await db.init();
-        if (!success) {
-          Alert.alert(
-            'Error de Base de Datos',
-            'No se pudo inicializar la base de datos. Por favor, intenta reiniciar la aplicación o borrar los datos en ajustes.'
-          );
-        }
+  // Inicializar DB (incluye migraciones) y recuperar sesión.
+  // Si la BD no queda lista, no se muestra ninguna pantalla de la app: solo
+  // DatabaseErrorScreen, que permite respaldar y reintentar.
+  const initialize = useCallback(async () => {
+    setIsReady(false);
+    try {
+      const success = await db.init();
+      if (!success) {
+        setDbError(db.lastInitError ? db.lastInitError.message : 'Error desconocido al abrir la base de datos');
+        return;
+      }
+      setDbError(null);
 
-        // Recuperar usuario de AsyncStorage
-        const storedUser = await AsyncStorage.getItem('@user_session');
-        if (storedUser) {
-          try {
-            const userData = JSON.parse(storedUser);
-            if (userData && typeof userData === 'object' && userData.id) {
-              setUser(userData);
-              setCurrentView('HOME');
-            } else {
-              await AsyncStorage.removeItem('@user_session');
-            }
-          } catch (parseError) {
-            console.error('Invalid stored session:', parseError);
+      // Recuperar usuario de AsyncStorage
+      const storedUser = await AsyncStorage.getItem('@user_session');
+      if (storedUser) {
+        try {
+          const userData = JSON.parse(storedUser);
+          if (userData && typeof userData === 'object' && userData.id) {
+            setUser(userData);
+            setCurrentView('HOME');
+          } else {
             await AsyncStorage.removeItem('@user_session');
           }
+        } catch (parseError) {
+          console.error('Invalid stored session:', parseError);
+          await AsyncStorage.removeItem('@user_session');
         }
-      } catch (error) {
-        console.error('Error in init:', error);
-      } finally {
-        setIsReady(true);
       }
-    };
-    init();
+    } catch (error) {
+      console.error('Error in init:', error);
+    } finally {
+      setIsReady(true);
+    }
   }, []);
+
+  useEffect(() => {
+    initialize();
+  }, [initialize]);
 
   const handleBack = useCallback(() => {
     if (navigationHistory.length > 0) {
@@ -130,6 +135,16 @@ export default function App() {
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator size="large" color="#e94560" />
       </View>
+    );
+  }
+
+  if (dbError) {
+    return (
+      <ThemeProvider>
+        <SafeAreaProvider>
+          <DatabaseErrorScreen errorMessage={dbError} onRetry={initialize} />
+        </SafeAreaProvider>
+      </ThemeProvider>
     );
   }
 

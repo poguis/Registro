@@ -1,6 +1,9 @@
 import * as SQLite from 'expo-sqlite';
+import { DB_NAME } from './dbConfig';
+import { runMigrations } from './migrations';
+import { createPhysicalCopy } from './backup';
+import { maybeFail } from './devFlags';
 
-const dbName = 'app_registro_v3.db'; // Changed to v3 for schema update
 const getLocalDateString = (date = new Date()) => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -11,266 +14,69 @@ const getLocalDateString = (date = new Date()) => {
 class DatabaseService {
     constructor() {
         this.db = null;
+        this.lastInitError = null;
+        this._initPromise = null;
+        // Cola serializada: todas las mutaciones esperan a que termine la anterior.
+        this._writeQueue = Promise.resolve();
     }
 
+    // Abre la BD y aplica las migraciones pendientes. Una sola ejecución a la vez:
+    // las llamadas concurrentes esperan la misma promesa. this.db solo queda
+    // asignado cuando el esquema está completo; si algo falla, devuelve false
+    // y deja el error en this.lastInitError (la BD queda como estaba).
     async init() {
         if (this.db) return true;
+        if (!this._initPromise) {
+            this._initPromise = this._openAndMigrate();
+        }
+        return this._initPromise;
+    }
+
+    async _openAndMigrate() {
+        let conn = null;
         try {
             console.log('Starting SQLite initialization...');
-            this.db = await SQLite.openDatabaseAsync(dbName);
-            await this.db.execAsync('PRAGMA foreign_keys = ON;');
-            console.log('DB File opened:', dbName);
+            conn = await SQLite.openDatabaseAsync(DB_NAME);
+            // foreign_keys no tiene efecto dentro de una transacción: se fija antes.
+            await conn.execAsync('PRAGMA foreign_keys = ON;');
+            console.log('DB File opened:', DB_NAME);
 
-            // Users
-            await this.db.execAsync(`
-        CREATE TABLE IF NOT EXISTS users (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          username TEXT UNIQUE NOT NULL,
-          password TEXT NOT NULL,
-          current_balance REAL DEFAULT 0
-        );
-      `);
+            await runMigrations(conn, { createPhysicalCopy });
 
-            // Contacts (Just the people)
-            await this.db.execAsync(`
-        CREATE TABLE IF NOT EXISTS finance_contacts (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id INTEGER NOT NULL,
-          name TEXT NOT NULL,
-          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        );
-      `);
-
-            // Transactions (The actual debts/loans)
-            await this.db.execAsync(`
-        CREATE TABLE IF NOT EXISTS finance_transactions (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          contact_id INTEGER NOT NULL,
-          type TEXT NOT NULL CHECK(type IN ('debt', 'loan')),
-          amount REAL NOT NULL,
-          description TEXT,
-          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (contact_id) REFERENCES finance_contacts(id) ON DELETE CASCADE
-        );
-      `);
-
-            // Balance History (Full Ledger)
-            await this.db.execAsync(`
-        CREATE TABLE IF NOT EXISTS balance_history (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id INTEGER NOT NULL,
-          amount REAL NOT NULL,
-          category TEXT NOT NULL,
-          description TEXT,
-          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        );
-      `);
-
-            // Finance Categories (New Table)
-            await this.db.execAsync(`
-        CREATE TABLE IF NOT EXISTS finance_categories (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id INTEGER NOT NULL,
-          name TEXT NOT NULL,
-          icon TEXT,
-          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-          UNIQUE(user_id, name),
-          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        );
-      `);
-
-            // Services Table
-            await this.db.execAsync(`
-        CREATE TABLE IF NOT EXISTS services (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id INTEGER NOT NULL,
-          name TEXT NOT NULL,
-          type TEXT NOT NULL CHECK(type IN ('Local', 'Internacional')),
-          status TEXT NOT NULL CHECK(status IN ('Activo', 'Inactivo')),
-          original_value REAL NOT NULL,
-          additional_value REAL DEFAULT 0,
-          total_value REAL NOT NULL,
-          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        );
-      `);
-
-            // Entertainment Categories (Series/Anime/Reading)
-            await this.db.execAsync(`
-        CREATE TABLE IF NOT EXISTS entertainment_categories (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id INTEGER NOT NULL,
-          name TEXT NOT NULL,
-          type TEXT CHECK(type IN ('video', 'reading')) NOT NULL,
-          start_date TEXT,
-          days_of_week TEXT, -- JSON string ["Monday", "Wednesday"]
-          frequency INTEGER DEFAULT 0,
-          series_count INTEGER DEFAULT 0,
-          description TEXT,
-          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        );
-      `);
-
-            // Category Pauses (New Table)
-            await this.db.execAsync(`
-        CREATE TABLE IF NOT EXISTS entertainment_pauses (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          category_id INTEGER NOT NULL,
-          pause_start TEXT NOT NULL,
-          pause_end TEXT,
-          FOREIGN KEY (category_id) REFERENCES entertainment_categories(id) ON DELETE CASCADE
-        );
-      `);
-
-            // Quotas History (New Table)
-            await this.db.execAsync(`
-        CREATE TABLE IF NOT EXISTS entertainment_quotas_history (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          category_id INTEGER NOT NULL,
-          quotas TEXT NOT NULL, -- JSON string
-          start_date TEXT NOT NULL,
-          end_date TEXT,
-          FOREIGN KEY (category_id) REFERENCES entertainment_categories(id) ON DELETE CASCADE
-        );
-      `);
-
-            // Create SERIES table
-            await this.db.execAsync(`
-        CREATE TABLE IF NOT EXISTS series (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          category_id INTEGER NOT NULL,
-          name TEXT NOT NULL,
-          description TEXT,
-          status TEXT DEFAULT 'Nueva', -- 'Nueva', 'Mirando', 'Terminada', 'Pausada'
-          current_season INTEGER DEFAULT 1,
-          current_episode INTEGER DEFAULT 1,
-          initial_season INTEGER DEFAULT 1, -- New field
-          initial_episode INTEGER DEFAULT 1, -- New field
-          total_seasons INTEGER DEFAULT 0,
-          sort_order INTEGER DEFAULT 0,
-          created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-          FOREIGN KEY (category_id) REFERENCES entertainment_categories (id) ON DELETE CASCADE
-        );
-      `);
-
-            // Create SEASONS table
-            await this.db.execAsync(`
-        CREATE TABLE IF NOT EXISTS seasons (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          series_id INTEGER NOT NULL,
-          season_number INTEGER NOT NULL,
-          episode_count INTEGER DEFAULT 0,
-          FOREIGN KEY (series_id) REFERENCES series (id) ON DELETE CASCADE
-        );
-      `);
-
-            // Create WATCH HISTORY table
-            await this.db.execAsync(`
-                CREATE TABLE IF NOT EXISTS watch_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    series_id INTEGER NOT NULL,
-                    season_number INTEGER NOT NULL,
-                    episode_number INTEGER NOT NULL,
-                    watched_at INTEGER NOT NULL,
-                    FOREIGN KEY (series_id) REFERENCES series (id) ON DELETE CASCADE
-                );
-            `);
-
-            // Create READING HISTORY table
-            await this.db.execAsync(`
-                CREATE TABLE IF NOT EXISTS reading_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    series_id INTEGER NOT NULL,
-                    season_number INTEGER NOT NULL,
-                    episode_number INTEGER NOT NULL,
-                    read_at INTEGER NOT NULL,
-                    FOREIGN KEY (series_id) REFERENCES series (id) ON DELETE CASCADE
-                );
-            `);
-
-            // Create BACKLOG table
-            await this.db.execAsync(`
-                CREATE TABLE IF NOT EXISTS backlog (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    type TEXT NOT NULL, -- 'movie', 'series', 'anime', 'reading'
-                    title TEXT NOT NULL,
-                    status TEXT DEFAULT 'Pendiente', -- 'Pendiente', 'Mirando', 'Terminado'
-                    year INTEGER, -- For movies
-                    format TEXT, -- For series: '24 min', '40 min'
-                    start_year INTEGER, -- For series, anime, reading
-                    end_year INTEGER, -- For series, anime
-                    franchise TEXT DEFAULT 'Otros',
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                );
-            `);
-
-            // Migrations for missing columns
-            const migrations = [
-                `ALTER TABLE series ADD COLUMN cycle_offset INTEGER DEFAULT 0;`,
-                `ALTER TABLE series ADD COLUMN interleave_offset INTEGER DEFAULT 0;`,
-                `ALTER TABLE series ADD COLUMN sort_order INTEGER DEFAULT 0;`,
-                `ALTER TABLE series ADD COLUMN initial_season INTEGER DEFAULT 1;`,
-                `ALTER TABLE series ADD COLUMN initial_episode INTEGER DEFAULT 1;`,
-                `ALTER TABLE series ADD COLUMN last_watched_at INTEGER DEFAULT 0;`,
-                `ALTER TABLE work_people ADD COLUMN sort_order INTEGER DEFAULT 0;`,
-                `ALTER TABLE backlog ADD COLUMN franchise TEXT DEFAULT 'Otros';`
-            ];
-
-            for (const m of migrations) {
-                try {
-                    await this.db.execAsync(m);
-                } catch (e) {
-                    // Column already exists or other non-critical error
-                }
-            }
-
-            // Check and backfill history if needed
-            try {
-                await this.checkAndBackfillHistory();
-            } catch (e) {
-                console.error('Non-critical: Error backfilling history:', e);
-            }
-
-            // Work People (For Trabajo module)
-            await this.db.execAsync(`
-                CREATE TABLE IF NOT EXISTS work_people (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    name TEXT NOT NULL,
-                    start_date TEXT NOT NULL,
-                    cycle TEXT NOT NULL, -- JSON string
-                    sort_order INTEGER DEFAULT 0,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                );
-            `);
-
-            // Cards (Tarjetas)
-            await this.db.execAsync(`
-                CREATE TABLE IF NOT EXISTS cards (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    name TEXT NOT NULL,
-                    type TEXT NOT NULL CHECK(type IN ('debit', 'credit')),
-                    cutoff_date INTEGER,
-                    payment_due_date INTEGER,
-                    limit_amount REAL,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-                );
-            `);
-
-            console.log('Database v3 initialized successfully');
+            this.db = conn;
+            this.lastInitError = null;
+            console.log('Database initialized successfully');
             return true;
         } catch (error) {
             console.error('Database initialization failed:', error);
+            this.lastInitError = error;
+            this._initPromise = null; // permite reintentar
+            if (conn) {
+                try {
+                    await conn.closeAsync();
+                } catch (closeError) {
+                    console.error('Error closing database after failed init:', closeError);
+                }
+            }
             return false;
         }
+    }
+
+    // Encola una mutación para que nunca se solapen dos escrituras de la app.
+    _enqueue(task) {
+        const run = this._writeQueue.then(task);
+        this._writeQueue = run.catch(() => { });
+        return run;
+    }
+
+    // Transacción NO exclusiva de expo-sqlite. Debe llamarse dentro de una
+    // mutación encolada (ver QUEUED_MUTATIONS al final del archivo).
+    async _tx(task) {
+        let result;
+        await this.db.withTransactionAsync(async () => {
+            result = await task();
+        });
+        return result;
     }
 
     // --- USER & AUTH ---
@@ -278,12 +84,16 @@ class DatabaseService {
     async registerUser(username, password) {
         if (!this.db) await this.init();
         try {
-            const result = await this.db.runAsync(
-                'INSERT INTO users (username, password, current_balance) VALUES (?, ?, 0)',
-                [username, password]
-            );
-            const userId = result.lastInsertRowId;
-            await this.seedDefaultCategories(userId);
+            // Usuario + categorías por defecto en una sola transacción.
+            const userId = await this._tx(async () => {
+                const result = await this.db.runAsync(
+                    'INSERT INTO users (username, password, current_balance) VALUES (?, ?, 0)',
+                    [username, password]
+                );
+                maybeFail('DEV_FAIL_TX', 'registerUser');
+                await this._seedDefaultCategoriesTx(result.lastInsertRowId);
+                return result.lastInsertRowId;
+            });
             return { success: true, id: userId };
         } catch (error) {
             if (error.message.includes('UNIQUE constraint failed')) {
@@ -353,35 +163,73 @@ class DatabaseService {
     async addTransaction(userId, contactId, contactName, type, amount, description) {
         if (!this.db) await this.init();
         try {
-            let finalContactId = contactId;
-
-            // If no ID, create contact first
-            if (!finalContactId) {
-                // Double check existence by name to avoid duplicates
-                const existing = await this.db.getFirstAsync(
-                    'SELECT id FROM finance_contacts WHERE user_id = ? AND name = ?',
-                    [userId, contactName]
-                );
-
-                if (existing) {
-                    finalContactId = existing.id;
-                } else {
-                    const res = await this.db.runAsync(
-                        'INSERT INTO finance_contacts (user_id, name) VALUES (?, ?)',
-                        [userId, contactName]
-                    );
-                    finalContactId = res.lastInsertRowId;
-                }
-            }
-
-            await this.db.runAsync(
-                'INSERT INTO finance_transactions (contact_id, type, amount, description) VALUES (?, ?, ?, ?)',
-                [finalContactId, type, amount, description]
-            );
-
+            // Contacto (si hace falta) + transacción en una sola transacción.
+            await this._tx(() => this._insertDebtTx(userId, contactId, contactName, type, amount, description));
             return { success: true };
         } catch (error) {
             console.error('Error adding transaction:', error);
+            return { success: false, error: error.message };
+        }
+    }
+
+    // Uso interno, dentro de una transacción ya abierta: crea el contacto si no
+    // hay ID (o reutiliza uno con el mismo nombre) e inserta la deuda/préstamo.
+    async _insertDebtTx(userId, contactId, contactName, type, amount, description) {
+        let finalContactId = contactId;
+
+        // If no ID, create contact first
+        if (!finalContactId) {
+            // Double check existence by name to avoid duplicates
+            const existing = await this.db.getFirstAsync(
+                'SELECT id FROM finance_contacts WHERE user_id = ? AND name = ?',
+                [userId, contactName]
+            );
+
+            if (existing) {
+                finalContactId = existing.id;
+            } else {
+                const res = await this.db.runAsync(
+                    'INSERT INTO finance_contacts (user_id, name) VALUES (?, ?)',
+                    [userId, contactName]
+                );
+                finalContactId = res.lastInsertRowId;
+                maybeFail('DEV_FAIL_TX', 'addTransaction: tras crear el contacto');
+            }
+        }
+
+        await this.db.runAsync(
+            'INSERT INTO finance_transactions (contact_id, type, amount, description) VALUES (?, ?, ?, ?)',
+            [finalContactId, type, amount, description]
+        );
+        return finalContactId;
+    }
+
+    // Movimiento de dinero completo en una sola transacción (antes eran 3 llamadas
+    // sueltas desde DineroScreen): deuda/préstamo vinculado (opcional),
+    // registro en balance_history y saldo nuevo.
+    // `linked` = null o { contactId, contactName, type, amount, description }.
+    // El saldo se lee de la BD y se escribe como valor absoluto (actual + amount).
+    async registerMoneyMovement(userId, { amount, category, description, linked = null }) {
+        if (!this.db) await this.init();
+        try {
+            const newBalance = await this._tx(async () => {
+                if (linked) {
+                    await this._insertDebtTx(userId, linked.contactId, linked.contactName, linked.type, linked.amount, linked.description);
+                }
+                await this.db.runAsync(
+                    'INSERT INTO balance_history (user_id, amount, category, description) VALUES (?, ?, ?, ?)',
+                    [userId, amount, category, description]
+                );
+                maybeFail('DEV_FAIL_TX', 'registerMoneyMovement: tras balance_history');
+                const row = await this.db.getFirstAsync('SELECT current_balance FROM users WHERE id = ?', [userId]);
+                if (!row) throw new Error('Usuario no encontrado');
+                const balance = (row.current_balance || 0) + amount;
+                await this.db.runAsync('UPDATE users SET current_balance = ? WHERE id = ?', [balance, userId]);
+                return balance;
+            });
+            return { success: true, newBalance };
+        } catch (error) {
+            console.error('Error registering money movement:', error);
             return { success: false, error: error.message };
         }
     }
@@ -576,10 +424,15 @@ class DatabaseService {
         }
     }
 
-    async seedDefaultCategories(userId) {
+    // Uso interno: se llama dentro de la transacción de registerUser
+    // (no usar addFinanceCategory aquí: está encolada y bloquearía la cola).
+    async _seedDefaultCategoriesTx(userId) {
         const defaults = ['Comida', 'Transporte', 'Sueldo', 'Venta', 'Salud', 'Hogar'];
         for (const cat of defaults) {
-            await this.addFinanceCategory(userId, cat);
+            await this.db.runAsync(
+                'INSERT OR IGNORE INTO finance_categories (user_id, name) VALUES (?, ?)',
+                [userId, cat]
+            );
         }
     }
 
@@ -665,21 +518,26 @@ class DatabaseService {
             const { name, type, startDate, daysOfWeek, frequency, seriesCount, description } = data;
             const daysString = JSON.stringify(daysOfWeek);
 
-            const result = await this.db.runAsync(
-                `INSERT INTO entertainment_categories 
-                (user_id, name, type, start_date, days_of_week, frequency, series_count, description) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                [userId, name, type, startDate, daysString, frequency, seriesCount, description]
-            );
-
-            const categoryId = result.lastInsertRowId;
-            if (categoryId) {
-                // Initial quota record
-                await this.db.runAsync(
-                    'INSERT INTO entertainment_quotas_history (category_id, quotas, start_date) VALUES (?, ?, ?)',
-                    [categoryId, daysString, startDate || getLocalDateString()]
+            // Categoría + registro inicial de cuotas en una sola transacción.
+            const categoryId = await this._tx(async () => {
+                const result = await this.db.runAsync(
+                    `INSERT INTO entertainment_categories
+                    (user_id, name, type, start_date, days_of_week, frequency, series_count, description)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [userId, name, type, startDate, daysString, frequency, seriesCount, description]
                 );
-            }
+                maybeFail('DEV_FAIL_TX', 'addEntertainmentCategory');
+
+                const newId = result.lastInsertRowId;
+                if (newId) {
+                    // Initial quota record
+                    await this.db.runAsync(
+                        'INSERT INTO entertainment_quotas_history (category_id, quotas, start_date) VALUES (?, ?, ?)',
+                        [newId, daysString, startDate || getLocalDateString()]
+                    );
+                }
+                return newId;
+            });
 
             return { success: true, id: categoryId };
         } catch (error) {
@@ -835,37 +693,42 @@ class DatabaseService {
             const { name, type, startDate, daysOfWeek, frequency, seriesCount, description } = data;
             const daysString = JSON.stringify(daysOfWeek);
 
-            // Check if daysOfWeek (quotas) changed
-            const currentCat = await this.db.getFirstAsync(
-                'SELECT days_of_week FROM entertainment_categories WHERE id = ?',
-                [id]
-            );
-
-            if (currentCat && currentCat.days_of_week !== daysString) {
-                const today = getLocalDateString();
-                const yesterday = new Date();
-                yesterday.setDate(yesterday.getDate() - 1);
-                const yesterdayStr = getLocalDateString(yesterday);
-
-                // 1. Close current history record (end_date = yesterday)
-                await this.db.runAsync(
-                    'UPDATE entertainment_quotas_history SET end_date = ? WHERE category_id = ? AND end_date IS NULL',
-                    [yesterdayStr, id]
+            // Historial de cuotas + categoría en una sola transacción.
+            await this._tx(async () => {
+                // Check if daysOfWeek (quotas) changed
+                const currentCat = await this.db.getFirstAsync(
+                    'SELECT days_of_week FROM entertainment_categories WHERE id = ?',
+                    [id]
                 );
 
-                // 2. Insert new history record (start_date = today)
-                await this.db.runAsync(
-                    'INSERT INTO entertainment_quotas_history (category_id, quotas, start_date) VALUES (?, ?, ?)',
-                    [id, daysString, today]
-                );
-            }
+                if (currentCat && currentCat.days_of_week !== daysString) {
+                    const today = getLocalDateString();
+                    const yesterday = new Date();
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    const yesterdayStr = getLocalDateString(yesterday);
 
-            await this.db.runAsync(
-                `UPDATE entertainment_categories 
-                SET name = ?, type = ?, start_date = ?, days_of_week = ?, frequency = ?, series_count = ?, description = ?
-                WHERE id = ?`,
-                [name, type, startDate, daysString, frequency, seriesCount, description, id]
-            );
+                    // 1. Close current history record (end_date = yesterday)
+                    await this.db.runAsync(
+                        'UPDATE entertainment_quotas_history SET end_date = ? WHERE category_id = ? AND end_date IS NULL',
+                        [yesterdayStr, id]
+                    );
+                    maybeFail('DEV_FAIL_TX', 'updateEntertainmentCategory: tras cerrar la cuota vigente');
+
+                    // 2. Insert new history record (start_date = today)
+                    await this.db.runAsync(
+                        'INSERT INTO entertainment_quotas_history (category_id, quotas, start_date) VALUES (?, ?, ?)',
+                        [id, daysString, today]
+                    );
+                }
+
+                await this.db.runAsync(
+                    `UPDATE entertainment_categories
+                    SET name = ?, type = ?, start_date = ?, days_of_week = ?, frequency = ?, series_count = ?, description = ?
+                    WHERE id = ?`,
+                    [name, type, startDate, daysString, frequency, seriesCount, description, id]
+                );
+                maybeFail('DEV_FAIL_TX', 'updateEntertainmentCategory: tras actualizar la categoría');
+            });
             return { success: true };
         } catch (error) {
             console.error('Error updating entertainment category:', error);
@@ -916,34 +779,38 @@ class DatabaseService {
         try {
             const { category_id, name, description, status, current_season, current_episode, total_seasons } = seriesData;
 
-            // Get max sort_order to put it at the end
-            const maxOrderRes = await this.db.getFirstAsync(
-                'SELECT MAX(sort_order) as maxOrder FROM series WHERE category_id = ?',
-                [category_id]
-            );
-            const nextOrder = (maxOrderRes?.maxOrder || 0) + 1;
+            // Serie + temporadas en una sola transacción.
+            await this._tx(async () => {
+                // Get max sort_order to put it at the end
+                const maxOrderRes = await this.db.getFirstAsync(
+                    'SELECT MAX(sort_order) as maxOrder FROM series WHERE category_id = ?',
+                    [category_id]
+                );
+                const nextOrder = (maxOrderRes?.maxOrder || 0) + 1;
 
-            // ACOPLAMIENTO ELIMINADO: Ya no se suma el `maxCycle` al `cycle_offset` de las nuevas
-            // series, dado que el total general de la categoría se calcula sumando TODAS 
-            // las series por separado. Añadir un maxCycle aquí causaba duplicación de historial.
+                // ACOPLAMIENTO ELIMINADO: Ya no se suma el `maxCycle` al `cycle_offset` de las nuevas
+                // series, dado que el total general de la categoría se calcula sumando TODAS
+                // las series por separado. Añadir un maxCycle aquí causaba duplicación de historial.
 
-            // 1. Insert Series
-            const result = await this.db.runAsync(
-                `INSERT INTO series (category_id, name, description, status, current_season, current_episode, initial_season, initial_episode, total_seasons, sort_order, cycle_offset, interleave_offset, last_watched_at) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [category_id, name, description, status, current_season, current_episode, current_season, current_episode, total_seasons, nextOrder, seriesData.cycle_offset || 0, seriesData.interleave_offset || 0, 0]
-            );
-            const seriesId = result.lastInsertRowId;
+                // 1. Insert Series
+                const result = await this.db.runAsync(
+                    `INSERT INTO series (category_id, name, description, status, current_season, current_episode, initial_season, initial_episode, total_seasons, sort_order, cycle_offset, interleave_offset, last_watched_at)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [category_id, name, description, status, current_season, current_episode, current_season, current_episode, total_seasons, nextOrder, seriesData.cycle_offset || 0, seriesData.interleave_offset || 0, 0]
+                );
+                const seriesId = result.lastInsertRowId;
+                maybeFail('DEV_FAIL_TX', 'addSeriesWithSeasons: tras insertar la serie');
 
-            // 2. Insert Seasons
-            if (seasonsData && seasonsData.length > 0) {
-                for (const season of seasonsData) {
-                    await this.db.runAsync(
-                        `INSERT INTO seasons (series_id, season_number, episode_count) VALUES (?, ?, ?)`,
-                        [seriesId, season.season_number, season.episode_count]
-                    );
+                // 2. Insert Seasons
+                if (seasonsData && seasonsData.length > 0) {
+                    for (const season of seasonsData) {
+                        await this.db.runAsync(
+                            `INSERT INTO seasons (series_id, season_number, episode_count) VALUES (?, ?, ?)`,
+                            [seriesId, season.season_number, season.episode_count]
+                        );
+                    }
                 }
-            }
+            });
 
             return { success: true };
         } catch (error) {
@@ -957,49 +824,56 @@ class DatabaseService {
         try {
             const { name, description, total_seasons, status } = seriesData;
 
-            // 0. Fetch current series state to check for status change
-            const currentSeries = await this.db.getFirstAsync('SELECT * FROM series WHERE id = ?', [seriesId]);
-            if (!currentSeries) return { success: false, error: 'Series not found' };
+            // Serie + temporadas en una sola transacción.
+            const found = await this._tx(async () => {
+                // 0. Fetch current series state to check for status change
+                const currentSeries = await this.db.getFirstAsync('SELECT * FROM series WHERE id = ?', [seriesId]);
+                if (!currentSeries) return false;
 
-            let newOffset = currentSeries.cycle_offset;
+                let newOffset = currentSeries.cycle_offset;
 
-            // ACOPLAMIENTO ELIMINADO: Anteriormente, al cambiar de estado a 'Mirando', 
-            // la serie intentaba igualar su `cycle_offset` al `maxCycle` de la categoría.
-            // Dado que el total progresivo suma todas las series de la categoría, sumar el maxCycle
-            // causaba conteos duplicados cada vez que se activaba una serie.
+                // ACOPLAMIENTO ELIMINADO: Anteriormente, al cambiar de estado a 'Mirando',
+                // la serie intentaba igualar su `cycle_offset` al `maxCycle` de la categoría.
+                // Dado que el total progresivo suma todas las series de la categoría, sumar el maxCycle
+                // causaba conteos duplicados cada vez que se activaba una serie.
 
-            // 1. Update Series
-            let query = `UPDATE series SET name = ?, description = ?, total_seasons = ?, cycle_offset = ?, interleave_offset = ?`;
-            let params = [name, description, total_seasons, newOffset, currentSeries.interleave_offset];
+                // 1. Update Series
+                let query = `UPDATE series SET name = ?, description = ?, total_seasons = ?, cycle_offset = ?, interleave_offset = ?`;
+                let params = [name, description, total_seasons, newOffset, currentSeries.interleave_offset];
 
-            if (status) {
-                query += `, status = ?`;
-                params.push(status);
-            }
-            if (seriesData.current_season !== undefined) {
-                query += `, current_season = ?`;
-                params.push(seriesData.current_season);
-            }
-            if (seriesData.current_episode !== undefined) {
-                query += `, current_episode = ?`;
-                params.push(seriesData.current_episode);
-            }
-
-            query += ` WHERE id = ?`;
-            params.push(seriesId);
-
-            await this.db.runAsync(query, params);
-
-            // 2. Update/Insert Seasons (Simple approach: delete and re-insert)
-            await this.db.runAsync(`DELETE FROM seasons WHERE series_id = ?`, [seriesId]);
-            if (seasonsData && seasonsData.length > 0) {
-                for (const season of seasonsData) {
-                    await this.db.runAsync(
-                        `INSERT INTO seasons (series_id, season_number, episode_count) VALUES (?, ?, ?)`,
-                        [seriesId, season.season_number, season.episode_count]
-                    );
+                if (status) {
+                    query += `, status = ?`;
+                    params.push(status);
                 }
-            }
+                if (seriesData.current_season !== undefined) {
+                    query += `, current_season = ?`;
+                    params.push(seriesData.current_season);
+                }
+                if (seriesData.current_episode !== undefined) {
+                    query += `, current_episode = ?`;
+                    params.push(seriesData.current_episode);
+                }
+
+                query += ` WHERE id = ?`;
+                params.push(seriesId);
+
+                await this.db.runAsync(query, params);
+
+                // 2. Update/Insert Seasons (Simple approach: delete and re-insert)
+                // (el upsert por (series_id, season_number) llega en la Fase 1)
+                await this.db.runAsync(`DELETE FROM seasons WHERE series_id = ?`, [seriesId]);
+                maybeFail('DEV_FAIL_TX', 'updateSeriesWithSeasons: tras borrar las temporadas');
+                if (seasonsData && seasonsData.length > 0) {
+                    for (const season of seasonsData) {
+                        await this.db.runAsync(
+                            `INSERT INTO seasons (series_id, season_number, episode_count) VALUES (?, ?, ?)`,
+                            [seriesId, season.season_number, season.episode_count]
+                        );
+                    }
+                }
+                return true;
+            });
+            if (!found) return { success: false, error: 'Series not found' };
             return { success: true };
         } catch (error) {
             console.error('Error updating series:', error);
@@ -1143,67 +1017,6 @@ class DatabaseService {
     }
 
     // --- WATCH HISTORY METHODS ---
-
-    async checkAndBackfillHistory() {
-        try {
-            const result = await this.db.getFirstAsync('SELECT count(*) as c FROM watch_history');
-            if (result && result.c > 0) return; // Already has data
-
-            console.log('Backfilling watch history...');
-            const allSeries = await this.db.getAllAsync('SELECT * FROM series');
-
-            for (const s of allSeries) {
-                const seasons = await this.db.getAllAsync('SELECT * FROM seasons WHERE series_id = ? ORDER BY season_number ASC', [s.id]);
-
-                const isTerminado = s.status === 'Terminado' || s.status === 'En espera';
-                const targetS = s.current_season;
-                const targetE = s.current_episode;
-
-                let currentS = s.initial_season || 1;
-                let currentE = s.initial_episode || 1;
-
-                // Para ordenar internamente los antiguos, usaremos sort_order menos un offset
-                // Calculamos cuantos episodios hay en total para dar timestamps escalonados
-                // Pero para simplificar, usaremos un loop counter.
-                const baseTime = s.sort_order || Date.now();
-
-                let loop = 0;
-                while (loop < 5000) { // Safety break
-                    if (currentS > targetS) break;
-                    if (currentS === targetS) {
-                        if (isTerminado) {
-                            if (currentE > targetE) break;
-                        } else {
-                            if (currentE >= targetE) break;
-                        }
-                    }
-
-                    // Insert record
-                    // Timestamp: baseTime - (large_number) + loop * 1000
-                    // Así los episodios finales quedan cerca del baseTime, y los iniciales más lejos en el pasado.
-                    const timestamp = baseTime - 10000000 + (loop * 1000);
-
-                    await this.db.runAsync(
-                        'INSERT INTO watch_history (series_id, season_number, episode_number, watched_at) VALUES (?, ?, ?, ?)',
-                        [s.id, currentS, currentE, timestamp]
-                    );
-
-                    // Next episode
-                    const seasonObj = seasons.find(sea => sea.season_number === currentS);
-                    const maxEp = seasonObj ? seasonObj.episode_count : 999;
-                    currentE++;
-                    if (currentE > maxEp) {
-                        currentE = 1;
-                        currentS++;
-                    }
-                    loop++;
-                }
-            }
-            console.log('Backfill complete.');
-        } catch (e) {
-            console.error('Error backfilling history:', e);
-        }
-    }
 
     async addHistory(seriesId, season, episode, timestamp = Date.now()) {
         if (!this.db) await this.init();
@@ -1587,5 +1400,67 @@ class DatabaseService {
         }
     }
 }
+
+// Todas las mutaciones pasan por la cola serializada (_enqueue): nunca corren dos
+// escrituras de la app a la vez, ni una escritura dentro de la transacción de otra.
+// Las multipaso (TX_MUTATIONS) además usan _tx (withTransactionAsync) por dentro.
+// Regla: una mutación encolada NO debe llamar a otra mutación encolada (bloquearía la cola);
+// para reutilizar lógica se usan helpers internos con prefijo _ (p. ej. _insertDebtTx).
+export const TX_MUTATIONS = [
+    'registerUser',
+    'addTransaction',
+    'registerMoneyMovement',
+    'addEntertainmentCategory',
+    'updateEntertainmentCategory',
+    'addSeriesWithSeasons',
+    'updateSeriesWithSeasons',
+];
+
+export const QUEUED_MUTATIONS = [
+    ...TX_MUTATIONS,
+    'updateUserBalance',
+    'deleteTransaction',
+    'addBalanceTransaction',
+    'addFinanceCategory',
+    'addService',
+    'updateService',
+    'deleteService',
+    'toggleServiceStatus',
+    'pauseCategory',
+    'resumeCategory',
+    'deleteEntertainmentCategory',
+    'updateSeriesSortOrder',
+    'updateSeriesProgress',
+    'restartSeries',
+    'deleteSeries',
+    'addHistory',
+    'removeHistory',
+    'addReadingHistory',
+    'removeReadingHistory',
+    'addBacklogItem',
+    'updateBacklogStatus',
+    'updateBacklogItem',
+    'deleteBacklogItem',
+    'addWorkPerson',
+    'updateWorkPersonOrder',
+    'updateWorkPerson',
+    'deleteWorkPerson',
+    'addCard',
+    'updateCard',
+    'deleteCard',
+];
+
+for (const name of QUEUED_MUTATIONS) {
+    const original = DatabaseService.prototype[name];
+    if (typeof original !== 'function') {
+        throw new Error(`db.js: la mutación encolada ${name} no existe`);
+    }
+    DatabaseService.prototype[name] = function (...args) {
+        return this._enqueue(() => original.apply(this, args));
+    };
+}
+
+// La clase se exporta solo para las pruebas en PC (scripts/probar-fase0.mjs).
+export { DatabaseService };
 
 export default new DatabaseService();

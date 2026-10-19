@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
     View,
     Text,
@@ -10,14 +10,17 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '../contexts/ThemeContext';
+import { backupAndShare } from '../services/backup';
+import { showBackupResult } from './backupResult';
 
 const { width } = Dimensions.get('window');
 
-const MenuButton = ({ title, icon, color, onPress, theme }) => (
+const MenuButton = ({ title, icon, color, onPress, theme, disabled = false }) => (
     <TouchableOpacity
-        style={[styles.menuButton, { borderLeftColor: color, backgroundColor: theme.card }]}
+        style={[styles.menuButton, { borderLeftColor: color, backgroundColor: theme.card, opacity: disabled ? 0.6 : 1 }]}
         onPress={onPress}
         activeOpacity={0.7}
+        disabled={disabled}
     >
         <View style={[styles.iconContainer, { backgroundColor: color }]}>
             <Text style={styles.iconText}>{icon}</Text>
@@ -29,6 +32,22 @@ const MenuButton = ({ title, icon, color, onPress, theme }) => (
 
 export default function HomeScreen({ user, onLogout, onNavigate }) {
     const { isDarkMode, toggleTheme, theme } = useTheme();
+    const [isBackingUp, setIsBackingUp] = useState(false);
+
+    // Respaldo: copia física (.db) + JSON, y menú de compartir para sacarlos del teléfono.
+    const handleBackup = async () => {
+        if (isBackingUp) return;
+        setIsBackingUp(true);
+        try {
+            const summary = await backupAndShare();
+            showBackupResult(summary, 'Asegúrate de guardarlos fuera del teléfono (Drive, correo o PC).');
+        } catch (error) {
+            console.error('Error creating backup:', error);
+            Alert.alert('Error', `No se pudo generar el respaldo. Tus datos no se modificaron.\n\n${error.message}`);
+        } finally {
+            setIsBackingUp(false);
+        }
+    };
 
     const handlePress = (module) => {
         if (module === 'Dinero') {
@@ -107,6 +126,17 @@ export default function HomeScreen({ user, onLogout, onNavigate }) {
                     color="#FF9800"
                     onPress={() => handlePress('Trabajo')}
                     theme={theme}
+                />
+
+                <Text style={[styles.sectionTitle, { color: theme.text, marginTop: 10 }]}>Datos</Text>
+
+                <MenuButton
+                    title={isBackingUp ? 'Generando respaldo…' : 'Respaldar datos'}
+                    icon="💾"
+                    color="#607D8B"
+                    onPress={handleBackup}
+                    theme={theme}
+                    disabled={isBackingUp}
                 />
             </View>
         </SafeAreaView>

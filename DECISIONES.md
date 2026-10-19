@@ -21,6 +21,7 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 - [OK] Tokens de sesión en almacenamiento seguro (validar el patrón recomendado en la doc de Supabase para RN). Se elimina `@user_session` de AsyncStorage y la columna `users.password`.
 - [PENDIENTE] Nonce en Google Sign-In: el nonce personalizado requiere la versión con licencia de @react-native-google-signin (Universal Sign In). Opciones: comprar licencia (nonce activo: hash SHA-256 a Google, nonce original a Supabase) o módulo gratuito + "Skip nonce check" en Supabase. Decidir antes de Fase 3.
 - [OK] Datos sensibles (nombres de contactos, personas de trabajo) viajan en claro sobre TLS y protegidos por RLS. Sin cifrado del lado cliente por ahora.
+- [PENDIENTE] Firma: el APK instalado está firmado con SHA-256 3132ded2…3e52, distinta del debug.keystore local. Probablemente es el keystore de EAS (perfil preview); se confirma con `eas credentials`. Hasta confirmarlo y decidir la ruta de build, no se instala nada en el celular. Nunca borrar ni regenerar ese keystore.
 
 ## Datos locales
 - [OK] SQLite local es la fuente de verdad de la UI. Toda lectura y escritura va contra SQLite; la app funciona 100% sin internet.

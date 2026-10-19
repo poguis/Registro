@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '../contexts/ThemeContext';
 import db from '../services/db';
+import { getUtcRange } from '../services/dateRange';
 
 export default function DineroScreen({ user, onBack, onNavigate }) {
     const { theme, isDarkMode } = useTheme();
@@ -76,45 +77,8 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
     };
 
     const loadHistory = async () => {
-        let startDate = null;
-        let endDate = null;
-
-        if (dateFilter !== 'all') {
-            const now = new Date();
-            const y = now.getFullYear();
-            const m = String(now.getMonth() + 1).padStart(2, '0');
-            const d = String(now.getDate()).padStart(2, '0');
-
-            if (dateFilter === 'today') {
-                startDate = `${y}-${m}-${d} 00:00:00`;
-                endDate = `${y}-${m}-${d} 23:59:59`;
-            } else if (dateFilter === 'week') {
-                const day = now.getDay();
-                const diff = now.getDate() - day + (day === 0 ? -6 : 1);
-                const monday = new Date(now.getFullYear(), now.getMonth(), diff);
-                const sunday = new Date(monday);
-                sunday.setDate(monday.getDate() + 6);
-                
-                startDate = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')} 00:00:00`;
-                endDate = `${sunday.getFullYear()}-${String(sunday.getMonth() + 1).padStart(2, '0')}-${String(sunday.getDate()).padStart(2, '0')} 23:59:59`;
-            } else if (dateFilter === 'month') {
-                const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-                startDate = `${y}-${m}-01 00:00:00`;
-                endDate = `${y}-${m}-${String(lastDay).padStart(2, '0')} 23:59:59`;
-            } else if (dateFilter === 'year') {
-                startDate = `${y}-01-01 00:00:00`;
-                endDate = `${y}-12-31 23:59:59`;
-            } else if (dateFilter === 'custom') {
-                const sy = customRange.start.getFullYear();
-                const sm = String(customRange.start.getMonth() + 1).padStart(2, '0');
-                const sd = String(customRange.start.getDate()).padStart(2, '0');
-                const ey = customRange.end.getFullYear();
-                const em = String(customRange.end.getMonth() + 1).padStart(2, '0');
-                const ed = String(customRange.end.getDate()).padStart(2, '0');
-                startDate = `${sy}-${sm}-${sd} 00:00:00`;
-                endDate = `${ey}-${em}-${ed} 23:59:59`;
-            }
-        }
+        // Días locales → límites UTC (created_at está en UTC)
+        const { startDate, endDate } = getUtcRange(dateFilter, new Date(), customRange);
 
         const result = await db.getBalanceHistory(user.id, startDate, endDate);
         if (result.success) {
@@ -254,10 +218,9 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
         if (!transCategory.trim()) { Alert.alert('Error', 'Falta categoría'); return; }
 
         let finalAmount = actionType === 'add' ? val : -val;
-        let newBalance = balance + finalAmount;
 
         // 1. Linked Logic (Debts/Loans)
-        let linkedSuccess = true;
+        let linked = null;
         if (transCategory === 'Me deben' || transCategory === 'Préstamos') {
             let dbType = transCategory === 'Me deben' ? 'loan' : 'debt';
             let dbAmount = 0;
@@ -310,20 +273,23 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                 finalName = c ? c.name : '';
             }
 
-            const res = await db.addTransaction(user.id, finalId, finalName, dbType, dbAmount, transDesc || transCategory);
-            linkedSuccess = res.success;
+            linked = { contactId: finalId, contactName: finalName, type: dbType, amount: dbAmount, description: transDesc || transCategory };
         }
 
-        if (!linkedSuccess) return;
-
-        // 2. Add to History
-        await db.addBalanceTransaction(user.id, finalAmount, transCategory, transDesc);
-
-        // 3. Update Balance
-        await db.updateUserBalance(user.id, newBalance);
+        // 2 y 3. Deuda/préstamo vinculado + historial + saldo, en una sola transacción
+        const res = await db.registerMoneyMovement(user.id, {
+            amount: finalAmount,
+            category: transCategory,
+            description: transDesc,
+            linked,
+        });
+        if (!res.success) {
+            Alert.alert('Error', 'No se pudo registrar el movimiento. No se guardó ningún cambio.');
+            return;
+        }
 
         // Refresh
-        setBalance(newBalance);
+        setBalance(res.newBalance);
         setShowTransModal(false);
         loadHistory();
         loadCategories(); // In case new category added

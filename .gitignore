@@ -39,3 +39,9 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# datos personales locales (respaldos, APKs, BD de prueba)
+.local-data/
+
+# llaves de firma
+*.keystore
