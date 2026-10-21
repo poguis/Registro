@@ -45,3 +45,6 @@ yarn-error.*
 
 # llaves de firma
 *.keystore
+
+# IDE (Android Studio)
+.idea/

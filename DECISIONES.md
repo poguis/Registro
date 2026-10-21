@@ -39,8 +39,9 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 - [OK] `watch_history` y `reading_history` se mantienen como dos tablas por ahora.
 - [OK] Borrados: tombstones internos (`deleted_at`), sin papelera visible.
 - [OK] `series_count` se conserva con su significado actual (límite de series activas); se documenta en el esquema.
+- [OK] `days_of_week` y `quotas` usan forma objeto (`{"Monday":1,...}`); el lector conserva la compatibilidad con la forma array legada. `work_people.cycle` es array `[{type, days}]`.
 - [OK] Saldo: `current_balance` pasa a calcularse como suma de `balance_history`. El ajuste manual se registra como movimiento de categoría "Ajuste".
-- [OK] `services.total_value` se calcula, no se almacena.
+- [OK] `services.total_value` se almacena como valor histórico (Internacional = base × 1,20; Local = base + adicional, según ServiciosScreen). Se escribe junto con `original_value`/`additional_value` en la misma operación.
 - [OK] `cycle_offset` se guarda como valor absoluto, no como incremento (idempotente ante reintentos).
 - [OK] Se elimina `checkAndBackfillHistory`; las filas sintéticas ya existentes se conservan tal cual.
 
@@ -66,7 +67,7 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 - [OK] Los datos del celular se migran in-place en Fase 1, con respaldo previo verificado.
 - [OK] Al inicio de Fase 1, Claude Code cuenta las cuentas locales y se detiene a informar antes de migrar. Si hay una sola, se asocia a la primera cuenta Google (Fase 3).
 - [OK] Cuentas locales: el dispositivo tiene 1 cuenta (respaldo 2026-10-20). Se asocia a la primera cuenta Google en Fase 3.
-- [PENDIENTE] Lista canónica de estados de series: Claude Code lista los valores presentes en código y en datos durante Fase 1 y propone la lista; se aprueba antes de normalizar o poner CHECK.
+- [OK] Estados de series: `Nueva`, `Mirando`, `Pausado` (los tres cuentan para el límite activo, pestaña Viendo), `En espera`, `Terminado`. Backlog: type `movie|series|anime|reading`, status `Pendiente|Mirando|Terminado`. Se aplican como CHECK en Postgres (Fase 2); localmente se validan en los repositorios.
 - [PENDIENTE] Archivo `android.os.Looper` y dependencias `@react-navigation` sin uso: ¿se eliminan?
 - [PENDIENTE] Restaurar un respaldo dentro de la app.
 
