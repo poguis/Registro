@@ -21,7 +21,7 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 - [OK] Tokens de sesión en almacenamiento seguro (validar el patrón recomendado en la doc de Supabase para RN). Se elimina `@user_session` de AsyncStorage y la columna `users.password`.
 - [PENDIENTE] Nonce en Google Sign-In: el nonce personalizado requiere la versión con licencia de @react-native-google-signin (Universal Sign In). Opciones: comprar licencia (nonce activo: hash SHA-256 a Google, nonce original a Supabase) o módulo gratuito + "Skip nonce check" en Supabase. Decidir antes de Fase 3.
 - [OK] Datos sensibles (nombres de contactos, personas de trabajo) viajan en claro sobre TLS y protegidos por RLS. Sin cifrado del lado cliente por ahora.
-- [PENDIENTE] Firma: el APK instalado está firmado con SHA-256 3132ded2…3e52, distinta del debug.keystore local. Probablemente es el keystore de EAS (perfil preview); se confirma con `eas credentials`. Hasta confirmarlo y decidir la ruta de build, no se instala nada en el celular. Nunca borrar ni regenerar ese keystore.
+- [OK] Firma: el release se firma con el keystore de EAS (perfil preview), SHA-256 31:32:DE:…:3E:52, SHA-1 A4:31:C8:…:67:46. Copia local fuera del repo; contraseñas en `%USERPROFILE%\.gradle\gradle.properties`. Nunca borrar ni regenerar ese keystore en EAS. No se cambia de llave hasta cerrar la Fase 5. La SHA-1 es la que se registra en el cliente Android de Google Cloud.
 
 ## Datos locales
 - [OK] SQLite local es la fuente de verdad de la UI. Toda lectura y escritura va contra SQLite; la app funciona 100% sin internet.
@@ -66,7 +66,6 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 - [OK] Al inicio de Fase 1, Claude Code cuenta las cuentas locales y se detiene a informar antes de migrar. Si hay una sola, se asocia a la primera cuenta Google (Fase 3).
 - [PENDIENTE] Si hay más de una cuenta local: qué hacer con las demás (no asumir).
 - [PENDIENTE] Lista canónica de estados de series: Claude Code lista los valores presentes en código y en datos durante Fase 1 y propone la lista; se aprueba antes de normalizar o poner CHECK.
-- [PENDIENTE] Firma del APK: se verifica en Fase 0 con `apksigner`. Nunca desinstalar; si la firma no coincide, se detiene todo.
 - [PENDIENTE] Archivo `android.os.Looper` y dependencias `@react-navigation` sin uso: ¿se eliminan?
 - [PENDIENTE] Restaurar un respaldo dentro de la app.
 

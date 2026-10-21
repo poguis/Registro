@@ -43,7 +43,7 @@ set EAS_NO_VCS=1 && eas build --profile preview --platform android
 
 Local build (no EAS credits), see `.agent/workflows/build-apk-windows.md` for the full checklist (verifying `android/local.properties`, `settings.gradle` autolinking, `ndkVersion` in `android/app/build.gradle`):
 
-⚠️ Antes de `npx expo prebuild` o de regenerar `android/`: respaldar el keystore que firma el release (hoy `android/app/debug.keystore`) fuera del repo. Después del build, comparar el certificado del APK nuevo con el instalado usando `apksigner verify --print-certs`. Si no coincide, NO instalar ni desinstalar.
+⚠️ Antes de `npx expo prebuild` o de regenerar `android/`: el `signingConfig release` vive en `android/app/build.gradle`, que git ignora, y `prebuild` lo pierde. Hay que reaplicarlo después (pendiente: moverlo a un config plugin). Después de cada build, comparar el certificado del APK nuevo con el instalado usando `apksigner verify --print-certs`. Si no coincide, NO instalar ni desinstalar.
 ```bash
 npx expo prebuild -p android
 cd android
@@ -53,7 +53,9 @@ Output APK: `android/app/build/outputs/apk/release/app-release.apk` (or `debug/`
 
 Gradle 8.14.3 does not run on Java 25 (the JBR bundled with current Android Studio): build with JDK 17 (`JAVA_HOME="C:\Program Files\Microsoft\jdk-17.0.20.101-hotspot"`). `android/local.properties` must have `sdk.dir` (SDK at `D:\Users\Carlos\AppData\Local\Android\Sdk`). `android/` already exists locally, so new Expo modules autolink without `prebuild`.
 
-Firma: el APK instalado en el celular NO coincide con `android/app/debug.keystore` (ver DECISIONES.md, Seguridad). Hasta resolverlo, los APK locales solo van al emulador. Para pruebas de actualización con datos se usa el AVD `Registro_GoogleAPIs_36` (imagen Google APIs, permite `adb root`); usar siempre `adb -s emulator-5554` para no tocar el celular.
+Firma (ver DECISIONES.md, Seguridad): el release se firma con el keystore de EAS (perfil preview), SHA-256 `31:32:DE:…:3E:52`, el mismo del APK instalado en el celular. `android/app/build.gradle` lee 4 propiedades de `%USERPROFILE%\.gradle\gradle.properties` (fuera del repo): `REGISTRO_UPLOAD_STORE_FILE`, `REGISTRO_UPLOAD_STORE_PASSWORD`, `REGISTRO_UPLOAD_KEY_ALIAS`, `REGISTRO_UPLOAD_KEY_PASSWORD`. Si falta alguna, o el archivo del keystore no existe, cualquier tarea release falla con un mensaje claro: nunca cae al `debug.keystore`. Las tareas debug siguen firmando con `debug.keystore`. Nunca leer, mostrar ni copiar esas contraseñas, ni borrar o regenerar el keystore en EAS.
+
+Pruebas de actualización con datos: AVD `Registro_GoogleAPIs_36` (imagen Google APIs, permite `adb root`). Usar siempre `adb -s emulator-5554`; el celular solo lo maneja el usuario.
 
 ## Architecture
 
