@@ -28,6 +28,7 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 - [OK] Versionado de esquema con `PRAGMA user_version` y migraciones ordenadas. Prohibido renombrar el archivo `.db` o borrar datos para cambiar el esquema.
 - [OK] Operaciones de varios pasos dentro de `withTransactionAsync`.
 - [OK] Acceso a datos mediante repositorios por feature (se parte `db.js` de forma gradual).
+- [OK] SQLite del dispositivo: 3.50.3 (expo-sqlite 16 empaquetado).
 
 ## Modelo de datos
 - [OK] IDs: UUID v4 generado en el cliente (`expo-crypto`). Se reescriben las FK enteras en la migración local.
@@ -64,7 +65,7 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 ## Datos existentes y cuentas
 - [OK] Los datos del celular se migran in-place en Fase 1, con respaldo previo verificado.
 - [OK] Al inicio de Fase 1, Claude Code cuenta las cuentas locales y se detiene a informar antes de migrar. Si hay una sola, se asocia a la primera cuenta Google (Fase 3).
-- [PENDIENTE] Si hay más de una cuenta local: qué hacer con las demás (no asumir).
+- [OK] Cuentas locales: el dispositivo tiene 1 cuenta (respaldo 2026-10-20). Se asocia a la primera cuenta Google en Fase 3.
 - [PENDIENTE] Lista canónica de estados de series: Claude Code lista los valores presentes en código y en datos durante Fase 1 y propone la lista; se aprueba antes de normalizar o poner CHECK.
 - [PENDIENTE] Archivo `android.os.Looper` y dependencias `@react-navigation` sin uso: ¿se eliminan?
 - [PENDIENTE] Restaurar un respaldo dentro de la app.
