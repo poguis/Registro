@@ -9,7 +9,8 @@ import { DB_NAME } from './dbConfig';
 // así que funciona aunque la migración haya fallado.
 // Genera dos archivos con la misma marca de tiempo:
 //   - copia física (.db) con VACUUM INTO: conserva todo, incluidas las contraseñas;
-//   - JSON con todas las tablas y metadatos: users.password va reemplazado por un marcador.
+//   - JSON con todas las tablas y metadatos: toda columna `password` (users, legacy_users
+//     o cualquier otra tabla) va reemplazada por un marcador.
 
 export const PASSWORD_PLACEHOLDER = '[OCULTO]';
 const BACKUP_FORMAT = 'registro-respaldo';
@@ -87,7 +88,8 @@ export async function createJsonBackup(stamp = fileStamp()) {
         const counts = {};
         for (const { name } of tables) {
             let rows = await conn.getAllAsync(`SELECT * FROM "${name}"`);
-            if (name === 'users') {
+            const columns = await conn.getAllAsync(`PRAGMA table_info("${name}")`);
+            if (columns.some((c) => c.name === 'password')) {
                 rows = rows.map((row) => ({ ...row, password: PASSWORD_PLACEHOLDER }));
             }
             data[name] = rows;

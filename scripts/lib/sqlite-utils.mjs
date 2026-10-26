@@ -28,14 +28,14 @@ const plain = (row) => Object.fromEntries(Object.entries(row));
 const rowKey = (r) => (r.id !== undefined && r.id !== null ? `${typeof r.id === 'number' ? String(r.id).padStart(20, '0') : r.id}` : JSON.stringify(r));
 
 // Huella SHA-256 del contenido de una lista de filas, ordenadas por id.
-// Si maskPassword, users.password se reemplaza por el marcador (como en el JSON).
+// Si maskPassword, la columna password (en cualquier tabla) se reemplaza por el marcador (como en el JSON).
 export const hashRows = (rows, { maskPassword = false } = {}) => {
     const sorted = rows.map(plain).sort((a, b) => (rowKey(a) < rowKey(b) ? -1 : rowKey(a) > rowKey(b) ? 1 : 0));
-    const normalized = maskPassword ? sorted.map((r) => ({ ...r, password: PASSWORD_PLACEHOLDER })) : sorted;
+    const normalized = maskPassword ? sorted.map((r) => ('password' in r ? { ...r, password: PASSWORD_PLACEHOLDER } : r)) : sorted;
     return createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
 };
 
 export const hashTable = (db, table) =>
-    hashRows(db.prepare(`SELECT * FROM "${table}"`).all(), { maskPassword: table === 'users' });
+    hashRows(db.prepare(`SELECT * FROM "${table}"`).all(), { maskPassword: true });
 
 export const hashAll = (db) => Object.fromEntries(listTables(db).map((t) => [t, hashTable(db, t)]));

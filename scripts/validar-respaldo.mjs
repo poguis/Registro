@@ -47,8 +47,13 @@ check('Tablas del esquema = tablas con datos', JSON.stringify(schemaTables) === 
 for (const table of dataTables) {
     check(`Conteo ${table}`, data[table].length === meta.counts[table], `${data[table].length} filas (meta: ${meta.counts[table]})`);
 }
-if (data.users) {
-    check('users.password reemplazado en el JSON', data.users.every((u) => u.password === PASSWORD_PLACEHOLDER), `${data.users.length} cuenta(s)`);
+// Ninguna columna password puede quedar visible, en ninguna tabla (users, legacy_users, ...).
+const tablesWithPassword = dataTables.filter((t) =>
+    data[t].some((r) => 'password' in r) || /\bpassword\b/i.test(meta.schema.find((s) => s.name === t)?.sql || ''));
+check('Hay tablas con columna password', tablesWithPassword.length > 0, tablesWithPassword.join(', '));
+for (const table of tablesWithPassword) {
+    const visible = data[table].filter((r) => r.password !== PASSWORD_PLACEHOLDER).length;
+    check(`${table}.password oculto en el JSON`, visible === 0, `${data[table].length} fila(s), ${visible} visible(s)`);
 }
 
 // 2. Cargar el JSON en un SQLite nuevo con el DDL original
@@ -95,7 +100,7 @@ if (dbCopyPath) {
     const copyHashes = hashAll(copy);
     for (const table of dataTables) {
         check(`Copia .db: conteo ${table}`, copyCounts[table] === meta.counts[table], `${copyCounts[table]} filas`);
-        check(`Copia .db: contenido ${table}`, copyHashes[table] === hashRows(data[table], { maskPassword: table === 'users' }));
+        check(`Copia .db: contenido ${table}`, copyHashes[table] === hashRows(data[table], { maskPassword: true }));
     }
     copy.close();
 }

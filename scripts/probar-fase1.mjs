@@ -4,7 +4,8 @@
 //
 // Uso: node scripts/probar-fase1.mjs
 import './lib/test-hooks.mjs';
-import { mkdirSync, rmSync, copyFileSync, readFileSync, readdirSync } from 'node:fs';
+import { execSync } from 'node:child_process';
+import { mkdirSync, rmSync, copyFileSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { getSchema, countAll, hashAll } from './lib/sqlite-utils.mjs';
@@ -250,6 +251,33 @@ const mapped = await rse.svc.resolveSessionUser(1);
 check('resolveSessionUser(1) devuelve el UUID y username de la cuenta 1', mapped.success && /^[0-9a-f-]{36}$/.test(mapped.user.id) && typeof mapped.user.username === 'string' && !('password' in mapped.user));
 check('resolveSessionUser de un id inexistente → sin usuario (se cierra la sesión)', (await rse.svc.resolveSessionUser(999)).user === null);
 await rse.svc.db.closeAsync();
+
+// ---------------------------------------------------------------------------
+section('Respaldo de una BD v2: ninguna contraseña visible (users y legacy_users)');
+const backup = await import('../src/services/backup.js');
+__setDatabasePath(pSe);
+const { result: bk } = await quiet(() => backup.createBackup());
+const bkJson = JSON.parse(readFileSync(bk.json.path, 'utf8'));
+const pwTables = Object.keys(bkJson.data).filter((t) => bkJson.data[t].some((r) => 'password' in r));
+check('el JSON tiene users y legacy_users con columna password', pwTables.includes('users') && pwTables.includes('legacy_users'), pwTables.join(', '));
+check('toda columna password del JSON está oculta', pwTables.every((t) => bkJson.data[t].every((r) => r.password === '[OCULTO]')));
+const runValidator = (json, out) => {
+    try {
+        execSync(`node scripts/validar-respaldo.mjs "${json}" --db "${bk.physical.path}" --out "${out}" --overwrite`, { stdio: 'pipe' });
+        return { ok: true, out: '' };
+    } catch (e) {
+        return { ok: false, out: e.stdout.toString() };
+    }
+};
+const valid = runValidator(bk.json.path, `${WORK}/validado-v2.sqlite`);
+check('validar-respaldo.mjs acepta el respaldo v2 y coincide con la copia .db', valid.ok, valid.ok ? '' : valid.out.split('\n').filter((l) => l.startsWith('FALLA')).join(' | '));
+// Respaldo alterado: una contraseña visible en legacy_users debe hacer fallar al validador.
+const tampered = JSON.parse(JSON.stringify(bkJson));
+tampered.data.legacy_users[0].password = 'visible';
+const tamperedPath = `${WORK}/respaldo-alterado.json`;
+writeFileSync(tamperedPath, JSON.stringify(tampered));
+const invalid = runValidator(tamperedPath, `${WORK}/alterado.sqlite`);
+check('validar-respaldo.mjs FALLA si legacy_users.password está visible', !invalid.ok && invalid.out.includes('FALLA legacy_users.password oculto'));
 
 // ---------------------------------------------------------------------------
 section('Criterio 9: grep');
