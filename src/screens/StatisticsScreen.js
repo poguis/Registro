@@ -14,7 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '../contexts/ThemeContext';
 import db from '../services/db';
-import { getUtcRange } from '../services/dateRange';
+import { getUtcRange, parseDbTimestamp } from '../services/dateRange';
 
 const { width } = Dimensions.get('window');
 
@@ -277,7 +277,7 @@ export default function StatisticsScreen({ user, onBack }) {
                             keyExtractor={(item) => item.id.toString()}
                             contentContainerStyle={{ padding: 15 }}
                             renderItem={({ item }) => {
-                                const dateObj = new Date(item.created_at.replace(' ', 'T') + 'Z');
+                                const dateObj = parseDbTimestamp(item.created_at);
                                 const dateStr = dateObj.toLocaleDateString('es-ES', {
                                     day: 'numeric',
                                     month: 'short',

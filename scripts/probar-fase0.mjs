@@ -1,23 +1,26 @@
-// Pruebas en PC de la Fase 0 con el código REAL de src/services (migrations.js,
-// db.js, backup.js), sustituyendo expo-sqlite por node:sqlite (scripts/lib).
-// No toca el celular ni el emulador. Trabaja en .local-data/pruebas-pc/ con datos ficticios.
+// Pruebas en PC de lo construido en la Fase 0 que sigue vigente: la migración 1
+// (línea base aditiva) con el runner real, y el respaldo (backup.js). Las pruebas de
+// la capa de datos (mutaciones, transacciones, cola, outbox) y de la migración 2
+// están en scripts/probar-fase1.mjs y scripts/dryrun-fase1.mjs.
+// Sustituye expo-sqlite por node:sqlite (scripts/lib). Trabaja en .local-data/pruebas-pc/
+// con datos ficticios; no toca el celular ni el emulador.
 //
 // Uso: node scripts/probar-fase0.mjs
 //
-// La BD "existente" se construye ejecutando el SQL de init() tal como está en
-// git HEAD (commit anterior a la Fase 0), simulando dos arranques de la app vieja.
+// La BD "existente" se construye ejecutando el SQL de init() del commit 306987d
+// (anterior a la Fase 0), simulando dos arranques de la app vieja.
 import './lib/test-hooks.mjs';
 import { execSync } from 'node:child_process';
-import { mkdirSync, rmSync, copyFileSync, existsSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdirSync, rmSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { listTables, getUserVersion, getSchema, countAll, hashAll } from './lib/sqlite-utils.mjs';
 
-const { __setDatabasePath } = await import('./lib/expo-sqlite-shim.mjs');
-const { backupCalls, backupStub } = await import('./lib/backup-stub.mjs');
+const PRE_PHASE0_COMMIT = '306987d';
+
+const { openDatabaseAsync, __setDatabasePath } = await import('./lib/expo-sqlite-shim.mjs');
 const { DEV_FLAGS } = await import('../src/services/devFlags.js');
-const { MIGRATIONS, TABLE_NAMES } = await import('../src/services/migrations.js');
-const { DatabaseService, QUEUED_MUTATIONS, TX_MUTATIONS } = await import('../src/services/db.js');
+const { MIGRATIONS, TABLE_NAMES, runMigrations } = await import('../src/services/migrations.js');
 const backup = await import('../src/services/backup.js');
 
 const WORK_DIR = resolve('.local-data/pruebas-pc').replace(/\\/g, '/');
@@ -59,15 +62,23 @@ const quiet = async (fn) => {
     }
 };
 
-const newService = async (path) => {
+// Corre el runner real con SOLO la migración 1 (la 2 se prueba en probar-fase1.mjs).
+const runV1 = async (path) => {
+    const removed = MIGRATIONS.splice(1);
     __setDatabasePath(path);
-    const service = new DatabaseService();
-    const { result: ok, captured } = await quiet(() => service.init());
-    return { service, ok, captured };
+    const conn = await openDatabaseAsync();
+    try {
+        const { result, captured } = await quiet(() => runMigrations(conn, { createPhysicalCopy: async () => ({}) })
+            .then((r) => ({ ok: true, r }), (error) => ({ ok: false, error })));
+        return { ...result, captured };
+    } finally {
+        MIGRATIONS.push(...removed);
+        await conn.closeAsync();
+    }
 };
 
-// --- BD "existente": SQL de init() de git HEAD, dos arranques ---
-const legacySource = execSync('git show HEAD:src/services/db.js', { encoding: 'utf8' });
+// --- BD "existente": SQL de init() de 306987d, dos arranques ---
+const legacySource = execSync(`git show ${PRE_PHASE0_COMMIT}:src/services/db.js`, { encoding: 'utf8' });
 const statements = [];
 for (const m of legacySource.matchAll(/`\s*(CREATE TABLE IF NOT EXISTS[\s\S]*?\);)\s*`/g)) statements.push({ index: m.index, sql: m[1], alter: false });
 for (const m of legacySource.matchAll(/`(ALTER TABLE [^`]+)`/g)) statements.push({ index: m.index, sql: m[1], alter: true });
@@ -106,52 +117,38 @@ const buildLegacyDb = (path) => {
 };
 
 // ---------------------------------------------------------------------------
-section('Criterio 4: BD existente (esquema de HEAD) → migración 1');
+section('BD existente (esquema de 306987d) → migración 1');
 const legacyPath = `${WORK_DIR}/existente.db`;
 buildLegacyDb(legacyPath);
 const before = snapshot(legacyPath);
-check('BD existente creada con el código de HEAD', before.tables.length === 16 && before.userVersion === 0, `${before.tables.length} tablas, user_version ${before.userVersion}`);
-backupCalls.length = 0;
-const run1 = await newService(legacyPath);
-check('init() devuelve true', run1.ok === true);
+check('BD existente creada con el código anterior a la Fase 0', before.tables.length === 16 && before.userVersion === 0, `${before.tables.length} tablas, user_version ${before.userVersion}`);
+const run1 = await runV1(legacyPath);
 const after = snapshot(legacyPath);
+check('runMigrations aplica la migración 1', run1.ok && run1.r.applied.join() === '1', run1.error && run1.error.message);
 check('user_version = 1', after.userVersion === 1);
 check('sqlite_master idéntico', after.schema === before.schema);
-check('Mismos conteos y contenido en las 16 tablas', sameData(before, after), JSON.stringify(after.counts));
-check('Migración 1 no pidió copia física (solo las >= 2)', backupCalls.length === 0);
-await run1.service.db.closeAsync();
+check('Mismos conteos y contenido en las 16 tablas', sameData(before, after));
 
-section('Criterio 6: segundo arranque');
-const run2 = await newService(legacyPath);
-const logs2 = run2.captured.map(([, a]) => a.join(' ')).join('\n');
-check('init() devuelve true', run2.ok === true);
-check('Log "Sin migraciones pendientes"', logs2.includes('Sin migraciones pendientes (user_version = 1)'));
-const after2 = snapshot(legacyPath);
-check('Esquema y datos sin cambios', after2.schema === after.schema && sameData(after, after2));
-await run2.service.db.closeAsync();
+section('Segundo arranque (solo migración 1)');
+const run2 = await runV1(legacyPath);
+check('Sin migraciones pendientes', run2.ok && run2.r.applied.length === 0 && run2.captured.some(([, a]) => a.join(' ').includes('Sin migraciones pendientes (user_version = 1)')));
+check('Esquema y datos sin cambios', sameData(after, snapshot(legacyPath)));
 
-// ---------------------------------------------------------------------------
-section('Criterio 5: BD nueva');
+section('BD nueva (solo migración 1)');
 const freshPath = `${WORK_DIR}/nueva.db`;
-const run3 = await newService(freshPath);
+const run3 = await runV1(freshPath);
 const fresh = snapshot(freshPath);
-const errors3 = run3.captured.filter(([k]) => k === 'error');
-check('init() devuelve true', run3.ok === true);
-check('16 tablas creadas', fresh.tables.length === 16 && JSON.stringify(fresh.tables) === JSON.stringify([...TABLE_NAMES].sort()));
-check('user_version = 1', fresh.userVersion === 1);
-check('Sin errores en el log', errors3.length === 0, `${errors3.length} errores`);
+check('16 tablas creadas, user_version = 1', run3.ok && fresh.userVersion === 1 && JSON.stringify(fresh.tables) === JSON.stringify([...TABLE_NAMES].sort()));
 const freshDb = new DatabaseSync(freshPath, { readOnly: true });
+const legacyDb = new DatabaseSync(legacyPath, { readOnly: true });
 const cols = (db, t) => db.prepare(`PRAGMA table_info(${t})`).all().map((c) => `${c.name}:${c.type}:${c.dflt_value}:${c.notnull}:${c.pk}`);
 check('work_people tiene sort_order', cols(freshDb, 'work_people').some((c) => c.startsWith('sort_order:')));
-const legacyDb = new DatabaseSync(legacyPath, { readOnly: true });
 const colDiffs = TABLE_NAMES.filter((t) => JSON.stringify(cols(freshDb, t)) !== JSON.stringify(cols(legacyDb, t)));
-check('Columnas de la BD nueva = columnas de la BD existente (mismo orden y tipo)', colDiffs.length === 0, colDiffs.join(', '));
+check('Columnas de la BD nueva = columnas de la BD existente', colDiffs.length === 0, colDiffs.join(', '));
 freshDb.close();
 legacyDb.close();
-await run3.service.db.closeAsync();
 
-// ---------------------------------------------------------------------------
-section('DEV_FAIL_MIGRATION: la migración falla y no deja nada a medias');
+section('DEV_FAIL_MIGRATION en la migración 1: no deja nada a medias');
 const oldPath = `${WORK_DIR}/antigua-sin-columna.db`;
 buildLegacyDb(oldPath);
 {
@@ -161,127 +158,33 @@ buildLegacyDb(oldPath);
 }
 const beforeFail = snapshot(oldPath);
 DEV_FLAGS.DEV_FAIL_MIGRATION = true;
-const runFail = await newService(oldPath);
+const runFail = await runV1(oldPath);
 DEV_FLAGS.DEV_FAIL_MIGRATION = false;
 const afterFail = snapshot(oldPath);
-check('init() devuelve false', runFail.ok === false);
-check('lastInitError explica el fallo', !!runFail.service.lastInitError && runFail.service.lastInitError.message.includes('Falló la migración 1'), runFail.service.lastInitError && runFail.service.lastInitError.message);
-check('this.db queda sin asignar (la app no arranca con esquema a medias)', runFail.service.db === null);
-check('user_version sigue en 0', afterFail.userVersion === 0);
-check('La columna agregada se deshizo (sqlite_master idéntico)', afterFail.schema === beforeFail.schema);
+check('runMigrations falla con un mensaje claro', !runFail.ok && runFail.error.message.includes('Falló la migración 1'), runFail.error && runFail.error.message);
+check('user_version sigue en 0 y el esquema no cambió', afterFail.userVersion === 0 && afterFail.schema === beforeFail.schema);
 check('Datos idénticos', sameData(beforeFail, afterFail));
-
-// El respaldo funciona igual con la migración fallida (conexión propia, sin init)
 __setDatabasePath(oldPath);
 const { result: failBackup } = await quiet(() => backup.createBackup());
-const failCopy = snapshot(failBackup.physical.path);
-check('Respaldo generado tras la migración fallida', existsSync(failBackup.physical.path) && existsSync(failBackup.json.path));
-check('Copia física = BD sin migrar (user_version 0, mismos datos)', failCopy.userVersion === 0 && sameData(afterFail, failCopy));
-const failJson = JSON.parse(readFileSync(failBackup.json.path, 'utf8'));
-check('JSON: user_version 0 y conteos correctos', failJson.meta.userVersion === 0 && JSON.stringify(failJson.meta.counts) === JSON.stringify(afterFail.counts));
-
-const runRetry = await newService(oldPath);
-const afterRetry = snapshot(oldPath);
-check('Reintento sin el flag: init() devuelve true y user_version = 1', runRetry.ok === true && afterRetry.userVersion === 1);
-check('Reintento: agrega series.last_watched_at y conserva los datos', afterRetry.schema.includes('last_watched_at') && JSON.stringify(afterRetry.counts) === JSON.stringify(afterFail.counts));
-await runRetry.service.db.closeAsync();
+check('El respaldo funciona igual con la migración fallida', existsSync(failBackup.physical.path) && existsSync(failBackup.json.path)
+    && sameData(afterFail, snapshot(failBackup.physical.path)));
+const runRetry = await runV1(oldPath);
+check('Reintento: aplica la migración 1 y agrega series.last_watched_at', runRetry.ok && snapshot(oldPath).schema.includes('last_watched_at'));
 
 // ---------------------------------------------------------------------------
-section('Migraciones >= 2 exigen copia física previa');
-const v2Path = `${WORK_DIR}/v2.db`;
-copyFileSync(legacyPath, v2Path);
-MIGRATIONS.push({
-    version: 2,
-    description: 'migración ficticia de prueba',
-    up: async (txn) => { await txn.execAsync('CREATE TABLE prueba_v2 (id INTEGER PRIMARY KEY)'); },
-});
-backupCalls.length = 0;
-backupStub.shouldFail = true;
-const runNoBackup = await newService(v2Path);
-const afterNoBackup = snapshot(v2Path);
-check('Si la copia falla: init() devuelve false', runNoBackup.ok === false, runNoBackup.service.lastInitError && runNoBackup.service.lastInitError.message);
-check('Si la copia falla: no se toca nada (user_version 1, sin tabla nueva)', afterNoBackup.userVersion === 1 && !afterNoBackup.tables.includes('prueba_v2'));
-backupStub.shouldFail = false;
-backupCalls.length = 0;
-const runWithBackup = await newService(v2Path);
-const afterWithBackup = snapshot(v2Path);
-check('Con copia OK: se pidió la copia "pre-migracion-v2"', backupCalls.includes('pre-migracion-v2'));
-check('Con copia OK: migración aplicada (user_version 2)', runWithBackup.ok === true && afterWithBackup.userVersion === 2);
-await runWithBackup.service.db.closeAsync();
-MIGRATIONS.pop();
-const runNewer = await newService(v2Path);
-check('BD de una versión más nueva: se rechaza sin tocarla', runNewer.ok === false && runNewer.service.lastInitError.message.includes('versión más nueva') && snapshot(v2Path).userVersion === 2);
-
-// ---------------------------------------------------------------------------
-section('Criterio 7: DEV_FAIL_TX en cada operación transaccional');
-const txPath = `${WORK_DIR}/transacciones.db`;
-copyFileSync(legacyPath, txPath);
-const { service: svc } = await newService(txPath);
-const daysChanged = { name: 'Anime', type: 'video', startDate: '2026-01-01', daysOfWeek: { Monday: 2 }, frequency: 0, seriesCount: 2, description: null };
-const operations = {
-    registerUser: () => svc.registerUser('nuevo', 'x'),
-    addTransaction: () => svc.addTransaction(1, null, 'Contacto nuevo', 'debt', 10, 'd'),
-    registerMoneyMovement: () => svc.registerMoneyMovement(1, { amount: 30, category: 'Préstamos', description: 'm', linked: { contactId: null, contactName: 'Contacto nuevo 2', type: 'debt', amount: 30, description: 'm' } }),
-    addEntertainmentCategory: () => svc.addEntertainmentCategory(1, { name: 'Nueva', type: 'video', startDate: '2026-02-01', daysOfWeek: { Monday: 1 }, frequency: 0, seriesCount: 1, description: null }),
-    updateEntertainmentCategory: () => svc.updateEntertainmentCategory(1, daysChanged),
-    addSeriesWithSeasons: () => svc.addSeriesWithSeasons({ category_id: 1, name: 'Serie nueva', description: null, status: 'Nueva', current_season: 1, current_episode: 1, total_seasons: 2 }, [{ season_number: 1, episode_count: 10 }, { season_number: 2, episode_count: 8 }]),
-    updateSeriesWithSeasons: () => svc.updateSeriesWithSeasons(1, { name: 'Serie 1', description: null, total_seasons: 2, status: 'Mirando' }, [{ season_number: 1, episode_count: 12 }, { season_number: 2, episode_count: 6 }]),
-};
-check('Las 7 operaciones probadas son exactamente TX_MUTATIONS', JSON.stringify(Object.keys(operations).sort()) === JSON.stringify([...TX_MUTATIONS].sort()));
-for (const [name, op] of Object.entries(operations)) {
-    const beforeOp = snapshot(txPath);
-    DEV_FLAGS.DEV_FAIL_TX = true;
-    const { result } = await quiet(op);
-    DEV_FLAGS.DEV_FAIL_TX = false;
-    const afterOp = snapshot(txPath);
-    check(`${name}: con fallo simulado devuelve success:false y no deja escrituras`, result.success === false && sameData(beforeOp, afterOp), result.error);
-    const { result: okResult } = await quiet(op);
-    const afterOk = snapshot(txPath);
-    check(`${name}: sin fallo funciona y escribe`, okResult.success === true && !sameData(afterOp, afterOk));
-}
-
-// ---------------------------------------------------------------------------
-section('Cola serializada');
-check('Todas las mutaciones de db.js están en QUEUED_MUTATIONS', (() => {
-    const source = readFileSync('src/services/db.js', 'utf8');
-    const writers = new Set();
-    let current = null;
-    for (const line of source.split('\n')) {
-        const m = line.match(/^ {4}async ([a-zA-Z]\w*)\(/);
-        if (m) current = m[1];
-        if (current && /runAsync|execAsync|this\._tx\(/.test(line)) writers.add(current);
-    }
-    writers.delete('init');
-    const missing = [...writers].filter((w) => !QUEUED_MUTATIONS.includes(w));
-    if (missing.length) console.log('     faltan:', missing.join(', '));
-    return missing.length === 0;
-})(), `${QUEUED_MUTATIONS.length} mutaciones encoladas, ${TX_MUTATIONS.length} con transacción`);
-const balanceBefore = (await svc.getUserBalance(1)).balance;
-const concurrent = [];
-for (let i = 0; i < 20; i++) {
-    concurrent.push(svc.registerMoneyMovement(1, { amount: 1, category: 'Comida', description: `c${i}`, linked: null }));
-    concurrent.push(svc.addBalanceTransaction(1, 0, 'Comida', `b${i}`));
-    concurrent.push(svc.updateSeriesSortOrder(1, i));
-}
-const { result: results } = await quiet(() => Promise.all(concurrent));
-const balanceAfter = (await svc.getUserBalance(1)).balance;
-check('60 mutaciones concurrentes sin errores', results.every((r) => r.success), `${results.filter((r) => !r.success).length} fallaron`);
-check('Saldo final = saldo inicial + 20 (sin escrituras perdidas)', Math.abs(balanceAfter - (balanceBefore + 20)) < 1e-9, `${balanceBefore} → ${balanceAfter}`);
-await svc.db.closeAsync();
-
-// ---------------------------------------------------------------------------
-section('Criterio 3 (en PC): respaldo real con backup.js');
+section('Respaldo real con backup.js');
 __setDatabasePath(legacyPath);
 const beforeBackup = snapshot(legacyPath);
 const { result: bk } = await quiet(() => backup.createBackup());
 const afterBackup = snapshot(legacyPath);
 check('El respaldo no modifica la BD', afterBackup.schema === beforeBackup.schema && sameData(beforeBackup, afterBackup) && afterBackup.userVersion === beforeBackup.userVersion);
-check('Se generaron .db y .json en respaldos/', existsSync(bk.physical.path) && existsSync(bk.json.path), readdirSync(`${WORK_DIR}/respaldos`).join(', '));
+check('Se generaron .db y .json en respaldos/', existsSync(bk.physical.path) && existsSync(bk.json.path), readdirSync(`${WORK_DIR}/respaldos`).length + ' archivo(s)');
 const copySnap = snapshot(bk.physical.path);
 check('Copia física (VACUUM INTO): mismo user_version, esquema y datos', copySnap.userVersion === beforeBackup.userVersion && copySnap.schema === beforeBackup.schema && sameData(beforeBackup, copySnap));
 const bkJson = JSON.parse(readFileSync(bk.json.path, 'utf8'));
 check('JSON: users.password reemplazado', bkJson.data.users.every((u) => u.password === '[OCULTO]'));
-check('JSON: metadatos completos', ['sqliteVersion', 'userVersion', 'appVersion', 'createdAt', 'counts', 'schema'].every((k) => bkJson.meta[k] !== undefined), `SQLite ${bkJson.meta.sqliteVersion}, app ${bkJson.meta.appVersion}`);
+check('JSON: metadatos completos (incluye los .db del directorio)', ['sqliteVersion', 'userVersion', 'appVersion', 'createdAt', 'counts', 'schema', 'dbFilesInSqliteDir'].every((k) => bkJson.meta[k] !== undefined)
+    && bkJson.meta.dbFilesInSqliteDir.some((f) => f.name === 'existente.db'), `app ${bkJson.meta.appVersion}; ${bkJson.meta.dbFilesInSqliteDir.length} .db listados`);
 let validatorOk = true;
 try {
     execSync(`node scripts/validar-respaldo.mjs "${bk.json.path}" --db "${bk.physical.path}" --out "${WORK_DIR}/validado.sqlite"`, { stdio: 'pipe' });

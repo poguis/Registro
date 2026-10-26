@@ -24,10 +24,13 @@ export const countAll = (db) => Object.fromEntries(listTables(db).map((t) => [t,
 // node:sqlite devuelve objetos con prototipo nulo; se normalizan a objetos planos.
 const plain = (row) => Object.fromEntries(Object.entries(row));
 
+// Orden estable: por id (numérico o UUID) y, si no hay id, por el contenido completo.
+const rowKey = (r) => (r.id !== undefined && r.id !== null ? `${typeof r.id === 'number' ? String(r.id).padStart(20, '0') : r.id}` : JSON.stringify(r));
+
 // Huella SHA-256 del contenido de una lista de filas, ordenadas por id.
 // Si maskPassword, users.password se reemplaza por el marcador (como en el JSON).
 export const hashRows = (rows, { maskPassword = false } = {}) => {
-    const sorted = rows.map(plain).sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
+    const sorted = rows.map(plain).sort((a, b) => (rowKey(a) < rowKey(b) ? -1 : rowKey(a) > rowKey(b) ? 1 : 0));
     const normalized = maskPassword ? sorted.map((r) => ({ ...r, password: PASSWORD_PLACEHOLDER })) : sorted;
     return createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
 };

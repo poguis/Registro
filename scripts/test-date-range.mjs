@@ -1,7 +1,7 @@
 // Prueba de src/services/dateRange.js con casos fijos en UTC-5 (Ecuador).
 // Uso (PowerShell):  $env:TZ='America/Guayaquil'; node scripts/test-date-range.mjs
 // Uso (bash):        TZ=America/Guayaquil node scripts/test-date-range.mjs
-import { getUtcRange, formatSqliteUtc } from '../src/services/dateRange.js';
+import { getUtcRange, formatSqliteUtc, parseDbTimestamp } from '../src/services/dateRange.js';
 
 if (new Date(2026, 0, 15).getTimezoneOffset() !== 300) {
     console.error('Este script debe correr con TZ=America/Guayaquil (UTC-5). Offset actual:', new Date().getTimezoneOffset());
@@ -14,7 +14,7 @@ const check = (name, condition, detail = '') => {
     if (!condition) failures++;
 };
 
-// Simula cómo SQLite guarda created_at (UTC, 'YYYY-MM-DD HH:MM:SS') para un instante local.
+// Simula cómo se guarda created_at desde la Fase 1 (ISO UTC 'YYYY-MM-DDTHH:MM:SS.sssZ') para un instante local.
 const createdAt = (y, m, d, hh, mm, ss = 0) => formatSqliteUtc(new Date(y, m - 1, d, hh, mm, ss));
 // Misma comparación que hace db.getBalanceHistory: created_at >= start AND created_at <= end
 const inRange = (value, { startDate, endDate }) => value >= startDate && value <= endDate;
@@ -38,7 +38,7 @@ const inRange = (value, { startDate, endDate }) => value >= startDate && value <
 // 3. Bordes exactos del día: 00:00:00 y 23:59:59 locales.
 {
     const today = getUtcRange('today', new Date(2026, 9, 18, 12, 0));
-    check('Límites de "hoy" en UTC', today.startDate === '2026-10-18 05:00:00' && today.endDate === '2026-10-19 04:59:59', `${today.startDate} / ${today.endDate}`);
+    check('Límites de "hoy" en UTC', today.startDate === '2026-10-18T05:00:00.000Z' && today.endDate === '2026-10-19T04:59:59.999Z', `${today.startDate} / ${today.endDate}`);
     check('23:59:59 local está en "hoy"', inRange(createdAt(2026, 10, 18, 23, 59, 59), today));
     check('00:00:00 local del día siguiente NO está en "hoy"', !inRange(createdAt(2026, 10, 19, 0, 0, 0), today));
 }
@@ -67,14 +67,23 @@ const inRange = (value, { startDate, endDate }) => value >= startDate && value <
 // 6. Semana (lunes a domingo) y rango personalizado.
 {
     const week = getUtcRange('week', new Date(2026, 9, 18, 10, 0)); // domingo 18-oct-2026
-    check('Semana del domingo 18-oct-2026 empieza el lunes 12-oct local', week.startDate === '2026-10-12 05:00:00', week.startDate);
+    check('Semana del domingo 18-oct-2026 empieza el lunes 12-oct local', week.startDate === '2026-10-12T05:00:00.000Z', week.startDate);
     check('Domingo 18-oct 21:00 local está en esa semana', inRange(createdAt(2026, 10, 18, 21, 0), week));
     const custom = getUtcRange('custom', new Date(), { start: new Date(2026, 9, 1), end: new Date(2026, 9, 3) });
     check('Personalizado 1-3 oct incluye 3-oct 20:00 local', inRange(createdAt(2026, 10, 3, 20, 0), custom));
     check('Personalizado 1-3 oct excluye 4-oct 00:00 local', !inRange(createdAt(2026, 10, 4, 0, 0), custom));
 }
 
-// 7. 'all' sin límites.
+// 7. parseDbTimestamp: formato ISO (Fase 1) y formato SQLite anterior.
+{
+    const a = parseDbTimestamp('2026-10-19T01:00:00.000Z');
+    const b = parseDbTimestamp('2026-10-19 01:00:00');
+    check('parseDbTimestamp acepta ISO y el formato anterior (mismo instante)', a.getTime() === b.getTime() && a.getHours() === 20 && a.getDate() === 18);
+    check('parseDbTimestamp(null) → null', parseDbTimestamp(null) === null);
+    check('23:59:59.999 local está en "hoy"; 00:00:00.000 del día siguiente no', inRange(formatSqliteUtc(new Date(2026, 9, 18, 23, 59, 59, 999)), getUtcRange('today', new Date(2026, 9, 18, 12))) && !inRange(formatSqliteUtc(new Date(2026, 9, 19, 0, 0, 0, 0)), getUtcRange('today', new Date(2026, 9, 18, 12))));
+}
+
+// 8. 'all' sin límites.
 {
     const all = getUtcRange('all', new Date());
     check('"all" devuelve límites nulos', all.startDate === null && all.endDate === null);

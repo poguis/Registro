@@ -46,6 +46,17 @@ const withConnection = async (task) => {
     }
 };
 
+// Lista nombre y tamaño de los archivos .db (y -wal/-shm/-journal) del directorio
+// SQLite de la app. SOLO lista: no abre, no mueve y no borra nada.
+export function listDbFilesNextTo(databasePath) {
+    const dir = new Directory(toFileUri(dirname(databasePath)));
+    if (!dir.exists) return [];
+    return dir.list()
+        .filter((item) => item instanceof File && /\.db(-wal|-shm|-journal)?$/i.test(item.name))
+        .map((f) => ({ name: f.name, size: f.size }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 // Copia física con VACUUM INTO hacia una ruta absoluta junto a la BD.
 export async function createPhysicalCopy(label = 'respaldo', stamp = fileStamp()) {
     return withConnection(async (conn) => {
@@ -93,6 +104,7 @@ export async function createJsonBackup(stamp = fileStamp()) {
             userVersion: userVersionRow ? userVersionRow.user_version : null,
             passwordsReplacedWith: PASSWORD_PLACEHOLDER,
             counts,
+            dbFilesInSqliteDir: listDbFilesNextTo(conn.databasePath),
             schema: tables,
             indexes,
         };

@@ -16,7 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '../contexts/ThemeContext';
 import db from '../services/db';
-import { getUtcRange } from '../services/dateRange';
+import { getUtcRange, parseDbTimestamp } from '../services/dateRange';
 
 export default function DineroScreen({ user, onBack, onNavigate }) {
     const { theme, isDarkMode } = useTheme();
@@ -93,7 +93,7 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
 
         history.forEach(item => {
             // SQLite returns "YYYY-MM-DD HH:MM:SS" (UTC). Appending 'Z' forces UTC parsing.
-            const dateObj = new Date(item.created_at.replace(' ', 'T') + 'Z');
+            const dateObj = parseDbTimestamp(item.created_at);
 
             // Force Ecuador/GMT-5 Timezone
             const dateKey = dateObj.toLocaleDateString('es-ES', {
@@ -298,7 +298,7 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
     // Render Items
     const renderHistoryItem = ({ item }) => {
         // Parse time from created_at (SQLite format: YYYY-MM-DD HH:MM:SS)
-        const timeStr = new Date(item.created_at.replace(' ', 'T') + 'Z').toLocaleTimeString('es-ES', {
+        const timeStr = parseDbTimestamp(item.created_at).toLocaleTimeString('es-ES', {
             hour: '2-digit',
             minute: '2-digit',
             hour12: true,
@@ -436,7 +436,7 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                         if (expandedSections[section.title] === false) return null;
 
                         // Format time from created_at
-                        const timeStr = new Date(item.created_at.replace(' ', 'T') + 'Z').toLocaleTimeString('es-ES', {
+                        const timeStr = parseDbTimestamp(item.created_at).toLocaleTimeString('es-ES', {
                             hour: '2-digit',
                             minute: '2-digit',
                             hour12: true,

@@ -1,4 +1,5 @@
 import { maybeFail } from './devFlags';
+import { migration2 } from '../data/db/migration2';
 
 // Migraciones de esquema versionadas con PRAGMA user_version.
 // Reglas: cada migración corre en una transacción exclusiva y sube user_version
@@ -220,14 +221,24 @@ export const MIGRATIONS = [
             maybeFail('DEV_FAIL_MIGRATION', 'migración 1, antes de fijar user_version');
         },
     },
+    {
+        version: 2,
+        description: 'Fase 1: UUID, user_id desnormalizado, columnas de sync, soft delete y outbox (reconstrucción in-place; originales en legacy_*)',
+        requiresBackup: true,
+        // Nota: el comentario de estados de la migración 1 ('Terminada', 'Pausada') está desactualizado;
+        // los estados canónicos están en el esquema de esta migración (src/data/db/migration2.ts).
+        up: migration2,
+    },
 ];
 
 export const LATEST_VERSION = MIGRATIONS[MIGRATIONS.length - 1].version;
 
 // Ejecuta las migraciones pendientes sobre la conexión `db`.
-// `createPhysicalCopy(label)` se usa como respaldo obligatorio antes de las migraciones >= 2.
+// `createPhysicalCopy(label)` es el respaldo obligatorio antes de las migraciones con
+// requiresBackup o versión >= 2. `listDbFiles()` (opcional) lista los .db del directorio
+// SQLite para el registro de la migración.
 // Lanza un error si algo falla; en ese caso user_version queda como estaba.
-export async function runMigrations(db, { createPhysicalCopy }) {
+export async function runMigrations(db, { createPhysicalCopy, listDbFiles }) {
     const row = await db.getFirstAsync('PRAGMA user_version');
     const current = row ? row.user_version : 0;
 
@@ -243,7 +254,7 @@ export async function runMigrations(db, { createPhysicalCopy }) {
 
     const applied = [];
     for (const migration of pending) {
-        if (migration.version >= 2) {
+        if (migration.requiresBackup || migration.version >= 2) {
             try {
                 await createPhysicalCopy(`pre-migracion-v${migration.version}`);
             } catch (error) {
@@ -254,7 +265,7 @@ export async function runMigrations(db, { createPhysicalCopy }) {
         const log = [];
         try {
             await db.withExclusiveTransactionAsync(async (txn) => {
-                await migration.up(txn, log);
+                await migration.up(txn, log, { listDbFiles });
                 await txn.execAsync(`PRAGMA user_version = ${migration.version}`);
             });
         } catch (error) {

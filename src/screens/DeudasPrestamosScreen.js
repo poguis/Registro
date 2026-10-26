@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '../contexts/ThemeContext';
 import db from '../services/db';
+import { parseDbTimestamp } from '../services/dateRange';
 
 export default function DeudasPrestamosScreen({ user, onBack }) {
     const { theme, isDarkMode } = useTheme();
@@ -151,7 +152,7 @@ export default function DeudasPrestamosScreen({ user, onBack }) {
                             <View key={t.id} style={[styles.transactionRow, { borderBottomColor: theme.border }]}>
                                 <View style={{ flex: 1 }}>
                                     <Text style={[styles.date, { color: theme.subText }]}>
-                                        {new Date(t.created_at.replace(' ', 'T') + 'Z').toLocaleDateString('es-ES', { timeZone: 'America/Guayaquil' })} • {new Date(t.created_at.replace(' ', 'T') + 'Z').toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/Guayaquil' })}
+                                        {parseDbTimestamp(t.created_at).toLocaleDateString('es-ES', { timeZone: 'America/Guayaquil' })} • {parseDbTimestamp(t.created_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/Guayaquil' })}
                                     </Text>
                                     {t.description ? (
                                         <Text style={[styles.desc, { color: theme.text }]}>{t.description}</Text>

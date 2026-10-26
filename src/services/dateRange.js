@@ -1,28 +1,31 @@
 // Conversión de rangos de días LOCALES a límites UTC para filtrar `created_at`.
 // Funciones puras: sin React ni SQLite (se prueban con scripts/test-date-range.mjs).
 //
-// `created_at` lo escribe SQLite con CURRENT_TIMESTAMP: UTC en formato 'YYYY-MM-DD HH:MM:SS'.
-// Este es el ÚNICO punto donde se convierte un día local a ese formato; si el formato
-// de `created_at` cambia (Fase 1), solo se toca formatSqliteUtc.
+// Desde la Fase 1, `created_at` es ISO-8601 UTC 'YYYY-MM-DDTHH:MM:SS.sssZ' (antes era
+// 'YYYY-MM-DD HH:MM:SS' de CURRENT_TIMESTAMP). Este es el ÚNICO punto donde se convierte
+// un día local a ese formato (formatSqliteUtc) y donde se parsea (parseDbTimestamp).
 
-const pad = (n) => String(n).padStart(2, '0');
+// Date → 'YYYY-MM-DDTHH:MM:SS.sssZ' (mismo formato que created_at; ordena como texto).
+export const formatSqliteUtc = (date) => date.toISOString();
 
-// Date → 'YYYY-MM-DD HH:MM:SS' en UTC (mismo formato que CURRENT_TIMESTAMP).
-export const formatSqliteUtc = (date) =>
-    `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ` +
-    `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`;
+// created_at (ISO, o el formato SQLite anterior a la Fase 1) → Date.
+export const parseDbTimestamp = (value) => {
+    if (value === null || value === undefined) return null;
+    const text = String(value);
+    return new Date(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(text) ? `${text.replace(' ', 'T')}Z` : text);
+};
 
 // Medianoche local del día de `date`.
 const startOfLocalDay = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
 
 // Rango [primer día, último día] (ambos incluidos, en hora local) → límites UTC.
-// Inicio = 00:00:00 local del primer día; fin = 1 s antes de las 00:00 local del día
-// siguiente al último (los `created_at` tienen precisión de segundos).
+// Inicio = 00:00:00.000 local del primer día; fin = 1 ms antes de las 00:00 local del
+// día siguiente al último (los `created_at` tienen precisión de milisegundos).
 export const localDaysToUtcRange = (firstDay, lastDay) => {
     const start = startOfLocalDay(firstDay);
     const last = startOfLocalDay(lastDay);
     const endExclusive = new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1);
-    const end = new Date(endExclusive.getTime() - 1000);
+    const end = new Date(endExclusive.getTime() - 1);
     return { startDate: formatSqliteUtc(start), endDate: formatSqliteUtc(end) };
 };
 

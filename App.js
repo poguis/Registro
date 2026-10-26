@@ -21,6 +21,20 @@ import CardsScreen from './src/screens/CardsScreen';
 import DatabaseErrorScreen from './src/screens/DatabaseErrorScreen';
 import { ThemeProvider } from './src/contexts/ThemeContext';
 
+// La sesión guarda SOLO { id, username } (nunca contraseña ni saldo).
+const toSession = (u) => ({ id: u.id, username: u.username });
+
+// Resumen de la migración 2 para mostrar al terminar (conteos antes y después).
+const formatMigrationSummary = (summary) => {
+  const lines = Object.keys(summary.before).map(
+    (t) => `${t}: ${summary.before[t]} → ${summary.after[t]}`
+  );
+  const adjustments = summary.balanceAdjustments.length
+    ? `\nAjustes de saldo: ${summary.balanceAdjustments.map((a) => a.amount.toFixed(2)).join(', ')}`
+    : '\nAjustes de saldo: ninguno';
+  return `Tus datos se actualizaron al nuevo formato. Filas por tabla (antes → después):\n${lines.join('\n')}${adjustments}`;
+};
+
 export default function App() {
   const [isReady, setIsReady] = useState(false);
   const [user, setUser] = useState(null);
@@ -42,13 +56,27 @@ export default function App() {
       }
       setDbError(null);
 
-      // Recuperar usuario de AsyncStorage
+      // Si en este arranque se aplicó la migración 2, mostrar su resumen.
+      if (db.lastMigration && db.lastMigration.applied.includes(2)) {
+        const res = await db.getLatestMigrationSummary();
+        if (res.success && res.summary) {
+          Alert.alert('Actualización de datos completada', formatMigrationSummary(res.summary));
+        }
+      }
+
+      // Recuperar usuario de AsyncStorage. Una sesión con id entero (anterior a la
+      // migración 2) se mapea al UUID nuevo; si no se puede, se cierra la sesión.
       const storedUser = await AsyncStorage.getItem('@user_session');
       if (storedUser) {
         try {
           const userData = JSON.parse(storedUser);
-          if (userData && typeof userData === 'object' && userData.id) {
-            setUser(userData);
+          const resolved = userData && typeof userData === 'object' && userData.id
+            ? await db.resolveSessionUser(userData.id)
+            : null;
+          if (resolved && resolved.success && resolved.user) {
+            const session = toSession(resolved.user);
+            await AsyncStorage.setItem('@user_session', JSON.stringify(session));
+            setUser(session);
             setCurrentView('HOME');
           } else {
             await AsyncStorage.removeItem('@user_session');
@@ -99,7 +127,8 @@ export default function App() {
     return () => backHandler.remove();
   }, [handleBack]);
 
-  const handleLogin = async (userData) => {
+  const handleLogin = async (loggedUser) => {
+    const userData = toSession(loggedUser);
     try {
       await AsyncStorage.setItem('@user_session', JSON.stringify(userData));
       setUser(userData);

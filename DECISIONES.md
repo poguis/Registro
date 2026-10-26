@@ -53,6 +53,7 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 - [OK] Pull con cursor sobre `server_updated_at`, asignado por trigger en Postgres (no por el reloj del celular), paginado y con desempate por `id`.
 - [OK] Conflictos: último en llegar al servidor gana, por registro. Se refina por entidad en la Fase 4.
 - [OK] Reintentos con backoff. La outbox nunca descarta cambios por error.
+- [PENDIENTE] Multidispositivo: si un usuario usa varios dispositivos, las claves naturales (`seasons(series_id, season_number)`, `finance_categories(user_id, name)`) pueden chocar en el pull. Definir la resolución en Fase 4 (merge por clave natural o UUID determinista).
 
 ## Fases
 0. Base técnica: verificación de firma del APK, respaldo (copia física .db + JSON) exportable fuera del teléfono, versionado de esquema (`PRAGMA user_version`, línea base aditiva), transacciones, bug de zona horaria, quitar `checkAndBackfillHistory`, corregir docs que piden desinstalar.
@@ -70,12 +71,13 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 - [OK] Estados de series: `Nueva`, `Mirando`, `Pausado` (los tres cuentan para el límite activo, pestaña Viendo), `En espera`, `Terminado`. Backlog: type `movie|series|anime|reading`, status `Pendiente|Mirando|Terminado`. Se aplican como CHECK en Postgres (Fase 2); localmente se validan en los repositorios.
 - [PENDIENTE] Archivo `android.os.Looper` y dependencias `@react-navigation` sin uso: ¿se eliminan?
 - [PENDIENTE] Restaurar un respaldo dentro de la app.
+- [PENDIENTE] Fase 3: al eliminar `users.password`, también se vacía en `legacy_users`.
 
 ## Propuestas nuevas (para aprobar)
-- [PROPUESTA] En Fase 1, `user_id` = UUID del usuario local. En Fase 3, al primer login, se reescribe a `auth.uid()` en todas las tablas y en la outbox, en una sola transacción.
-- [PROPUESTA] Las filas migradas NO se encolan en la outbox. El primer sync (Fase 5) hace upsert idempotente de todas las filas existentes.
-- [PROPUESTA] Las tablas originales se conservan renombradas como `legacy_*` hasta la Fase 6 (rollback sin restaurar respaldo). Se borran solo con aprobación explícita.
-- [PROPUESTA] Columnas de sync (`created_at`, `updated_at`, `deleted_at`) en TEXT ISO-8601 UTC `YYYY-MM-DDTHH:MM:SS.sssZ`. Los epoch ms existentes (`watched_at`, `read_at`, `last_watched_at`) se quedan como INTEGER y se convierten a timestamptz en el mapeo de sync.
-- [PROPUESTA] `users` es tabla local (no se sincroniza ni pasa por la outbox).
+- [OK] En Fase 1, `user_id` = UUID del usuario local. En Fase 3, al primer login, se reescribe a `auth.uid()` en todas las tablas y en la outbox, en una sola transacción.
+- [OK] Las filas migradas NO se encolan en la outbox. El primer sync (Fase 5) hace upsert idempotente de todas las filas existentes.
+- [OK] Las tablas originales se conservan renombradas como `legacy_*` hasta la Fase 6 (rollback sin restaurar respaldo). Se borran solo con aprobación explícita.
+- [OK] Columnas de sync (`created_at`, `updated_at`, `deleted_at`) en TEXT ISO-8601 UTC `YYYY-MM-DDTHH:MM:SS.sssZ`. Los epoch ms existentes (`watched_at`, `read_at`, `last_watched_at`) se quedan como INTEGER y se convierten a timestamptz en el mapeo de sync.
+- [OK] `users` es tabla local (no se sincroniza ni pasa por la outbox).
 - [PROPUESTA] Variante de desarrollo con package distinto (p. ej. `com.poguis.Registro.dev`) para que el dev build no reemplace la instalación con datos reales.
-- [PROPUESTA] La migración de esquema de Fase 1 usa `withExclusiveTransactionAsync`; las operaciones normales de la app usan `withTransactionAsync`.
+- [OK] La migración de esquema de Fase 1 usa `withExclusiveTransactionAsync`; las operaciones normales de la app usan `withTransactionAsync`.
