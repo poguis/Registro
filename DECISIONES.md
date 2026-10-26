@@ -22,6 +22,7 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 - [PENDIENTE] Nonce en Google Sign-In: el nonce personalizado requiere la versión con licencia de @react-native-google-signin (Universal Sign In). Opciones: comprar licencia (nonce activo: hash SHA-256 a Google, nonce original a Supabase) o módulo gratuito + "Skip nonce check" en Supabase. Decidir antes de Fase 3.
 - [OK] Datos sensibles (nombres de contactos, personas de trabajo) viajan en claro sobre TLS y protegidos por RLS. Sin cifrado del lado cliente por ahora.
 - [OK] Firma: el release se firma con el keystore de EAS (perfil preview), SHA-256 31:32:DE:…:3E:52, SHA-1 A4:31:C8:…:67:46. Copia local fuera del repo; contraseñas en `%USERPROFILE%\.gradle\gradle.properties`. Nunca borrar ni regenerar ese keystore en EAS. No se cambia de llave hasta cerrar la Fase 5. La SHA-1 es la que se registra en el cliente Android de Google Cloud.
+- [OK] Respaldo JSON: toda columna `password` de cualquier tabla (`users`, `legacy_users`, …) va como `[OCULTO]`; `validar-respaldo.mjs` falla si alguna queda visible. La copia física `.db` la conserva: se trata como dato privado.
 
 ## Datos locales
 - [OK] SQLite local es la fuente de verdad de la UI. Toda lectura y escritura va contra SQLite; la app funciona 100% sin internet.
@@ -56,8 +57,8 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 - [PENDIENTE] Multidispositivo: si un usuario usa varios dispositivos, las claves naturales (`seasons(series_id, season_number)`, `finance_categories(user_id, name)`) pueden chocar en el pull. Definir la resolución en Fase 4 (merge por clave natural o UUID determinista).
 
 ## Fases
-0. Base técnica: verificación de firma del APK, respaldo (copia física .db + JSON) exportable fuera del teléfono, versionado de esquema (`PRAGMA user_version`, línea base aditiva), transacciones, bug de zona horaria, quitar `checkAndBackfillHistory`, corregir docs que piden desinstalar.
-1. Capa de datos local: repositorios, UUID, columnas de sync, soft delete, outbox y migración in-place de los datos existentes.
+0. **[CERRADA 2026-10-20]** Base técnica: verificación de firma del APK, respaldo (copia física .db + JSON) exportable fuera del teléfono, versionado de esquema (`PRAGMA user_version`, línea base aditiva), transacciones, bug de zona horaria, quitar `checkAndBackfillHistory`, corregir docs que piden desinstalar.
+1. **[CERRADA 2026-10-25]** Capa de datos local: repositorios, UUID, columnas de sync, soft delete, outbox y migración in-place de los datos existentes. Verificada en el celular: `install -r` del APK 1.1.0 (versionCode 2), respaldos previo y posterior válidos, `dryrun-fase1 --par` criterios 1–5 OK.
 2. Supabase: esquema Postgres, RLS, trigger de `server_updated_at` (archivos SQL).
 3. Login con Google: dev build, `signInWithIdToken`, sesión segura. Se retira usuario/contraseña.
 4. Sincronización: push/pull, conflictos, estado de sync en la UI.
