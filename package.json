@@ -29,5 +29,8 @@
     "react-native-web": "^0.21.0",
     "typescript": "~5.9.2"
   },
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.11"
+  }
 }
