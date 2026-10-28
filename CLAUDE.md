@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-Registro is a personal-management mobile app built with Expo/React Native (no backend — everything is local). It covers:
+Registro is a personal-management mobile app built with Expo/React Native. The app is still 100% local (SQLite): a Supabase Postgres schema exists since Phase 2 (`supabase/`), but the app does not connect to it until the sync phases. It covers:
 - Finances / balance tracking, debts & loans
 - Series/Anime/Reading tracking with quota-based backlog calculations
 - Backlog (pending items)
@@ -29,6 +29,7 @@ Verification scripts (Node 22.5+, use the built-in `node:sqlite`; not bundled in
 node scripts/probar-fase0.mjs                     # migration 1 + backup.js with the real code against node:sqlite (shims in scripts/lib/)
 node scripts/probar-fase1.mjs                     # migration 2, every mutation + outbox, session mapping, backup of a v2 DB, grep checks
 node scripts/dryrun-fase1.mjs                     # migration 2 on copies of the 4 test DBs (criteria 1–5); --par <antes.db> <despues.db> --etiqueta X for a device pair
+node scripts/probar-fase2.mjs                     # applies supabase/migrations/ to a LOCAL in-memory Postgres (PGlite) with an auth stub; RLS, grants, FKs, trigger, CHECKs, upsert, cascade, verificar-fase2.sql, and loads the v2 test/real DBs
 node scripts/test-date-range.mjs                  # needs TZ=America/Guayaquil (PowerShell: $env:TZ='America/Guayaquil')
 node scripts/validar-respaldo.mjs <respaldo.json> --db <copia.db>   # validates an in-app backup and loads it into .local-data/
 node scripts/comparar-bd.mjs <antes.db> <despues.db>                # counts, content hashes, sqlite_master, user_version
@@ -59,6 +60,15 @@ Firma (ver DECISIONES.md, Seguridad): el release se firma con el keystore de EAS
 
 Pruebas de actualización con datos: AVD `Registro_GoogleAPIs_36` (imagen Google APIs, permite `adb root`). Usar siempre `adb -s emulator-5554`; el celular solo lo maneja el usuario.
 
+## Supabase (`supabase/`)
+
+- `supabase/migrations/<YYYYMMDDHHMMSS>_<nombre>.sql`: the Postgres schema (Phase 2). Four files: the `set_server_updated_at` function, the 15 synced tables, indexes + triggers, and RLS + grants. Each file runs in `begin; … commit;`.
+- `supabase/verificar-fase2.sql`: read-only check that returns 22 rows (`chequeo | valor | esperado | ok`); all must be `ok = true`. It is not a migration.
+- **The user applies the SQL by hand in the Supabase SQL Editor** (guide: `docs/SUPABASE-FASE2.md`). Claude Code only writes the files and tests them locally with `scripts/probar-fase2.mjs` (PGlite, devDependency `@electric-sql/pglite`; the auth stub `scripts/lib/pg-auth-stub.sql` is test-only and never goes into `migrations/`). Never run anything against the remote project.
+- Schema changes after Phase 2 = a NEW migration file, never edits to applied ones.
+- Column mapping SQLite ↔ Postgres (types, rounding money to cents half-away-from-zero, `last_watched_at` 0 ↔ NULL, JSON shapes, server-only `server_updated_at`, cursor risk): `docs/MAPEO-SYNC.md`; executable prototype in `scripts/lib/mapeo-sync.mjs`.
+- Server rules: RLS on all 15 tables; policies `to authenticated` for select/insert/update with `(select auth.uid()) = user_id`; no DELETE (soft delete). Grants: `authenticated` select/insert/update only, nothing to `anon`/`public`. Composite FKs `(parent_id, user_id)`; `user_id` → `auth.users` on delete cascade. No `security definer` functions.
+
 ## Architecture
 
 There is no router/navigation library despite `@react-navigation` being a dependency — navigation is a hand-rolled state machine.
@@ -86,7 +96,19 @@ An earlier MVC-style layer (`src/views`, `src/controllers`, `src/database`, `src
 
 Before Phase 0, big schema changes were done by renaming the `.db` file (losing data) and asking to uninstall the APK; that is now forbidden. **Phase 0 is CLOSED (2026-10-20)**: verified on the user's phone (`install -r` of the EAS-signed APK over the existing install, no uninstall; real backup validated: SQLite 3.50.3, `user_version` 1, 16 tables, 0 FK violations, 1 local account). Phase 0 replaced the start-up `ALTER TABLE` list with swallowed errors by the versioned migrations above, removed `checkAndBackfillHistory` (the synthetic `watch_history` rows it created are kept as they are), and fixed the UTC/local filter bug in Dinero/Estadísticas.
 
-**Phase 1 is CLOSED (2026-10-25)**: repositories in `src/data/`, `db.js` as facade, UUIDs, sync columns, soft delete, outbox and migration 2 (in-place, with `legacy_*` kept). Verified on the user's phone: `install -r` of the EAS-signed APK 1.1.0 (`versionCode` 2) over the existing install, no uninstall; the app showed the migration summary with identical counts and no balance adjustment; backups before and after validated (after: `user_version` 2, `users` and `legacy_users` passwords hidden in the JSON); `dryrun-fase1 --par` criteria 1–5 OK. A first phone backup made with an earlier 1.1.0 build exposed `legacy_users.password` in the JSON; it was deleted by the user and the fix (mask every `password` column) shipped before closing. Still pending: Supabase schema (Phase 2); Google login (Phase 3).
+**Phase 1 is CLOSED (2026-10-25)**: repositories in `src/data/`, `db.js` as facade, UUIDs, sync columns, soft delete, outbox and migration 2 (in-place, with `legacy_*` kept). Verified on the user's phone: `install -r` of the EAS-signed APK 1.1.0 (`versionCode` 2) over the existing install, no uninstall; the app showed the migration summary with identical counts and no balance adjustment; backups before and after validated (after: `user_version` 2, `users` and `legacy_users` passwords hidden in the JSON); `dryrun-fase1 --par` criteria 1–5 OK. A first phone backup made with an earlier 1.1.0 build exposed `legacy_users.password` in the JSON; it was deleted by the user and the fix (mask every `password` column) shipped before closing. Still pending: Google login (Phase 3).
+
+**Phase 2 is CLOSED (2026-10-27)**: Postgres schema for the 15 synced tables (`users`, `outbox`, `_id_map`, `_migration_log` and `legacy_*` stay local), RLS, explicit grants and the `server_updated_at` trigger, as SQL files only. Tested on a local Postgres (PGlite) with `scripts/probar-fase2.mjs`, including loading 232/232 rows from the real and test v2 DBs. The user applied the 4 migrations in the SQL Editor of a new Free project ("Automatically expose new tables" off, Data API on; on file 2 the editor offered "Run and enable RLS", which only enables RLS earlier) and `verificar-fase2.sql` gave 22/22 ok. The app is not connected yet.
+
+Still to verify against real Supabase in Phase 3 (PGlite cannot test them):
+1. The real JWT: who issues and signs it, expiry and claims (`role`, `aud`, `sub`), and the Data API switching role from it.
+2. The Data API: upsert with `onConflict`, how numbers/JSON/timestamps are serialized and returned, and how RLS errors map to HTTP codes.
+3. The platform's real default privileges (the stub simulated the worst case; `verificar-fase2.sql` checked the result).
+4. The real `auth.users` table and `on delete cascade` when deleting an account from the dashboard.
+5. Version and role: PGlite is Postgres 18 and ran as superuser; Supabase runs 15–17 and the SQL Editor runs as `postgres`.
+6. `service_role` (not used by the app).
+7. Real concurrency (out-of-order commits vs. the pull cursor) and RLS performance with many rows.
+8. The Security Advisor result.
 
 ## Migración offline-first (reglas vigentes)
 Leer DECISIONES.md y docs/AUDITORIA.md antes de cambiar código. Usar plan mode y esperar aprobación. Las secciones de arriba que dicen "sin backend", "login con contraseña" o "db.js único" describen el estado ANTERIOR; actualizarlas al cerrar cada fase.

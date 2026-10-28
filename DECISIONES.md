@@ -22,6 +22,10 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 - [PENDIENTE] Nonce en Google Sign-In: el nonce personalizado requiere la versión con licencia de @react-native-google-signin (Universal Sign In). Opciones: comprar licencia (nonce activo: hash SHA-256 a Google, nonce original a Supabase) o módulo gratuito + "Skip nonce check" en Supabase. Decidir antes de Fase 3.
 - [OK] Datos sensibles (nombres de contactos, personas de trabajo) viajan en claro sobre TLS y protegidos por RLS. Sin cifrado del lado cliente por ahora.
 - [OK] Firma: el release se firma con el keystore de EAS (perfil preview), SHA-256 31:32:DE:…:3E:52, SHA-1 A4:31:C8:…:67:46. Copia local fuera del repo; contraseñas en `%USERPROFILE%\.gradle\gradle.properties`. Nunca borrar ni regenerar ese keystore en EAS. No se cambia de llave hasta cerrar la Fase 5. La SHA-1 es la que se registra en el cliente Android de Google Cloud.
+- [OK] Postgres (Fase 2): `user_id` → `auth.users(id)` con `on delete cascade`. Borrar la cuenta borra sus datos; es el único borrado físico.
+- [OK] Postgres: FK entre tablas de dominio compuestas `(parent_id, user_id)` → `padre(id, user_id)`, con `unique(id, user_id)` en los padres, `deferrable initially deferred` y sin `on delete`. Las FK no pasan por RLS: así nadie cuelga filas de un padre ajeno.
+- [OK] Postgres: grants explícitos por tabla. `authenticated` tiene select, insert y update; `anon` y `public` nada (`revoke all` explícito); nadie tiene delete. Sin `alter default privileges`.
+- [OK] Postgres: ninguna función del esquema usa `security definer`; la del trigger es `security invoker` con `search_path` vacío y sin `execute` para `anon` ni `authenticated`.
 - [OK] Respaldo JSON: toda columna `password` de cualquier tabla (`users`, `legacy_users`, …) va como `[OCULTO]`; `validar-respaldo.mjs` falla si alguna queda visible. La copia física `.db` la conserva: se trata como dato privado.
 
 ## Datos locales
@@ -43,6 +47,10 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 - [OK] `days_of_week` y `quotas` usan forma objeto (`{"Monday":1,...}`); el lector conserva la compatibilidad con la forma array legada. `work_people.cycle` es array `[{type, days}]`.
 - [OK] Saldo: `current_balance` pasa a calcularse como suma de `balance_history`. El ajuste manual se registra como movimiento de categoría "Ajuste".
 - [OK] `services.total_value` se almacena como valor histórico (Internacional = base × 1,20; Local = base + adicional, según ServiciosScreen). Se escribe junto con `original_value`/`additional_value` en la misma operación.
+- [OK] Montos en Postgres como `numeric(14,2)`. El mapeador de la Fase 4 redondea a centavos igual que Postgres: empates alejándose de cero, sobre la representación decimal del número con aritmética entera, nunca con `Math.round(x * 100)` (ver `docs/MAPEO-SYNC.md`).
+- [PENDIENTE] Fase 4: redondear también los montos a centavos al escribir en SQLite (`total_value` Internacional = base × 1,20 y montos escritos con más de 2 decimales), para que el pull no devuelva un valor distinto.
+- [OK] `series.last_watched_at`: 0 (nunca vista) en SQLite ↔ NULL en Postgres. `watched_at` y `read_at` son NOT NULL.
+- [OK] CHECK de forma JSON en Postgres: `days_of_week` NULL u objeto, `quotas` objeto, `cycle` array. El mapeador convierte el array legado de `days_of_week` a objeto (como `getQuotasForDate`); un `quotas` en forma array se rechaza y se reporta.
 - [OK] `cycle_offset` se guarda como valor absoluto, no como incremento (idempotente ante reintentos).
 - [OK] Se elimina `checkAndBackfillHistory`; las filas sintéticas ya existentes se conservan tal cual.
 
@@ -52,6 +60,7 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 - [OK] Orden: primero push de la outbox, luego pull.
 - [OK] Push idempotente (upsert por `id`). Nunca incrementos relativos.
 - [OK] Pull con cursor sobre `server_updated_at`, asignado por trigger en Postgres (no por el reloj del celular), paginado y con desempate por `id`.
+- [OK] `server_updated_at`: lo asigna el trigger `set_server_updated_at` (BEFORE INSERT OR UPDATE) con `clock_timestamp()` al insertar y `greatest(clock_timestamp(), old.server_updated_at)` al actualizar; ignora el valor del cliente. El riesgo de commits fuera de orden frente al cursor y su mitigación (ventana de solapamiento + upsert idempotente) están en `docs/MAPEO-SYNC.md`; se implementa en la Fase 4.
 - [OK] Conflictos: último en llegar al servidor gana, por registro. Se refina por entidad en la Fase 4.
 - [OK] Reintentos con backoff. La outbox nunca descarta cambios por error.
 - [PENDIENTE] Multidispositivo: si un usuario usa varios dispositivos, las claves naturales (`seasons(series_id, season_number)`, `finance_categories(user_id, name)`) pueden chocar en el pull. Definir la resolución en Fase 4 (merge por clave natural o UUID determinista).
@@ -59,7 +68,7 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 ## Fases
 0. **[CERRADA 2026-10-20]** Base técnica: verificación de firma del APK, respaldo (copia física .db + JSON) exportable fuera del teléfono, versionado de esquema (`PRAGMA user_version`, línea base aditiva), transacciones, bug de zona horaria, quitar `checkAndBackfillHistory`, corregir docs que piden desinstalar.
 1. **[CERRADA 2026-10-25]** Capa de datos local: repositorios, UUID, columnas de sync, soft delete, outbox y migración in-place de los datos existentes. Verificada en el celular: `install -r` del APK 1.1.0 (versionCode 2), respaldos previo y posterior válidos, `dryrun-fase1 --par` criterios 1–5 OK.
-2. Supabase: esquema Postgres, RLS, trigger de `server_updated_at` (archivos SQL).
+2. **[CERRADA 2026-10-27]** Supabase: esquema Postgres, RLS, trigger de `server_updated_at` (archivos SQL). Probado en Postgres local (PGlite, `scripts/probar-fase2.mjs`) y aplicado por el usuario en el SQL Editor; `supabase/verificar-fase2.sql` dio los 22 chequeos ok.
 3. Login con Google: dev build, `signInWithIdToken`, sesión segura. Se retira usuario/contraseña.
 4. Sincronización: push/pull, conflictos, estado de sync en la UI.
 5. Primer sync de datos existentes y pruebas offline/online.
