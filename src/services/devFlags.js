@@ -6,6 +6,8 @@ export const DEV_FLAGS = {
     DEV_FAIL_TX: false,
     // Lanza un error dentro de la migración, antes de fijar user_version (criterio del respaldo).
     DEV_FAIL_MIGRATION: false,
+    // Lanza un error dentro de la vinculación con Google, antes de confirmar (Fase 3).
+    DEV_FAIL_LINK: false,
 };
 
 export const maybeFail = (flag, step) => {

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, ActivityIndicator, Alert, BackHandler } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import LoginScreen from './src/screens/LoginScreen';
 import HomeScreen from './src/screens/HomeScreen';
@@ -19,10 +18,15 @@ import TrabajoScreen from './src/screens/TrabajoScreen';
 import ServiciosScreen from './src/screens/ServiciosScreen';
 import CardsScreen from './src/screens/CardsScreen';
 import DatabaseErrorScreen from './src/screens/DatabaseErrorScreen';
+import LinkAccountScreen from './src/screens/LinkAccountScreen';
+import RlsTestScreen from './src/screens/RlsTestScreen';
+import { useAuth } from './src/auth/useAuth';
+import { getVariant } from './src/auth/redirect';
+import { afterGoogleLogin, confirmLink, resolveStartupIdentity, chooseLocalUser } from './src/auth/accountFlow';
 import { ThemeProvider } from './src/contexts/ThemeContext';
 
-// La sesión guarda SOLO { id, username } (nunca contraseña ni saldo).
-const toSession = (u) => ({ id: u.id, username: u.username });
+// Variante dev (app.config.js): habilita herramientas de prueba que nunca van en producción.
+const IS_DEV_VARIANT = getVariant() === 'development';
 
 // Resumen de la migración 2 para mostrar al terminar (conteos antes y después).
 const formatMigrationSummary = (summary) => {
@@ -42,6 +46,11 @@ export default function App() {
   const [navigationHistory, setNavigationHistory] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [dbError, setDbError] = useState(null);
+  // Fase 3: identidad local + sesión de Google (la sesión nunca bloquea los datos locales).
+  const auth = useAuth();
+  const [localChoices, setLocalChoices] = useState(null); // varias cuentas sin vincular
+  const [pendingLink, setPendingLink] = useState(null); // { email, localUsername, session }
+  const [linkBusy, setLinkBusy] = useState(false);
 
   // Inicializar DB (incluye migraciones) y recuperar sesión.
   // Si la BD no queda lista, no se muestra ninguna pantalla de la app: solo
@@ -64,27 +73,14 @@ export default function App() {
         }
       }
 
-      // Recuperar usuario de AsyncStorage. Una sesión con id entero (anterior a la
-      // migración 2) se mapea al UUID nuevo; si no se puede, se cierra la sesión.
-      const storedUser = await AsyncStorage.getItem('@user_session');
-      if (storedUser) {
-        try {
-          const userData = JSON.parse(storedUser);
-          const resolved = userData && typeof userData === 'object' && userData.id
-            ? await db.resolveSessionUser(userData.id)
-            : null;
-          if (resolved && resolved.success && resolved.user) {
-            const session = toSession(resolved.user);
-            await AsyncStorage.setItem('@user_session', JSON.stringify(session));
-            setUser(session);
-            setCurrentView('HOME');
-          } else {
-            await AsyncStorage.removeItem('@user_session');
-          }
-        } catch (parseError) {
-          console.error('Invalid stored session:', parseError);
-          await AsyncStorage.removeItem('@user_session');
-        }
+      // Identidad local (sin red ni Supabase): con datos locales la app SIEMPRE abre.
+      // Solo una instalación sin datos exige el login con Google.
+      const identity = await resolveStartupIdentity();
+      if (identity.kind === 'open') {
+        setUser(identity.user);
+        setCurrentView('HOME');
+      } else if (identity.kind === 'choose') {
+        setLocalChoices(identity.users);
       }
     } catch (error) {
       console.error('Error in init:', error);
@@ -127,32 +123,87 @@ export default function App() {
     return () => backHandler.remove();
   }, [handleBack]);
 
-  const handleLogin = async (loggedUser) => {
-    const userData = toSession(loggedUser);
-    try {
-      await AsyncStorage.setItem('@user_session', JSON.stringify(userData));
-      setUser(userData);
-      setNavigationHistory([]); // Reset history on login
-      setCurrentView('HOME');
-    } catch (error) {
-      console.error('Error saving session:', error);
-      setUser(userData);
-      setCurrentView('HOME');
+  const enterApp = (appUser) => {
+    setUser(appUser);
+    setLocalChoices(null);
+    setNavigationHistory([]);
+    setCurrentView('HOME');
+  };
+
+  // Login con Google (también sirve para vincular o para volver a iniciar sesión).
+  const handleGoogle = async () => {
+    const r = await auth.signIn();
+    if (r.status === 'cancel') return;
+    if (r.status === 'error') {
+      Alert.alert('No se pudo iniciar sesión', r.message);
+      return;
+    }
+    const next = await afterGoogleLogin(r.session);
+    if (next.kind === 'ready') {
+      enterApp(next.user);
+    } else if (next.kind === 'confirm-link') {
+      setPendingLink({ email: next.email, localUsername: next.localUser.username, session: r.session });
+    } else if (next.kind === 'blocked') {
+      Alert.alert(
+        'Cuenta no permitida',
+        next.reason === 'other-account'
+          ? `Los datos de este dispositivo pertenecen a ${next.linkedEmail || 'otra cuenta'}. No se cambió nada.`
+          : 'Hay varias cuentas locales en este dispositivo; la vinculación necesita una sola. No se cambió nada.'
+      );
+    } else {
+      Alert.alert('Error', next.message);
     }
   };
 
-  const handleLogout = async () => {
+  const handleConfirmLink = async () => {
+    if (!pendingLink) return;
+    setLinkBusy(true);
     try {
-      await AsyncStorage.removeItem('@user_session');
-      setUser(null);
-      setNavigationHistory([]); // Reset history on logout
-      setCurrentView('LOGIN');
-    } catch (error) {
-      console.error('Error removing session:', error);
-      setUser(null);
-      setCurrentView('LOGIN');
+      const res = await confirmLink(pendingLink.session);
+      if (res.ok) {
+        setPendingLink(null);
+        enterApp(res.user);
+        Alert.alert('Cuenta vinculada', `Tus datos ahora están vinculados a ${res.user.email}.`);
+      } else {
+        setPendingLink(null);
+        Alert.alert('No se vinculó', `${res.message}
+
+Tus datos no se modificaron.`);
+      }
+    } finally {
+      setLinkBusy(false);
     }
   };
+
+  const handleCancelLink = async () => {
+    setPendingLink(null);
+    await auth.signOut();
+  };
+
+  // Cerrar sesión de Google: los datos locales se quedan y la app sigue abierta.
+  const handleLogout = () => {
+    Alert.alert(
+      'Cerrar sesión de Google',
+      'Tus datos se quedan en este dispositivo y la app sigue funcionando sin conexión. Podrás volver a iniciar sesión cuando quieras.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Cerrar sesión', style: 'destructive', onPress: () => auth.signOut() },
+      ]
+    );
+  };
+
+  const handleChooseLocal = async (localUser) => {
+    await chooseLocalUser(localUser);
+    enterApp(localUser);
+  };
+
+  // Aviso no bloqueante en Home.
+  const homeNotice = !user || !auth.configured ? null
+    : !user.linked
+      ? { text: 'Vincula tu cuenta de Google para poder sincronizar tus datos más adelante.', actionLabel: 'Vincular con Google', onAction: handleGoogle, busy: auth.signingIn }
+      : !auth.session
+        ? { text: 'Inicia sesión con Google para sincronizar (tus datos locales siguen disponibles).', actionLabel: 'Iniciar sesión', onAction: handleGoogle, busy: auth.signingIn }
+        : null;
 
   const handleNavigate = (view) => {
     setNavigationHistory(prev => [...prev, currentView]);
@@ -181,8 +232,22 @@ export default function App() {
   return (
     <ThemeProvider>
       <SafeAreaProvider>
-        {!user ? (
-          <LoginScreen onLoginSuccess={handleLogin} />
+        {pendingLink ? (
+          <LinkAccountScreen
+            email={pendingLink.email}
+            localUsername={pendingLink.localUsername}
+            busy={linkBusy}
+            onConfirm={handleConfirmLink}
+            onCancel={handleCancelLink}
+          />
+        ) : !user ? (
+          <LoginScreen
+            onGoogle={handleGoogle}
+            signingIn={auth.signingIn}
+            configured={auth.configured}
+            localUsers={localChoices}
+            onChooseLocal={handleChooseLocal}
+          />
         ) : (() => {
           switch (currentView) {
             case 'CARDS':
@@ -284,13 +349,19 @@ export default function App() {
                   onBack={handleBack}
                 />
               );
+            case 'RLS_TEST':
+              // Solo en la variante dev; en producción cae a HOME.
+              if (IS_DEV_VARIANT) return <RlsTestScreen onBack={handleBack} />;
+            // falls through
             case 'HOME':
             default:
               return (
                 <HomeScreen
                   user={user}
                   onNavigate={handleNavigate}
-                  onLogout={handleLogout}
+                  onLogout={auth.session ? handleLogout : null}
+                  notice={homeNotice}
+                  devTools={IS_DEV_VARIANT}
                 />
               );
           }

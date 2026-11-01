@@ -30,7 +30,10 @@ const MenuButton = ({ title, icon, color, onPress, theme, disabled = false }) =>
     </TouchableOpacity>
 );
 
-export default function HomeScreen({ user, onLogout, onNavigate }) {
+// notice: aviso no bloqueante { text, actionLabel, onAction } (vincular / iniciar sesión).
+// onLogout: solo si hay sesión de Google; cierra esa sesión y NO toca los datos locales.
+// devTools: solo en la variante dev (acceso a la prueba de RLS).
+export default function HomeScreen({ user, onLogout, onNavigate, notice, devTools }) {
     const { isDarkMode, toggleTheme, theme } = useTheme();
     const [isBackingUp, setIsBackingUp] = useState(false);
 
@@ -86,11 +89,26 @@ export default function HomeScreen({ user, onLogout, onNavigate }) {
                     >
                         <Text style={{ fontSize: 20 }}>{isDarkMode ? '🌞' : '🌙'}</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
-                        <Text style={styles.logoutText}>Salir</Text>
-                    </TouchableOpacity>
+                    {onLogout && (
+                        <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
+                            <Text style={styles.logoutText}>Cerrar sesión</Text>
+                        </TouchableOpacity>
+                    )}
                 </View>
             </View>
+
+            {notice && (
+                <View style={[styles.notice, { backgroundColor: theme.card, borderColor: theme.accent }]}>
+                    <Text style={[styles.noticeText, { color: theme.text }]}>{notice.text}</Text>
+                    {notice.actionLabel && (
+                        <TouchableOpacity onPress={notice.onAction} disabled={notice.busy}>
+                            <Text style={[styles.noticeAction, { color: theme.accent }]}>
+                                {notice.busy ? 'Conectando…' : notice.actionLabel}
+                            </Text>
+                        </TouchableOpacity>
+                    )}
+                </View>
+            )}
 
             {/* Main Content */}
             <View style={styles.content}>
@@ -138,6 +156,16 @@ export default function HomeScreen({ user, onLogout, onNavigate }) {
                     theme={theme}
                     disabled={isBackingUp}
                 />
+
+                {devTools && (
+                    <MenuButton
+                        title="Prueba de RLS (dev)"
+                        icon="🧪"
+                        color="#9C27B0"
+                        onPress={() => onNavigate('RLS_TEST')}
+                        theme={theme}
+                    />
+                )}
             </View>
         </SafeAreaView>
     );
@@ -178,6 +206,22 @@ const styles = StyleSheet.create({
         backgroundColor: '#FFEBEE',
         borderRadius: 20,
         marginLeft: 10,
+    },
+    notice: {
+        marginHorizontal: 20,
+        marginTop: -5,
+        marginBottom: 10,
+        padding: 14,
+        borderRadius: 15,
+        borderWidth: 1,
+    },
+    noticeText: {
+        fontSize: 14,
+        marginBottom: 6,
+    },
+    noticeAction: {
+        fontSize: 14,
+        fontWeight: 'bold',
     },
     logoutText: {
         color: '#FF5252',

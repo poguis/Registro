@@ -8,6 +8,7 @@ import { execSync } from 'node:child_process';
 import { mkdirSync, rmSync, copyFileSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { randomUUID } from 'node:crypto';
 import { getSchema, countAll, hashAll } from './lib/sqlite-utils.mjs';
 
 const { __setDatabasePath } = await import('./lib/expo-sqlite-shim.mjs');
@@ -15,6 +16,7 @@ const { backupCalls, backupStub } = await import('./lib/backup-stub.mjs');
 const { DEV_FLAGS } = await import('../src/services/devFlags.js');
 const { DatabaseService, QUEUED_MUTATIONS } = await import('../src/services/db.js');
 const { MIGRATED_TABLES } = await import('../src/data/db/migration2.ts');
+const { LATEST_VERSION } = await import('../src/services/migrations.js');
 
 const WORK = resolve('.local-data/pruebas-fase1').replace(/\\/g, '/');
 rmSync(WORK, { recursive: true, force: true });
@@ -57,11 +59,11 @@ const same = (a, b) => a.uv === b.uv && a.schema === b.schema && JSON.stringify(
 section('Criterio 6: idempotencia');
 const pB = prepare('B', '.local-data/emulador/checklist/app.db');
 const r1 = await open(pB);
-check('primer arranque migra a v2', r1.ok && r1.svc.lastMigration.applied.includes(2));
+check(`primer arranque migra a v2 (y hasta v${LATEST_VERSION})`, r1.ok && r1.svc.lastMigration.applied.includes(2));
 await r1.svc.db.closeAsync();
 const afterFirst = snap(pB);
 const r2 = await open(pB);
-check('segundo arranque: sin migraciones pendientes', r2.ok && r2.svc.lastMigration.applied.length === 0 && r2.captured.some((l) => l.includes('Sin migraciones pendientes (user_version = 2)')));
+check('segundo arranque: sin migraciones pendientes', r2.ok && r2.svc.lastMigration.applied.length === 0 && r2.captured.some((l) => l.includes(`Sin migraciones pendientes (user_version = ${LATEST_VERSION})`)));
 await r2.svc.db.closeAsync();
 check('segundo arranque: esquema, conteos y contenido idénticos', same(afterFirst, snap(pB)));
 
@@ -81,7 +83,7 @@ const rb = await open(pF);
 backupStub.shouldFail = false;
 check('si la copia previa falla, no migra y no toca nada', rb.ok === false && same(beforeFail, snap(pF)), rb.svc.lastInitError && rb.svc.lastInitError.message);
 const rr = await open(pF);
-check('reintento sin fallos: migra a v2', rr.ok && snap(pF).uv === 2);
+check(`reintento sin fallos: migra hasta v${LATEST_VERSION}`, rr.ok && snap(pF).uv === LATEST_VERSION);
 await rr.svc.db.closeAsync();
 
 // ---------------------------------------------------------------------------
@@ -101,8 +103,8 @@ if (rs.ok) {
     const summary = (await rs.svc.getLatestMigrationSummary()).summary;
     check('inserta UN movimiento "Ajuste" por la diferencia (+12,50)', summary.balanceAdjustments.length === 1 && summary.balanceAdjustments[0].amount === 12.5);
     check('descarta la temporada duplicada (se conserva la de id mayor) y lo registra', summary.seasonDuplicatesDiscarded === 1);
-    const u = (await rs.svc.loginUser('__nadie__', '__nada__'));
-    check('loginUser con credenciales malas → error', u.success === false);
+    const lu = await rs.svc.getLocalUsers();
+    check('getLocalUsers no expone contraseña (Fase 3)', lu.success && lu.users.every((u) => !('password' in u)));
     await rs.svc.db.closeAsync();
 }
 
@@ -233,11 +235,12 @@ const childCount = ['series', 'entertainment_pauses', 'entertainment_quotas_hist
 await op('deleteEntertainmentCategory (cascada lógica a todas las hijas)', () => svc.deleteEntertainmentCategory(newCat.id));
 check(`la cascada de categoría encola la categoría + sus ${childCount} hijas`,
     outboxSince(0).filter((k) => k.endsWith(newCat.id)).length >= 1 && childCount === 5);
-// registerUser al final (cambia la cantidad de cuentas)
-await opFails('registerUser', () => svc.registerUser('nueva_cuenta', 'x'));
-await op('registerUser (+6 categorías por defecto; users no pasa por outbox)', () => svc.registerUser('nueva_cuenta', 'x'));
-const login = await svc.loginUser('nueva_cuenta', 'x');
-check('loginUser devuelve solo { id, username }', login.success && JSON.stringify(Object.keys(login.user).sort()) === '["id","username"]');
+// createLinkedUser al final (cambia la cantidad de cuentas; reemplaza a registerUser desde la Fase 3)
+const newUid = randomUUID();
+await opFails('createLinkedUser', () => svc.createLinkedUser(newUid, 'nueva@ejemplo.test'));
+await op('createLinkedUser (+6 categorías por defecto; users no pasa por outbox)', () => svc.createLinkedUser(newUid, 'nueva@ejemplo.test'));
+const created = (await svc.getLocalUsers()).users.find((u) => u.id === newUid);
+check('createLinkedUser: id = uid, vinculada y sin contraseña', !!created && !!created.linked_at && created.email === 'nueva@ejemplo.test' && !('password' in created));
 const missing = QUEUED_MUTATIONS.filter((m) => ![...tested].some((t) => t.startsWith(m)));
 check('todas las mutaciones de la fachada fueron probadas', missing.length === 0, missing.join(', '));
 raw.close();
@@ -253,13 +256,13 @@ check('resolveSessionUser de un id inexistente → sin usuario (se cierra la ses
 await rse.svc.db.closeAsync();
 
 // ---------------------------------------------------------------------------
-section('Respaldo de una BD v2: ninguna contraseña visible (users y legacy_users)');
+section('Respaldo de una BD migrada: ninguna contraseña visible (legacy_users; users ya no tiene password)');
 const backup = await import('../src/services/backup.js');
 __setDatabasePath(pSe);
 const { result: bk } = await quiet(() => backup.createBackup());
 const bkJson = JSON.parse(readFileSync(bk.json.path, 'utf8'));
 const pwTables = Object.keys(bkJson.data).filter((t) => bkJson.data[t].some((r) => 'password' in r));
-check('el JSON tiene users y legacy_users con columna password', pwTables.includes('users') && pwTables.includes('legacy_users'), pwTables.join(', '));
+check('solo legacy_users tiene columna password en el JSON (users ya no)', pwTables.length === 1 && pwTables[0] === 'legacy_users', pwTables.join(', '));
 check('toda columna password del JSON está oculta', pwTables.every((t) => bkJson.data[t].every((r) => r.password === '[OCULTO]')));
 const runValidator = (json, out) => {
     try {
@@ -294,6 +297,7 @@ const JUSTIFIED = {
     'SELECT id, deleted_at FROM finance_categories': 'ensureCategory: busca también borradas para revivirlas (UNIQUE)',
     'SELECT id, episode_count, deleted_at FROM seasons': 'upsertSeasons: busca también borradas para revivirlas (UNIQUE)',
     'SELECT id, username FROM users': 'users no tiene borrado lógico (tabla local)',
+    'SELECT id, username, email, linked_at FROM users': 'users no tiene borrado lógico (tabla local)',
     'SELECT u.id, u.username FROM _id_map': 'tablas internas de la migración',
     'SELECT payload FROM _migration_log': 'tabla interna de la migración',
 };

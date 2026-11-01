@@ -249,7 +249,7 @@ check('Math.round(x*100) fallaría con 1,005 (por eso no se usa)', Math.round(1.
 await pg.close();
 
 // ---------------------------------------------------------------------------
-section('Criterio 8: compatibilidad con BD reales y de prueba (v2)');
+section('Criterio 8: compatibilidad con BD reales y de prueba (v2 o posterior)');
 // Regenera las 4 BD de prueba migradas a v2 (real 2026-10-20, A, B, C) con el dry-run de la Fase 1.
 execSync('node scripts/dryrun-fase1.mjs', { stdio: 'pipe' });
 const SOURCES = {
@@ -308,7 +308,7 @@ for (const [label, path] of Object.entries(SOURCES)) {
     }
     const tombstones = TABLES.reduce((n, t) => n + src.prepare(`SELECT count(*) n FROM ${t} WHERE deleted_at IS NOT NULL`).get().n, 0);
     check(`${label} (uv ${uv}, ${users.size} cuenta(s)): ${loaded}/${rows} filas cargadas, ${tombstones} tombstones`,
-        uv === 2 && mapErrors === 0 && dbErrors === 0 && loaded === rows && sameCounts,
+        uv >= 2 && mapErrors === 0 /* la migración 3 no toca las 15 tablas sincronizables */ && dbErrors === 0 && loaded === rows && sameCounts,
         `${mapErrors} error(es) de mapeo, ${dbErrors} de Postgres; montos ${moneyValues}, cambian al redondear ${moneyChanged}${firstErrors.length ? ' · ' + firstErrors.join(' | ') : ''}`);
     totals.rows += rows; totals.loaded += loaded; totals.moneyValues += moneyValues; totals.moneyChanged += moneyChanged;
     src.close();

@@ -38,6 +38,15 @@ const ensureBackupDir = (databasePath) => {
     return dirPath;
 };
 
+// Sello único: si ya existe un archivo con el mismo sello (dos respaldos en el mismo
+// segundo), se agrega -2, -3… VACUUM INTO nunca sobrescribe, así que sin esto fallaría.
+const uniqueStamp = (dirPath, prefix, stamp, ext) => {
+    for (let n = 1; ; n++) {
+        const candidate = n === 1 ? stamp : `${stamp}-${n}`;
+        if (!new File(toFileUri(`${dirPath}/${prefix}${candidate}${ext}`)).exists) return candidate;
+    }
+};
+
 const withConnection = async (task) => {
     const conn = await openBackupConnection();
     try {
@@ -62,13 +71,14 @@ export function listDbFilesNextTo(databasePath) {
 export async function createPhysicalCopy(label = 'respaldo', stamp = fileStamp()) {
     return withConnection(async (conn) => {
         const dirPath = ensureBackupDir(conn.databasePath);
-        const path = `${dirPath}/registro_${label}_${stamp}.db`;
+        const usedStamp = uniqueStamp(dirPath, `registro_${label}_`, stamp, '.db');
+        const path = `${dirPath}/registro_${label}_${usedStamp}.db`;
         await conn.execAsync(`VACUUM INTO ${quoteSqlString(path)}`);
         const file = new File(toFileUri(path));
         if (!file.exists || file.size === 0) {
             throw new Error('La copia física no se creó o quedó vacía');
         }
-        return { path, uri: file.uri, size: file.size };
+        return { path, uri: file.uri, size: file.size, stamp: usedStamp };
     });
 }
 
@@ -124,8 +134,9 @@ export async function createJsonBackup(stamp = fileStamp()) {
 export async function createBackup() {
     const stamp = fileStamp();
     const physical = await createPhysicalCopy('respaldo', stamp);
-    const json = await createJsonBackup(stamp);
-    return { stamp, physical, json };
+    // El JSON lleva el mismo sello que la copia física (incluido el sufijo, si lo hubo).
+    const json = await createJsonBackup(physical.stamp);
+    return { stamp: physical.stamp, physical, json };
 }
 
 // Abre el menú de compartir de Android para sacar cada archivo del teléfono

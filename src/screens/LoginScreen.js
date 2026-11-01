@@ -1,123 +1,69 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
     View,
     Text,
-    TextInput,
     TouchableOpacity,
     StyleSheet,
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
     ActivityIndicator,
     Dimensions
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import db from '../services/db';
 import { useTheme } from '../contexts/ThemeContext';
 
 const { width } = Dimensions.get('window');
 
-export default function LoginScreen({ onLoginSuccess }) {
+// Entrada a la app (Fase 3: sin usuario/contraseña).
+// - Instalación sin datos locales: "Continuar con Google" (necesita internet).
+// - Varias cuentas locales sin vincular (solo BD de prueba): se elige una, sin contraseña.
+// La lógica de login vive en App.js / src/auth; esta pantalla solo presenta.
+export default function LoginScreen({ onGoogle, signingIn, configured, localUsers, onChooseLocal }) {
     const { theme, isDarkMode } = useTheme();
-    const [isRegistering, setIsRegistering] = useState(false);
-    const [username, setUsername] = useState('');
-    const [password, setPassword] = useState('');
-    const [loading, setLoading] = useState(false);
-
-    const handleSubmit = async () => {
-        if (!username.trim() || !password.trim()) {
-            Alert.alert('Error', 'Por favor completa todos los campos');
-            return;
-        }
-
-        setLoading(true);
-        try {
-            if (isRegistering) {
-                const result = await db.registerUser(username, password);
-                if (result.success) {
-                    Alert.alert('Éxito', 'Cuenta creada. Ahora puedes iniciar sesión.');
-                    setIsRegistering(false);
-                    setPassword('');
-                } else Alert.alert('Error', result.error);
-            } else {
-                const result = await db.loginUser(username, password);
-                if (result.success) onLoginSuccess(result.user);
-                else Alert.alert('Error', result.error);
-            }
-        } catch (error) {
-            Alert.alert('Error', 'Ocurrió un error');
-        } finally {
-            setLoading(false);
-        }
-    };
+    const choosing = Array.isArray(localUsers) && localUsers.length > 0;
 
     return (
-        <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-            style={[styles.container, { backgroundColor: theme.background }]}
-        >
+        <View style={[styles.container, { backgroundColor: theme.background }]}>
             <StatusBar style={isDarkMode ? "light" : "dark"} />
             <View style={[styles.circle1, { backgroundColor: theme.accent, opacity: isDarkMode ? 0.2 : 0.1 }]} />
             <View style={[styles.circle2, { backgroundColor: isDarkMode ? '#0f3460' : theme.accent, opacity: isDarkMode ? 0.3 : 0.05 }]} />
 
             <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <Text style={[styles.headerTitle, { color: theme.text }]}>
-                    {isRegistering ? 'Crear Cuenta' : 'Bienvenido'}
-                </Text>
+                <Text style={[styles.headerTitle, { color: theme.text }]}>Bienvenido</Text>
                 <Text style={[styles.subHeader, { color: theme.subText }]}>
-                    {isRegistering ? 'Regístrate para comenzar' : 'Ingresa a tu espacio personal'}
+                    {choosing ? 'Elige tu cuenta local' : 'Ingresa a tu espacio personal'}
                 </Text>
 
-                <View style={styles.inputContainer}>
-                    <Text style={[styles.label, { color: theme.accent }]}>Usuario</Text>
-                    <TextInput
-                        style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
-                        placeholder="Nombre de usuario"
-                        placeholderTextColor={theme.subText}
-                        value={username}
-                        onChangeText={setUsername}
-                        autoCapitalize="none"
-                    />
-                </View>
-
-                <View style={styles.inputContainer}>
-                    <Text style={[styles.label, { color: theme.accent }]}>Contraseña</Text>
-                    <TextInput
-                        style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
-                        placeholder="••••••••"
-                        placeholderTextColor={theme.subText}
-                        value={password}
-                        onChangeText={setPassword}
-                        secureTextEntry
-                    />
-                </View>
-
-                <TouchableOpacity
-                    style={[styles.button, { backgroundColor: theme.accent, shadowColor: theme.accent }]}
-                    onPress={handleSubmit}
-                    disabled={loading}
-                >
-                    {loading ? (
-                        <ActivityIndicator color="#fff" />
-                    ) : (
-                        <Text style={styles.buttonText}>
-                            {isRegistering ? 'Registrarse' : 'Iniciar Sesión'}
+                {choosing ? (
+                    localUsers.map((u) => (
+                        <TouchableOpacity
+                            key={u.id}
+                            style={[styles.localButton, { borderColor: theme.border, backgroundColor: theme.inputBackground }]}
+                            onPress={() => onChooseLocal(u)}
+                        >
+                            <Text style={[styles.localText, { color: theme.text }]}>{u.username}</Text>
+                        </TouchableOpacity>
+                    ))
+                ) : (
+                    <>
+                        <TouchableOpacity
+                            style={[styles.button, { backgroundColor: theme.accent, shadowColor: theme.accent, opacity: configured ? 1 : 0.6 }]}
+                            onPress={onGoogle}
+                            disabled={signingIn || !configured}
+                        >
+                            {signingIn ? (
+                                <ActivityIndicator color="#fff" />
+                            ) : (
+                                <Text style={styles.buttonText}>Continuar con Google</Text>
+                            )}
+                        </TouchableOpacity>
+                        <Text style={[styles.hint, { color: theme.subText }]}>
+                            {configured
+                                ? 'Necesitas internet para el primer inicio de sesión. Después la app funciona sin conexión.'
+                                : 'Esta compilación no tiene configurado Supabase (.env).'}
                         </Text>
-                    )}
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                    style={styles.switchButton}
-                    onPress={() => setIsRegistering(!isRegistering)}
-                >
-                    <Text style={[styles.switchText, { color: theme.accent }]}>
-                        {isRegistering
-                            ? '¿Ya tienes cuenta? Iniciar Sesión'
-                            : '¿No tienes cuenta? Regístrate'}
-                    </Text>
-                </TouchableOpacity>
+                    </>
+                )}
             </View>
-        </KeyboardAvoidingView>
+        </View>
     );
 }
 
@@ -128,11 +74,9 @@ const styles = StyleSheet.create({
     card: { width: width * 0.85, borderRadius: 25, padding: 30, borderWidth: 1, elevation: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 20 },
     headerTitle: { fontSize: 32, fontWeight: 'bold', marginBottom: 5, textAlign: 'center' },
     subHeader: { fontSize: 16, marginBottom: 30, textAlign: 'center' },
-    inputContainer: { marginBottom: 20 },
-    label: { marginBottom: 8, fontSize: 14, fontWeight: '700' },
-    input: { borderRadius: 15, padding: 15, fontSize: 16, borderWidth: 1 },
     button: { padding: 18, borderRadius: 15, alignItems: 'center', marginTop: 10, elevation: 5, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
     buttonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
-    switchButton: { marginTop: 20, alignItems: 'center' },
-    switchText: { fontSize: 14, fontWeight: '600' }
+    hint: { marginTop: 20, fontSize: 13, textAlign: 'center' },
+    localButton: { padding: 16, borderRadius: 15, borderWidth: 1, marginBottom: 12 },
+    localText: { fontSize: 16, fontWeight: '600', textAlign: 'center' },
 });

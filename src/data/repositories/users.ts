@@ -1,34 +1,31 @@
 import { getConnection, type Row } from '../db/connection';
-import { newId } from '../ids';
 import { nowIso } from '../clock';
 import { ensureCategory } from './money';
 
 // Usuarios: tabla LOCAL (no se sincroniza ni pasa por la outbox).
-// El login con contraseña se retira en la Fase 3 (Google).
+// Desde la Fase 3 no hay contraseña: la identidad es la cuenta de Google. Al vincular,
+// users.id pasa a ser el auth.uid() (ver src/data/db/linkAccount.ts).
 
 const db = () => getConnection();
 const DEFAULT_CATEGORIES = ['Comida', 'Transporte', 'Sueldo', 'Venta', 'Salud', 'Hogar'];
 
 export type SessionUser = { id: string; username: string };
+export type LocalUser = SessionUser & { email: string | null; linked_at: string | null };
 
-// Crea la cuenta y sus categorías por defecto (las categorías sí van a la outbox).
-export async function registerUser(username: string, password: string): Promise<string> {
-    const id = newId();
-    const now = nowIso();
-    await db().runAsync(
-        'INSERT INTO users (id, username, password, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-        [id, username, password, now, now]
-    );
-    for (const name of DEFAULT_CATEGORIES) await ensureCategory(id, name);
-    return id;
+export async function getLocalUsers(): Promise<LocalUser[]> {
+    return db().getAllAsync<LocalUser>('SELECT id, username, email, linked_at FROM users ORDER BY created_at');
 }
 
-// Devuelve solo { id, username }: nunca la contraseña.
-export async function loginUser(username: string, password: string): Promise<SessionUser | null> {
-    return db().getFirstAsync<SessionUser>(
-        'SELECT id, username FROM users WHERE username = ? AND password = ?',
-        [username, password]
+// Instalación nueva (sin datos locales): crea la cuenta ya vinculada (id = auth.uid())
+// y sus categorías por defecto (las categorías sí van a la outbox). Llamar dentro de `mutate`.
+export async function createLinkedUser(uid: string, email: string): Promise<LocalUser> {
+    const now = nowIso();
+    await db().runAsync(
+        'INSERT INTO users (id, username, email, linked_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+        [uid, email, email, now, now, now]
     );
+    for (const name of DEFAULT_CATEGORIES) await ensureCategory(uid, name);
+    return { id: uid, username: email, email, linked_at: now };
 }
 
 export async function getUserById(id: string): Promise<SessionUser | null> {
@@ -44,10 +41,10 @@ export async function mapLegacyUserId(oldId: number): Promise<SessionUser | null
     return row ? { id: row.id, username: row.username } : null;
 }
 
-// Resumen de la última migración registrada (para mostrarlo en la app).
+// Resumen de la migración 2 (el que App.js muestra al terminarla).
 export async function getLatestMigrationSummary(): Promise<Row | null> {
     const row = await db().getFirstAsync<Row>(
-        "SELECT payload FROM _migration_log WHERE kind = 'summary' ORDER BY id DESC LIMIT 1"
+        "SELECT payload FROM _migration_log WHERE kind = 'summary' AND version = 2 ORDER BY id DESC LIMIT 1"
     );
     return row ? JSON.parse(row.payload) : null;
 }

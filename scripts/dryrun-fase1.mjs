@@ -108,8 +108,11 @@ for (const [label, source, migratedOnDevice] of DATABASES) {
     const db = new DatabaseSync(newPath, { readOnly: true });
     const q = (sql, ...p) => db.prepare(sql).all(...p).map((r) => ({ ...r }));
     const one = (sql, ...p) => ({ ...db.prepare(sql).get(...p) });
-    check('user_version = 2', one('PRAGMA user_version').user_version === 2);
-    const log = JSON.parse(one("SELECT payload FROM _migration_log WHERE kind = 'summary' ORDER BY id DESC LIMIT 1").payload);
+    // Desde la Fase 3 el código actual sigue hasta la migración 3 (no toca tablas de dominio);
+    // un par migrado en el dispositivo por la app 1.1.0 queda en 2.
+    const uvNow = one('PRAGMA user_version').user_version;
+    check('user_version ≥ 2', uvNow >= 2, `${uvNow}`);
+    const log = JSON.parse(one("SELECT payload FROM _migration_log WHERE kind = 'summary' AND version = 2 ORDER BY id DESC LIMIT 1").payload);
 
     // 1. Conteos
     const rows = [];

@@ -2,7 +2,8 @@ import * as SQLite from 'expo-sqlite';
 import { DB_NAME } from './dbConfig';
 import { runMigrations, LATEST_VERSION } from './migrations';
 import { createPhysicalCopy, listDbFilesNextTo } from './backup';
-import { setConnection, mutate } from '../data/db/connection';
+import { setConnection, mutate, enqueue } from '../data/db/connection';
+import { linkLocalAccount } from '../data/db/linkAccount';
 import * as users from '../data/repositories/users';
 import * as money from '../data/repositories/money';
 import * as debts from '../data/repositories/debts';
@@ -101,29 +102,37 @@ class DatabaseService {
 
     // --- USER & AUTH ---
 
-    async registerUser(username, password) {
+    // Cuentas locales (sin contraseña desde la Fase 3): { id, username, email, linked_at }.
+    async getLocalUsers() {
         if (!this.db) await this.init();
         try {
-            const id = await mutate(() => users.registerUser(username, password));
-            return ok({ id });
+            return ok({ users: await users.getLocalUsers() });
         } catch (error) {
-            if (String(error.message).includes('UNIQUE constraint failed')) {
-                return { success: false, error: 'El usuario ya existe' };
-            }
-            console.error('Error registering user:', error);
-            return { success: false, error: 'Error al registrar usuario' };
+            return failed('Error reading local users:', error);
         }
     }
 
-    // Devuelve solo { id, username } (nunca la contraseña).
-    async loginUser(username, password) {
+    // Instalación nueva: crea la cuenta ya vinculada a Google (id = auth.uid()).
+    async createLinkedUser(uid, email) {
         if (!this.db) await this.init();
         try {
-            const user = await users.loginUser(username, password);
-            return user ? ok({ user }) : { success: false, error: 'Credenciales inválidas' };
+            return ok({ user: await mutate(() => users.createLinkedUser(uid, email)) });
         } catch (error) {
-            console.error('Error logging in:', error);
-            return { success: false, error: 'Error al iniciar sesión' };
+            return failed('Error creating linked user:', error);
+        }
+    }
+
+    // Vincula los datos locales a la cuenta de Google (operación única, transacción
+    // exclusiva con copia física previa; ver src/data/db/linkAccount.ts). Pasa por la
+    // cola para no cruzarse con otra escritura. No es una mutación de dominio: no
+    // escribe en la outbox.
+    async linkAccount(uid, email) {
+        if (!this.db) await this.init();
+        try {
+            const result = await enqueue(() => linkLocalAccount(this.db, { uid, email }, { createPhysicalCopy }));
+            return ok({ result });
+        } catch (error) {
+            return failed('Error linking account:', error);
         }
     }
 
@@ -717,7 +726,7 @@ class DatabaseService {
 // la fila y su entrada en la outbox se escriben juntas. Regla: una mutación no llama a
 // otra mutación de la fachada; la lógica compartida vive en los repositorios.
 export const QUEUED_MUTATIONS = [
-    'registerUser', 'updateUserBalance', 'registerMoneyMovement', 'addBalanceTransaction', 'addFinanceCategory',
+    'createLinkedUser', 'updateUserBalance', 'registerMoneyMovement', 'addBalanceTransaction', 'addFinanceCategory',
     'addTransaction', 'deleteTransaction',
     'addService', 'updateService', 'deleteService', 'toggleServiceStatus',
     'addEntertainmentCategory', 'pauseCategory', 'resumeCategory', 'updateEntertainmentCategory', 'deleteEntertainmentCategory',

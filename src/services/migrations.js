@@ -1,5 +1,6 @@
 import { maybeFail } from './devFlags';
 import { migration2 } from '../data/db/migration2';
+import { migration3 } from '../data/db/migration3';
 
 // Migraciones de esquema versionadas con PRAGMA user_version.
 // Reglas: cada migración corre en una transacción exclusiva y sube user_version
@@ -228,6 +229,12 @@ export const MIGRATIONS = [
         // Nota: el comentario de estados de la migración 1 ('Terminada', 'Pausada') está desactualizado;
         // los estados canónicos están en el esquema de esta migración (src/data/db/migration2.ts).
         up: migration2,
+    },
+    {
+        version: 3,
+        description: 'Fase 3: retiro del login con contraseña (users sin password, con email y linked_at; legacy_users.password vacío)',
+        requiresBackup: true,
+        up: migration3,
     },
 ];
 

@@ -63,6 +63,7 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 - [OK] `server_updated_at`: lo asigna el trigger `set_server_updated_at` (BEFORE INSERT OR UPDATE) con `clock_timestamp()` al insertar y `greatest(clock_timestamp(), old.server_updated_at)` al actualizar; ignora el valor del cliente. El riesgo de commits fuera de orden frente al cursor y su mitigación (ventana de solapamiento + upsert idempotente) están en `docs/MAPEO-SYNC.md`; se implementa en la Fase 4.
 - [OK] Conflictos: último en llegar al servidor gana, por registro. Se refina por entidad en la Fase 4.
 - [OK] Reintentos con backoff. La outbox nunca descarta cambios por error.
+- [PENDIENTE] Fase 4: una reinstalación o un celular nuevo crea las categorías por defecto con UUID nuevos que chocarán con las del servidor en `finance_categories(user_id, name)`. Resolver con fusión por nombre (balance_history guarda la categoría como texto) o con IDs deterministas. Aplica aunque haya un solo dispositivo.
 - [PENDIENTE] Multidispositivo: si un usuario usa varios dispositivos, las claves naturales (`seasons(series_id, season_number)`, `finance_categories(user_id, name)`) pueden chocar en el pull. Definir la resolución en Fase 4 (merge por clave natural o UUID determinista).
 
 ## Fases
@@ -82,6 +83,7 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 - [PENDIENTE] Archivo `android.os.Looper` y dependencias `@react-navigation` sin uso: ¿se eliminan?
 - [PENDIENTE] Restaurar un respaldo dentro de la app.
 - [PENDIENTE] Fase 3: al eliminar `users.password`, también se vacía en `legacy_users`.
+- [PENDIENTE] Fase 6: las copias físicas pre-migración/pre-vinculación dentro del celular conservan la contraseña antigua; decidir si se eliminan (con aprobación del usuario).
 
 ## Propuestas nuevas (para aprobar)
 - [OK] En Fase 1, `user_id` = UUID del usuario local. En Fase 3, al primer login, se reescribe a `auth.uid()` en todas las tablas y en la outbox, en una sola transacción.

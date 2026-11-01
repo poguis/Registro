@@ -7,19 +7,27 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "start:dev": "node scripts/start-dev.mjs",
+    "build:release": "node scripts/build-apk.mjs production",
+    "build:dev": "node scripts/build-apk.mjs development"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-navigation/native": "^6.1.9",
     "@react-navigation/stack": "^6.3.20",
+    "@supabase/supabase-js": "^2.118.0",
     "@types/react": "~19.1.10",
+    "aes-js": "^3.1.2",
     "expo": "~54.0.33",
+    "expo-constants": "~18.0.14",
     "expo-crypto": "~15.0.9",
     "expo-file-system": "~19.0.24",
+    "expo-secure-store": "~15.0.8",
     "expo-sharing": "~14.0.8",
     "expo-sqlite": "~16.0.10",
     "expo-status-bar": "~3.0.9",
+    "expo-web-browser": "~15.0.11",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",
@@ -31,6 +39,7 @@
   },
   "private": true,
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.11"
+    "@electric-sql/pglite": "^0.5.11",
+    "@types/aes-js": "^3.1.4"
   }
 }
