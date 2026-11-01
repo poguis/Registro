@@ -5,7 +5,7 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 ## Alcance
 - [OK] Solo Android. iOS y web fuera de alcance (no se rompen a propósito, pero no se prueban).
 - [OK] Una cuenta Google por dispositivo. Datos privados por usuario: ningún usuario accede a datos de otro.
-- [OK] Se requiere dev build (no Expo Go) por Google Sign-In nativo.
+- [OK] Se requiere un build nativo (no Expo Go): no por Google Sign-In nativo (el login es OAuth + PKCE en el navegador), sino por las variantes con scheme propio (`poguis-registro`, `poguis-registro-dev`) y los módulos nativos. Builds locales con `npm run build:release` / `npm run build:dev`.
 - [OK] Publicación en Play Store: fuera de alcance hasta que la app funcione al 100% para uso personal.
 - [OK] Nuevo código de datos/sync/auth en TypeScript, conviviendo con el JS actual (allowJs). No se migra el router ni las pantallas existentes en esta etapa.
 
@@ -19,7 +19,8 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 - [OK] RLS activada en todas las tablas. Políticas por `user_id = auth.uid()` para select/insert/update. Sin política DELETE: el borrado es lógico (UPDATE de `deleted_at`).
 - [OK] Solo la clave publishable/anon va en la app, vía variables `EXPO_PUBLIC_*` en `.env` (en `.gitignore`). La `service_role` NUNCA va en la app ni en el repo.
 - [OK] Tokens de sesión en almacenamiento seguro (validar el patrón recomendado en la doc de Supabase para RN). Se elimina `@user_session` de AsyncStorage y la columna `users.password`.
-- [PENDIENTE] Nonce en Google Sign-In: el nonce personalizado requiere la versión con licencia de @react-native-google-signin (Universal Sign In). Opciones: comprar licencia (nonce activo: hash SHA-256 a Google, nonce original a Supabase) o módulo gratuito + "Skip nonce check" en Supabase. Decidir antes de Fase 3.
+- [OK] Sesión de Supabase cifrada con `LargeSecureStore` (patrón de la guía oficial de Supabase para Expo): llave AES-256 nueva en cada escritura en `expo-secure-store` y sesión cifrada (AES-CTR) en AsyncStorage. SecureStore queda excluido del Auto Backup de Android (`configureAndroidBackup: true`); un cifrado restaurado sin llave cuenta como "sin sesión". `autoRefreshToken` controlado con `AppState`; `detectSessionInUrl: false`. Los verificadores PKCE se borran al terminar cada intento de login. Verificado: 0 tokens en claro en el almacenamiento de la app.
+- [OK] Nonce de Google Sign-In: resuelto por PKCE. El login es `signInWithOAuth({ provider: 'google' })` con `flowType: 'pkce'` y `skipBrowserRedirect`, abierto con `expo-web-browser` (Custom Tabs), y `exchangeCodeForSession`. Hermes no tiene `crypto`: un shim con `expo-crypto` (getRandomValues + SHA-256) hace que auth-js use `S256` (verificado: `code_challenge_method=s256`). Retorno exacto `<scheme>://auth/callback`. El botón nativo de pago queda como mejora futura opcional.
 - [OK] Datos sensibles (nombres de contactos, personas de trabajo) viajan en claro sobre TLS y protegidos por RLS. Sin cifrado del lado cliente por ahora.
 - [OK] Firma: el release se firma con el keystore de EAS (perfil preview), SHA-256 31:32:DE:…:3E:52, SHA-1 A4:31:C8:…:67:46. Copia local fuera del repo; contraseñas en `%USERPROFILE%\.gradle\gradle.properties`. Nunca borrar ni regenerar ese keystore en EAS. No se cambia de llave hasta cerrar la Fase 5. La SHA-1 es la que se registra en el cliente Android de Google Cloud.
 - [OK] Postgres (Fase 2): `user_id` → `auth.users(id)` con `on delete cascade`. Borrar la cuenta borra sus datos; es el único borrado físico.
@@ -70,7 +71,7 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 0. **[CERRADA 2026-10-20]** Base técnica: verificación de firma del APK, respaldo (copia física .db + JSON) exportable fuera del teléfono, versionado de esquema (`PRAGMA user_version`, línea base aditiva), transacciones, bug de zona horaria, quitar `checkAndBackfillHistory`, corregir docs que piden desinstalar.
 1. **[CERRADA 2026-10-25]** Capa de datos local: repositorios, UUID, columnas de sync, soft delete, outbox y migración in-place de los datos existentes. Verificada en el celular: `install -r` del APK 1.1.0 (versionCode 2), respaldos previo y posterior válidos, `dryrun-fase1 --par` criterios 1–5 OK.
 2. **[CERRADA 2026-10-27]** Supabase: esquema Postgres, RLS, trigger de `server_updated_at` (archivos SQL). Probado en Postgres local (PGlite, `scripts/probar-fase2.mjs`) y aplicado por el usuario en el SQL Editor; `supabase/verificar-fase2.sql` dio los 22 chequeos ok.
-3. Login con Google: dev build, `signInWithIdToken`, sesión segura. Se retira usuario/contraseña.
+3. **[CERRADA 2026-11-01]** Login con Google (OAuth + PKCE en Custom Tabs, no `signInWithIdToken`), sesión cifrada, vinculación de datos locales y retiro de usuario/contraseña. Verificada en el celular: `install -r` del APK 1.2.0 (versionCode 3, firma EAS) sobre la 1.1.0, sin desinstalar; abrió en modo avión antes y después de vincular; vinculación con confirmación del email; respaldos previo (v2) y posterior (v3) válidos; `dryrun-fase3 --par` OK. RLS real verificada desde la variante dev (insert ajeno y DELETE → 403/42501).
 4. Sincronización: push/pull, conflictos, estado de sync en la UI.
 5. Primer sync de datos existentes y pruebas offline/online.
 6. Endurecimiento: revisión de RLS, respaldos, rendimiento (N+1).
@@ -82,7 +83,10 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 - [OK] Estados de series: `Nueva`, `Mirando`, `Pausado` (los tres cuentan para el límite activo, pestaña Viendo), `En espera`, `Terminado`. Backlog: type `movie|series|anime|reading`, status `Pendiente|Mirando|Terminado`. Se aplican como CHECK en Postgres (Fase 2); localmente se validan en los repositorios.
 - [PENDIENTE] Archivo `android.os.Looper` y dependencias `@react-navigation` sin uso: ¿se eliminan?
 - [PENDIENTE] Restaurar un respaldo dentro de la app.
-- [PENDIENTE] Fase 3: al eliminar `users.password`, también se vacía en `legacy_users`.
+- [OK] Fase 3 (migración 3): `users` se reconstruye sin `password` (con `email` y `linked_at`, sin `UNIQUE(username)`) y `legacy_users.password` queda vacío; con `PRAGMA secure_delete` el texto viejo no queda en el archivo. Las copias físicas previas sí lo conservan (ver Fase 6).
+- [OK] Vinculación: operación única con copia física previa y una transacción exclusiva; `users.id` y el `user_id` de las 15 tablas pasan a ser el `auth.uid()`; no encola en la outbox ni cambia `updated_at`; borra `@user_session`; pide confirmación mostrando el email de Google.
+- [OK] Una cuenta Google por dispositivo: si los datos ya están vinculados a otra cuenta, o hay varias cuentas locales, el login se bloquea con un mensaje y no se toca nada.
+- [OK] Offline-first del acceso: con datos locales la app SIEMPRE abre (sin red, con token vencido o sin sesión). Solo una instalación sin datos exige el login con Google. Cerrar sesión de Google borra solo la sesión y no bloquea la app.
 - [PENDIENTE] Fase 6: las copias físicas pre-migración/pre-vinculación dentro del celular conservan la contraseña antigua; decidir si se eliminan (con aprobación del usuario).
 
 ## Propuestas nuevas (para aprobar)
@@ -91,5 +95,6 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 - [OK] Las tablas originales se conservan renombradas como `legacy_*` hasta la Fase 6 (rollback sin restaurar respaldo). Se borran solo con aprobación explícita.
 - [OK] Columnas de sync (`created_at`, `updated_at`, `deleted_at`) en TEXT ISO-8601 UTC `YYYY-MM-DDTHH:MM:SS.sssZ`. Los epoch ms existentes (`watched_at`, `read_at`, `last_watched_at`) se quedan como INTEGER y se convierten a timestamptz en el mapeo de sync.
 - [OK] `users` es tabla local (no se sincroniza ni pasa por la outbox).
-- [PROPUESTA] Variante de desarrollo con package distinto (p. ej. `com.poguis.Registro.dev`) para que el dev build no reemplace la instalación con datos reales.
+- [OK] Variantes con `app.config.js` (`APP_VARIANT`): producción `com.poguis.Registro` / "Registro" / `poguis-registro`; desarrollo `com.poguis.Registro.dev` / "Registro Dev" / `poguis-registro-dev`. Se instalan una al lado de la otra, cada una con su BD. La firma la pone el config plugin `plugins/withReleaseSigning.js` en cada `prebuild`: EAS en producción; `debug.keystore` solo en dev. La prueba de RLS existe solo en la variante dev.
+- [OK] La prueba de RLS real deja una fila `[prueba RLS]` como tombstone en `backlog` del servidor (cuenta del usuario); el primer pull (Fase 5) la bajará como borrada.
 - [OK] La migración de esquema de Fase 1 usa `withExclusiveTransactionAsync`; las operaciones normales de la app usan `withTransactionAsync`.
