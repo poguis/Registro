@@ -9,6 +9,7 @@ export const AsyncStorageStub = {
     getItem: async (k) => (asyncStore.has(k) ? asyncStore.get(k) : null),
     setItem: async (k, v) => { asyncStore.set(k, String(v)); },
     removeItem: async (k) => { asyncStore.delete(k); },
+    getAllKeys: async () => [...asyncStore.keys()],
 };
 
 const SECURE_KEY_RE = /^[A-Za-z0-9._-]+$/;

@@ -57,8 +57,12 @@ if (existsSync('android') && !existsSync(BACKUP)) {
     console.log(`Respaldo de android/ creado en ${BACKUP} (${(size(BACKUP) / 1024).toFixed(0)} KB).`);
 }
 
-// 2. prebuild limpio con la variante
+// 2. prebuild limpio con la variante. Antes se detiene el daemon de Gradle: en Windows
+// mantiene bloqueados archivos de android/app/build y --clean falla con EBUSY.
 const env = { ...process.env, CI: '1', EXPO_NO_GIT_STATUS: '1' };
+if (existsSync(isWin ? 'android/gradlew.bat' : 'android/gradlew')) {
+    spawnSync(isWin ? '.\\gradlew.bat' : './gradlew', ['--stop'], { cwd: 'android', stdio: 'inherit', shell: isWin, env: { ...env, JAVA_HOME: JDK } });
+}
 if (CONF.appVariant) env.APP_VARIANT = CONF.appVariant; else delete env.APP_VARIANT;
 run('npx', ['expo', 'prebuild', '-p', 'android', '--clean', '--no-install'], { env });
 
@@ -70,7 +74,7 @@ if (!existsSync(lp) || !/^sdk\.dir=/m.test(readFileSync(lp, 'utf8'))) {
 
 // 4. assembleRelease con JDK 17 (JS embebido en el APK)
 const gradleEnv = { ...env, JAVA_HOME: JDK };
-run(isWin ? 'gradlew.bat' : './gradlew', ['assembleRelease'], { cwd: 'android', env: gradleEnv });
+run(isWin ? '.\\gradlew.bat' : './gradlew', ['assembleRelease'], { cwd: 'android', env: gradleEnv });
 
 // 5. Copia a .local-data/apk/
 const built = 'android/app/build/outputs/apk/release/app-release.apk';

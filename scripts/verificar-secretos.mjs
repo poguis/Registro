@@ -6,7 +6,7 @@
 //
 // Busca VALORES de clave (no la palabra "service_role", que aparece en la documentación y
 // en el propio supabase-js):
-//   - sb_secret_…            (secret key de Supabase)
+//   - sb_secret_…            (secret key de Supabase; no el literal "sb_secret_" de supabase-js)
 //   - GOCSPX-…               (Client secret de Google OAuth)
 //   - JWT de tres segmentos (eyJ….….…): cualquier token en el repo es un error; si su payload
 //     dice role service_role, se marca como tal
@@ -25,7 +25,9 @@ const check = (name, ok, detail = '') => {
 };
 
 const PATTERNS = [
-    ['sb_secret_', /sb_secret_[A-Za-z0-9_-]{8,}/g],
+    // Una clave real sigue al prefijo con un alfanumérico y es larga. supabase-js contiene el literal
+    // "sb_secret_" (isNewApiKey) y en el bytecode de Hermes queda pegado a la cadena siguiente.
+    ['sb_secret_', /sb_secret_[A-Za-z0-9][A-Za-z0-9_-]{19,}/g],
     ['client secret de Google (GOCSPX-)', /GOCSPX-[A-Za-z0-9_-]{8,}/g],
     ['asignación de clave secreta', /(SERVICE_ROLE_KEY|SUPABASE_SECRET[A-Z_]*|SECRET_KEY)\s*[=:]\s*['"]?[A-Za-z0-9._-]{16,}/g],
 ];

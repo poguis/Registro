@@ -66,9 +66,11 @@ export default function App() {
       setDbError(null);
 
       // Si en este arranque se aplicó la migración 2, mostrar su resumen.
+      // (No se muestra en una instalación nueva: todo en 0.)
       if (db.lastMigration && db.lastMigration.applied.includes(2)) {
         const res = await db.getLatestMigrationSummary();
-        if (res.success && res.summary) {
+        const hadData = res.success && res.summary && Object.values(res.summary.before).some((n) => n > 0);
+        if (hadData) {
           Alert.alert('Actualización de datos completada', formatMigrationSummary(res.summary));
         }
       }
@@ -133,9 +135,16 @@ export default function App() {
   // Login con Google (también sirve para vincular o para volver a iniciar sesión).
   const handleGoogle = async () => {
     const r = await auth.signIn();
-    if (r.status === 'cancel') return;
+    // Sin callback (pestaña cerrada, retorno a otra URL o sin code): no se tocó nada y se
+    // puede reintentar.
+    if (r.status === 'cancel') {
+      Alert.alert('Inicio de sesión', 'No se completó el inicio de sesión, inténtalo de nuevo.');
+      return;
+    }
     if (r.status === 'error') {
-      Alert.alert('No se pudo iniciar sesión', r.message);
+      Alert.alert('No se completó el inicio de sesión', `${r.message}
+
+Inténtalo de nuevo.`);
       return;
     }
     const next = await afterGoogleLogin(r.session);

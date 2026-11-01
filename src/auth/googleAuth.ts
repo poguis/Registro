@@ -1,6 +1,8 @@
 import * as WebBrowser from 'expo-web-browser';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Session } from '@supabase/supabase-js';
 import { getSupabase } from './supabase';
+import { LargeSecureStore } from './secureStorage';
 import { getRedirectUrl, parseCallbackUrl } from './redirect';
 
 // Login con Google: OAuth + PKCE de Supabase en Custom Tabs (expo-web-browser).
@@ -15,11 +17,37 @@ export type SignInResult =
     | { status: 'cancel' }
     | { status: 'error'; message: string };
 
+// auth-js guarda por cada login un slot `<storageKey>-flow-<id>-code-verifier`, un índice
+// `<storageKey>-flows-code-verifier` y la clave clásica `<storageKey>-code-verifier`. Sin flowId
+// (no usamos sb_flow_id), exchangeCodeForSession solo borra la clave clásica: los slots se
+// acumulan (hasta 5). Al terminar cada intento (éxito, cancelación o error) no queda ningún
+// flujo pendiente, así que se borran todos (cifrado en AsyncStorage + llave en SecureStore).
+// Nunca toca la sesión (<storageKey> sin sufijo).
+export const PKCE_VERIFIER_KEY_RE = /^sb-.+-code-verifier$/;
+
+export async function clearPkceVerifiers(): Promise<number> {
+    const keys = (await AsyncStorage.getAllKeys()).filter((k) => PKCE_VERIFIER_KEY_RE.test(k));
+    for (const k of keys) await LargeSecureStore.removeItem(k);
+    return keys.length;
+}
+
 export async function signInWithGoogle(): Promise<SignInResult> {
     const supabase = getSupabase();
     if (!supabase) {
         return { status: 'error', message: 'Falta configurar Supabase en esta compilación (.env).' };
     }
+    try {
+        return await runGoogleFlow(supabase);
+    } finally {
+        try {
+            await clearPkceVerifiers();
+        } catch (e) {
+            console.error('No se pudieron limpiar los verificadores PKCE:', e);
+        }
+    }
+}
+
+async function runGoogleFlow(supabase: NonNullable<ReturnType<typeof getSupabase>>): Promise<SignInResult> {
     try {
         const redirectTo = getRedirectUrl();
         const { data, error } = await supabase.auth.signInWithOAuth({

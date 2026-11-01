@@ -19,7 +19,7 @@ import { hashRows } from './lib/sqlite-utils.mjs';
 const require = createRequire(import.meta.url);
 const { __setDatabasePath, openDatabaseAsync } = await import('./lib/expo-sqlite-shim.mjs');
 const { backupCalls, backupStub } = await import('./lib/backup-stub.mjs');
-const { asyncStore, secureStore, constantsState } = await import('./lib/auth-stubs.mjs');
+const { asyncStore, secureStore, constantsState, AsyncStorageStub: AsyncStorageOther } = await import('./lib/auth-stubs.mjs');
 const { DEV_FLAGS } = await import('../src/services/devFlags.js');
 const { MIGRATIONS, runMigrations, LATEST_VERSION } = await import('../src/services/migrations.js');
 const { DatabaseService } = await import('../src/services/db.js');
@@ -321,6 +321,24 @@ section('Storage cifrado (LargeSecureStore)');
     check('removeItem borra cifrado y llave', !asyncStore.has(key) && !secureStore.has(key));
     const k = new Uint8Array(32).fill(7);
     check('encrypt/decrypt AES-256-CTR ida y vuelta (UTF-8)', decrypt(encrypt('ñandú ✓', k), k) === 'ñandú ✓');
+}
+
+// ---------------------------------------------------------------------------
+section('Limpieza de verificadores PKCE residuales');
+{
+    const { clearPkceVerifiers } = await import('../src/auth/googleAuth.ts');
+    asyncStore.clear();
+    secureStore.clear();
+    const base = 'sb-apftkztkqvjpvdmeixzw-auth-token';
+    await LargeSecureStore.setItem(base, '{"sesion":"ficticia"}');
+    for (const k of [`${base}-flow-37c071ff-code-verifier`, `${base}-flow-b602ad5b-code-verifier`, `${base}-flows-code-verifier`, `${base}-code-verifier`]) {
+        await LargeSecureStore.setItem(k, 'verificador');
+    }
+    await AsyncStorageOther.setItem('@otra_clave', 'x');
+    const removed = await clearPkceVerifiers();
+    const left = [...asyncStore.keys()];
+    check('borra los 4 (slots, índice y clave clásica), cifrado y llave', removed === 4 && !left.some((k) => k.endsWith('-code-verifier')) && ![...secureStore.keys()].some((k) => k.endsWith('-code-verifier')));
+    check('no toca la sesión ni otras claves', left.includes(base) && left.includes('@otra_clave') && (await LargeSecureStore.getItem(base)) === '{"sesion":"ficticia"}');
 }
 
 // ---------------------------------------------------------------------------

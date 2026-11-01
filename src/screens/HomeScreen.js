@@ -5,7 +5,8 @@ import {
     TouchableOpacity,
     StyleSheet,
     Dimensions,
-    Alert
+    Alert,
+    ScrollView
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -78,9 +79,12 @@ export default function HomeScreen({ user, onLogout, onNavigate, notice, devTool
 
             {/* Header */}
             <View style={[styles.header, { backgroundColor: theme.header }]}>
-                <View>
+                {/* flex: 1 + una línea: un email largo no empuja los botones fuera de la pantalla */}
+                <View style={{ flex: 1, marginRight: 10 }}>
                     <Text style={[styles.greeting, { color: theme.subText }]}>Hola,</Text>
-                    <Text style={[styles.username, { color: theme.text }]}>{user?.username || 'Usuario'}</Text>
+                    <Text style={[styles.username, { color: theme.text }]} numberOfLines={1} ellipsizeMode="middle">
+                        {user?.username || 'Usuario'}
+                    </Text>
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <TouchableOpacity
@@ -111,7 +115,8 @@ export default function HomeScreen({ user, onLogout, onNavigate, notice, devTool
             )}
 
             {/* Main Content */}
-            <View style={styles.content}>
+            {/* Desplazable: con el aviso arriba, las últimas opciones no caben en pantallas pequeñas. */}
+            <ScrollView style={styles.content} contentContainerStyle={styles.contentInner}>
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>Mi Panel</Text>
 
                 <MenuButton
@@ -166,7 +171,7 @@ export default function HomeScreen({ user, onLogout, onNavigate, notice, devTool
                         theme={theme}
                     />
                 )}
-            </View>
+            </ScrollView>
         </SafeAreaView>
     );
 }
@@ -238,7 +243,10 @@ const styles = StyleSheet.create({
     },
     content: {
         flex: 1,
+    },
+    contentInner: {
         padding: 20,
+        paddingBottom: 40,
     },
     sectionTitle: {
         fontSize: 18,
