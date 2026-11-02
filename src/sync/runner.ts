@@ -1,4 +1,4 @@
-import { syncWithWatchdog, SYNC_CYCLE_TIMEOUT_MS, type SyncOutcome } from './engine';
+import { syncWithWatchdog, resetNetworkBackoff, SYNC_CYCLE_TIMEOUT_MS, type SyncOutcome } from './engine';
 import type { SyncConfig } from './config';
 import type { Transport } from './transport';
 
@@ -6,6 +6,10 @@ import type { Transport } from './transport';
 // prueba scripts/probar-fase4.mjs). Una sola sincronización a la vez: lo que se pida durante
 // una ejecución se fusiona en UNA ejecución extra al terminar. Cada ciclo tiene un tope
 // (syncWithWatchdog): si se cuelga, se da por fallido y el single-flight se libera.
+// Al reconectar ('reconexion') o con "Sincronizar ahora" ('boton'), antes del ciclo se reinicia
+// el backoff de las entradas que fallaron por red (resetNetworkBackoff): si no, un cambio que
+// falló sin conexión esperaría su backoff aunque la red ya volvió.
+export const RESET_BACKOFF_REASONS = new Set(['reconexion', 'boton']);
 
 export type SyncRunner = {
     request(reason: string): Promise<void> | null;
@@ -22,12 +26,14 @@ export function createSyncRunner(opts: {
     let again = false;
     let syncing = false;
     let lastOutcome: SyncOutcome | null = null;
+    let resetBackoff = false;
     const notify = () => { try { opts.onChange?.(); } catch { /* la UI no debe romper la sync */ } };
 
     return {
-        request(_reason) {
+        request(reason) {
             const cfg = opts.config();
             if (!cfg.enabled) return null;
+            if (RESET_BACKOFF_REASONS.has(reason)) resetBackoff = true;
             if (running) { again = true; return running; }
             running = (async () => {
                 do {
@@ -35,6 +41,10 @@ export function createSyncRunner(opts: {
                     syncing = true;
                     notify();
                     try {
+                        if (resetBackoff) {
+                            resetBackoff = false;
+                            await resetNetworkBackoff();
+                        }
                         lastOutcome = await syncWithWatchdog(cfg, opts.transport(), opts.timeoutMs ?? SYNC_CYCLE_TIMEOUT_MS);
                     } catch (e) {
                         console.error('Error inesperado en la sincronización:', e);

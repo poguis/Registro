@@ -53,13 +53,33 @@ const confirm = (ids: number[]) => localTx(async () => {
     if (ids.length) await db().runAsync(`DELETE FROM outbox WHERE id IN (${placeholders(ids.length)})`, ids);
 });
 
-const markTransient = (g: Group, err: string, immediate = false) => localTx(async () => {
+// Prefijo de last_error en las entradas que fallaron por un error transitorio de RED (sin red,
+// timeout, 408, 429, 5xx). resetNetworkBackoff() reinicia solo esas: nunca las de sesión, las
+// que esperan a un padre ni las bloqueadas.
+const NETWORK_TAG = 'red · ';
+
+const markTransient = (g: Group, err: string, kind: 'network' | 'auth' | 'parent', immediate = false) => localTx(async () => {
     const next = immediate ? null : new Date(Date.now() + backoffMs(g.attempts)).toISOString();
     await db().runAsync(
         `UPDATE outbox SET attempts = attempts + 1, last_error = ?, next_attempt_at = ? WHERE id IN (${placeholders(g.ids.length)})`,
-        [err, next, ...g.ids]
+        [kind === 'network' ? NETWORK_TAG + err : err, next, ...g.ids]
     );
 });
+
+// Al reconectar o con "Sincronizar ahora": las entradas que esperan por un error de red se
+// reintentan ya, sin esperar su backoff (que se calculó cuando no había conexión). No toca
+// `attempts`: el backoff automático entre ciclos sigue creciendo igual.
+export async function resetNetworkBackoff(): Promise<number> {
+    let n = 0;
+    await localTx(async () => {
+        n = (await db().runAsync(
+            `UPDATE outbox SET next_attempt_at = NULL
+             WHERE blocked_at IS NULL AND next_attempt_at IS NOT NULL AND last_error LIKE ?`,
+            [`${NETWORK_TAG}%`]
+        )).changes;
+    });
+    return n;
+}
 
 const markBlocked = (g: Group, reason: string) => localTx(async () => {
     await db().runAsync(
@@ -143,7 +163,7 @@ export async function pushOutbox(cfg: SyncConfig, transport: Transport, uid: str
                     continue;
                 }
                 if (error.kind === 'network' || error.kind === 'auth') {
-                    for (const b of ready.slice(i)) { await markTransient(b.g, describe(error)); res.transient++; }
+                    for (const b of ready.slice(i)) { await markTransient(b.g, describe(error), error.kind); res.transient++; }
                     res.stop = error.kind; res.lastError = describe(error);
                     return res;
                 }
@@ -156,14 +176,14 @@ export async function pushOutbox(cfg: SyncConfig, transport: Transport, uid: str
                     const err = one.error;
                     res.lastError = describe(err);
                     if (err.kind === 'network' || err.kind === 'auth') {
-                        await markTransient(b.g, describe(err)); res.transient++;
+                        await markTransient(b.g, describe(err), err.kind); res.transient++;
                         res.stop = err.kind;
                         return res;
                     }
                     if (err.kind === 'conflict' && NATURAL_KEYS[table]) {
                         const m = await mergeOnPush(transport, table, b.local);
                         if (m.ok) { res.merged++; retryNextRound = true; continue; }
-                        if (m.network) { await markTransient(b.g, m.reason); res.transient++; res.stop = 'network'; return res; }
+                        if (m.errorKind) { await markTransient(b.g, m.reason, m.errorKind); res.transient++; res.stop = m.errorKind; return res; }
                         await markBlocked(b.g, m.reason); res.blocked++;
                         continue;
                     }
@@ -171,10 +191,10 @@ export async function pushOutbox(cfg: SyncConfig, transport: Transport, uid: str
                         const p = await enqueueMissingParents(table, b.local, err);
                         if (p === 'enqueued' || p === 'pending') {
                             if (p === 'enqueued') res.parentsEnqueued++;
-                            await markTransient(b.g, 'padre pendiente de subir', true); res.transient++;
+                            await markTransient(b.g, 'padre pendiente de subir', 'parent', true); res.transient++;
                             retryNextRound = true;
                         } else if (p === 'parent-blocked') {
-                            await markTransient(b.g, 'el padre tiene un error bloqueado'); res.transient++;
+                            await markTransient(b.g, 'el padre tiene un error bloqueado', 'parent'); res.transient++;
                         } else {
                             await markBlocked(b.g, `padre inexistente: ${describe(err)}`); res.blocked++;
                         }
@@ -216,10 +236,11 @@ async function enqueueMissingParents(table: string, local: Row, err: RemoteError
 // local adopta ese id (y sus entradas de outbox) y se reintenta con el contenido local, que
 // llega último y gana.
 async function mergeOnPush(transport: Transport, table: string, local: Row):
-    Promise<{ ok: boolean; network?: boolean; reason: string }> {
+    Promise<{ ok: boolean; errorKind?: 'network' | 'auth'; reason: string }> {
     const key = Object.fromEntries(NATURAL_KEYS[table].map((c) => [c, local[c]]));
     const found = await transport.findByNaturalKey(table, key);
-    if (found.error) return { ok: false, network: found.error.kind === 'network' || found.error.kind === 'auth', reason: describe(found.error) };
+    const k = found.error?.kind;
+    if (found.error) return { ok: false, errorKind: k === 'network' || k === 'auth' ? k : undefined, reason: describe(found.error) };
     const server = found.row;
     if (!server || server.id === local.id) return { ok: false, reason: 'clave única duplicada sin fila que fusionar' };
     let ok = false;

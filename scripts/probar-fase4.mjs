@@ -535,6 +535,81 @@ section('16. Transporte que nunca responde (push y pull) → el watchdog libera 
         fetchErr && Date.now() - t1 < 3000 && classifyError(null, 0, `${fetchErr.name}: ${fetchErr.message}`) === 'network',
         fetchErr ? `${fetchErr.name} a los ${Date.now() - t1} ms` : 'no abortó');
 }
+
+// =========================================================================== 17
+section('17. Cambio offline + fallo de red + reconexión antes de vencer el backoff → sube sin tocar el botón');
+{
+    const { createSyncRunner } = await import('../src/sync/runner.ts');
+    T.uid = U;
+    T.offline = false;
+    await sync(A); await sync(B);
+    const runner = createSyncRunner({ config: () => CFG, transport: () => T });
+    const req = async (reason) => { use(A); await quiet(() => runner.request(reason)); return runner.state().lastOutcome; };
+    const entry = async (title) => one(A,
+        `SELECT o.attempts, o.last_error, o.next_attempt_at, o.blocked_at FROM outbox o JOIN backlog b ON b.id = o.row_id
+         WHERE o.table_name = 'backlog' AND b.title = ? ORDER BY o.id DESC LIMIT 1`, [title]);
+    const onServer = async (title) => (await pg.query('select count(*)::int n from public.backlog where user_id = $1 and title = $2', [U, title])).rows[0].n === 1;
+
+    // Sin conexión: el cambio falla por red y queda con backoff (30 s) marcado como error de red.
+    T.offline = true;
+    await run(A, (s) => s.addBacklogItem(U, { type: 'movie', title: 'Offline 17' }));
+    const off = await req('boton');
+    const e1 = await entry('Offline 17');
+    check('sin red: el ciclo termina "offline" y la entrada queda con backoff y error de red',
+        off?.status === 'offline' && e1 && e1.attempts === 1 && e1.next_attempt_at > new Date().toISOString() && /^red · /.test(e1.last_error) && !e1.blocked_at,
+        e1 ? `intentos ${e1.attempts}` : 'sin entrada');
+    // Vuelve la red ANTES de vencer el backoff.
+    T.offline = false;
+    const fg = await req('primer-plano');
+    check('el backoff automático sigue igual: volver a primer plano no la sube antes de tiempo',
+        fg?.status === 'ok' && !(await onServer('Offline 17')) && (await entry('Offline 17'))?.attempts === 1);
+    const rc = await req('reconexion');
+    check('reconexión: se sube en esa misma sync, sin tocar el botón',
+        rc?.status === 'ok' && rc.push.pushed >= 1 && await onServer('Offline 17') && (await outboxCount(A)) === 0,
+        `subidas ${rc?.push?.pushed}`);
+
+    // "Sincronizar ahora" también la reintenta de inmediato.
+    T.offline = true;
+    await run(A, (s) => s.addBacklogItem(U, { type: 'movie', title: 'Offline 17b' }));
+    await req('primer-plano');
+    T.offline = false;
+    const bt = await req('boton');
+    check('"Sincronizar ahora": se sube aunque su backoff no haya vencido', bt?.status === 'ok' && await onServer('Offline 17b') && (await outboxCount(A)) === 0);
+
+    // Errores de sesión: NO se reinician (no son de red).
+    const authDown = { kind: 'auth', code: 'PGRST301', status: 401, message: 'JWT expired (simulado)' };
+    const AU = {
+        session: () => T.session(),
+        upsert: async () => ({ error: authDown }),
+        pullPage: (t, o) => T.pullPage(t, o),
+        findByNaturalKey: (t, k) => T.findByNaturalKey(t, k),
+    };
+    let authOn = true;
+    const runner2 = createSyncRunner({ config: () => CFG, transport: () => (authOn ? AU : T) });
+    const req2 = async (reason) => { use(A); await quiet(() => runner2.request(reason)); return runner2.state().lastOutcome; };
+    await run(A, (s) => s.addBacklogItem(U, { type: 'movie', title: 'Sesion 17' }));
+    const au = await req2('primer-plano');
+    const e2 = await entry('Sesion 17');
+    authOn = false;
+    const au2 = await req2('reconexion');
+    const e3 = await entry('Sesion 17');
+    check('error de sesión: la reconexión NO reinicia su backoff',
+        au?.status === 'skipped' && au.reason === 'session-expired' && e2?.next_attempt_at && !/^red · /.test(e2.last_error)
+        && au2?.status === 'ok' && e3 && e3.next_attempt_at === e2.next_attempt_at && !(await onServer('Sesion 17')));
+
+    // Entradas bloqueadas: tampoco (aunque su último error haya sido de red).
+    const blockedNext = new Date(Date.now() + 3_600_000).toISOString();
+    await sql(A, "UPDATE outbox SET blocked_at = ?, block_reason = 'prueba', last_error = 'red · prueba', next_attempt_at = ? WHERE table_name = 'backlog' AND row_id IN (SELECT id FROM backlog WHERE title = 'Sesion 17')", [new Date().toISOString(), blockedNext]);
+    use(A);
+    const resetN = await quiet(() => engine.resetNetworkBackoff());
+    const e4 = await entry('Sesion 17');
+    check('bloqueada: resetNetworkBackoff no la toca', resetN === 0 && e4?.blocked_at && e4.next_attempt_at === blockedNext);
+    // Limpieza: desbloquear (como "Reintentar") y converger.
+    use(A);
+    await quiet(() => engine.unblockAll());
+    await sync(A); await sync(B);
+    await converged('17. A, B y servidor convergen', U, A, B);
+}
 endScenario();
 
 console.log(failures === 0 ? '\nTODAS LAS PRUEBAS DE LA FASE 4 PASARON.' : `\n${failures} prueba(s) fallaron.`);

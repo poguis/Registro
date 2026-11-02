@@ -81,6 +81,7 @@ const ENV_PAIRS = {
     development: ['EXPO_PUBLIC_SUPABASE_DEV_URL', 'EXPO_PUBLIC_SUPABASE_DEV_PUBLISHABLE_KEY'],
 };
 const envUrls = {};
+const envKeys = {};
 if (existsSync('.env')) {
     const env = readFileSync('.env', 'utf8');
     for (const [variant, [urlVar, keyVar]] of Object.entries(ENV_PAIRS)) {
@@ -91,11 +92,15 @@ if (existsSync('.env')) {
             continue;
         }
         envUrls[variant] = url ? url[1].trim().replace(/\/$/, '') : null;
+        envKeys[variant] = key ? key[1].trim() : null;
         check(`.env (${variant}): la URL tiene forma https://<ref>.supabase.co`, !!envUrls[variant] && /^https:\/\/[a-z0-9]+\.supabase\.co$/.test(envUrls[variant]));
         check(`.env (${variant}): la clave es publishable (sb_publishable_…)`, !!key && key[1].trim().startsWith('sb_publishable_'));
     }
     if (envUrls.production && envUrls.development) {
         check('.env: producción y Registro Dev son proyectos distintos', envUrls.production !== envUrls.development);
+    }
+    if (envKeys.production && envKeys.development) {
+        check('.env: las publishable keys de producción y Registro Dev son distintas', envKeys.production !== envKeys.development);
     }
     check('.env: sin secretos', scanText(env).length === 0);
 }
@@ -124,7 +129,9 @@ if (apkIndex >= 0) {
         check(`APK (${variant}): trae una URL de Supabase y una clave sb_publishable_`,
             /^https:\/\/[a-z0-9]+\.supabase\.co$/.test(supa.url || '') && String(supa.key || '').startsWith('sb_publishable_'));
         if (envUrls[variant]) check(`APK (${variant}): la URL es la de su proyecto en .env`, supa.url === envUrls[variant]);
+        if (envKeys[variant]) check(`APK (${variant}): la clave es la de su proyecto en .env`, supa.key === envKeys[variant]);
         const other = variant === 'production' ? 'development' : 'production';
+        if (envKeys[other]) check(`APK (${variant}): no contiene la clave de ${other} (ni en el bundle ni en app.config)`, !text.includes(envKeys[other]) && !configText.includes(envKeys[other]));
         const otherRef = refOf(envUrls[other]);
         if (otherRef) {
             check(`APK (${variant}): no contiene el proyecto de ${other} (ni en el bundle ni en app.config)`, !text.includes(otherRef) && !configText.includes(otherRef));
