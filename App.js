@@ -23,6 +23,7 @@ import RlsTestScreen from './src/screens/RlsTestScreen';
 import { useAuth } from './src/auth/useAuth';
 import { getVariant } from './src/auth/redirect';
 import { afterGoogleLogin, confirmLink, resolveStartupIdentity, chooseLocalUser } from './src/auth/accountFlow';
+import { startSyncTriggers } from './src/sync/controller';
 import { ThemeProvider } from './src/contexts/ThemeContext';
 
 // Variante dev (app.config.js): habilita herramientas de prueba que nunca van en producción.
@@ -94,6 +95,13 @@ export default function App() {
   useEffect(() => {
     initialize();
   }, [initialize]);
+
+  // Sincronización (Fase 4): disparadores solo con cuenta vinculada y donde la sync está
+  // habilitada (startSyncTriggers no hace nada en producción). Nunca bloquea la app.
+  useEffect(() => {
+    if (!user || !user.linked) return undefined;
+    return startSyncTriggers();
+  }, [user]);
 
   const handleBack = useCallback(() => {
     if (navigationHistory.length > 0) {

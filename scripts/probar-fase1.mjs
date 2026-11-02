@@ -287,7 +287,8 @@ section('Criterio 9: grep');
 const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]);
 const srcFiles = [...walk('src'), 'App.js'].filter((f) => /\.(js|ts|tsx)$/.test(f));
 const grep = (re, files) => files.flatMap((f) => readFileSync(f, 'utf8').split('\n').map((l, i) => [f, i + 1, l]).filter(([, , l]) => re.test(l)));
-const deletes = grep(/DELETE FROM/i, srcFiles.filter((f) => !/migration/i.test(f)));
+// La outbox sí se vacía al confirmar el push (src/sync/engine.ts); la regla es para las tablas de dominio.
+const deletes = grep(/DELETE FROM (?!outbox)/i, srcFiles.filter((f) => !/migration/i.test(f)));
 check('0 DELETE FROM sobre tablas de dominio fuera de las migraciones', deletes.length === 0, deletes.map(([f, n]) => `${f}:${n}`).join(', '));
 const lastIds = grep(/lastInsertRowId/, srcFiles.filter((f) => !/migration/i.test(f)));
 check('0 usos de lastInsertRowId para IDs de dominio', lastIds.length === 0, lastIds.map(([f, n]) => `${f}:${n}`).join(', '));

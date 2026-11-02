@@ -16,8 +16,8 @@ import { join, resolve } from 'node:path';
 
 const VARIANT = process.argv[2];
 const CONF = {
-    production: { appVariant: undefined, appId: 'com.poguis.Registro', out: 'registro-fase3-release.apk', expectedSha256: '3132ded21252a5812b6683fae636facf2468cdb38d0d59e4db05f9b056c83e52' },
-    development: { appVariant: 'development', appId: 'com.poguis.Registro.dev', out: 'registro-fase3-dev.apk', expectedSha256: null },
+    production: { appVariant: undefined, appId: 'com.poguis.Registro', out: 'release', expectedSha256: '3132ded21252a5812b6683fae636facf2468cdb38d0d59e4db05f9b056c83e52' },
+    development: { appVariant: 'development', appId: 'com.poguis.Registro.dev', out: 'dev', expectedSha256: null },
 }[VARIANT];
 if (!CONF) {
     console.error('Uso: node scripts/build-apk.mjs production|development');
@@ -43,6 +43,13 @@ const capture = (cmd, args) => {
 
 // 0. .env presente (las EXPO_PUBLIC_* se incrustan en el bundle durante el build)
 if (!existsSync('.env')) fail('Falta .env (copia .env.example y pon la Project URL y la publishable key).');
+// Cada variante necesita su proyecto (app.config.js los pone en extra.supabase).
+const REQUIRED = VARIANT === 'production'
+    ? ['EXPO_PUBLIC_SUPABASE_URL', 'EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY']
+    : ['EXPO_PUBLIC_SUPABASE_DEV_URL', 'EXPO_PUBLIC_SUPABASE_DEV_PUBLISHABLE_KEY'];
+const envText = readFileSync('.env', 'utf8');
+const missing = REQUIRED.filter((v) => !new RegExp(`^${v}=\\S+`, 'm').test(envText));
+if (missing.length) fail(`Faltan en .env: ${missing.join(', ')} (variante ${VARIANT}).`);
 
 // 1. Respaldo único de android/ antes del primer prebuild --clean (sin build/, .gradle/ ni .cxx/)
 const BACKUP = '.local-data/android-respaldo-fase2';
@@ -80,7 +87,14 @@ run(isWin ? '.\\gradlew.bat' : './gradlew', ['assembleRelease'], { cwd: 'android
 const built = 'android/app/build/outputs/apk/release/app-release.apk';
 if (!existsSync(built)) fail(`No se generó ${built}`);
 mkdirSync('.local-data/apk', { recursive: true });
-const out = `.local-data/apk/${CONF.out}`;
+// Nombre único por variante, versión y commit: nunca se sobrescribe un APK ya instalado en un
+// dispositivo (p. ej. registro-release-1.2.0-vc3-052561f.apk; "-mod-<fecha>" si hay cambios sin commitear).
+const appJson = JSON.parse(readFileSync('app.json', 'utf8')).expo;
+const head = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
+const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15); // AAAAMMDDTHHMMSS
+const dirty = spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8' }).stdout.trim() ? `-mod-${stamp}` : '';
+const out = `.local-data/apk/registro-${CONF.out}-${appJson.version}-vc${appJson.android.versionCode}-${head}${dirty}.apk`;
+if (existsSync(out)) fail(`Ya existe ${out}: no se sobrescribe un APK existente.`);
 copyFileSync(built, out);
 
 // 6. Identidad y firma del APK

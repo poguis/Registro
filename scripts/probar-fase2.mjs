@@ -9,7 +9,14 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
-import { TABLES, mapRow, columnsOf, roundMoney, changesWhenRounded, MappingError } from './lib/mapeo-sync.mjs';
+import { TABLES, toRemote, columnsOf, roundMoney, changesWhenRounded, MappingError } from '../src/sync/mapping.ts';
+
+// Fila SQLite → columnas y parámetros para INSERT (jsonb como texto JSON).
+const mapRow = (table, row) => {
+    const remote = toRemote(table, row);
+    const columns = Object.keys(remote);
+    return { columns, values: columns.map((c) => (remote[c] !== null && typeof remote[c] === 'object' ? JSON.stringify(remote[c]) : remote[c])) };
+};
 
 const MIGRATIONS_DIR = 'supabase/migrations';
 const STUB = readFileSync('scripts/lib/pg-auth-stub.sql', 'utf8');

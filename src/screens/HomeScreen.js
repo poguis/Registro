@@ -13,6 +13,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '../contexts/ThemeContext';
 import { backupAndShare } from '../services/backup';
 import { showBackupResult } from './backupResult';
+import SyncStatus from './SyncStatus';
 
 const { width } = Dimensions.get('window');
 
@@ -115,6 +116,9 @@ export default function HomeScreen({ user, onLogout, onNavigate, notice, devTool
             )}
 
             {/* Main Content */}
+            {/* Estado de sincronización: solo donde la sync está habilitada (dev hasta la Fase 5). */}
+            {user?.linked && <SyncStatus />}
+
             {/* Desplazable: con el aviso arriba, las últimas opciones no caben en pantallas pequeñas. */}
             <ScrollView style={styles.content} contentContainerStyle={styles.contentInner}>
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>Mi Panel</Text>

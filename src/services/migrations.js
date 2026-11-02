@@ -1,6 +1,7 @@
 import { maybeFail } from './devFlags';
 import { migration2 } from '../data/db/migration2';
 import { migration3 } from '../data/db/migration3';
+import { migration4 } from '../data/db/migration4';
 
 // Migraciones de esquema versionadas con PRAGMA user_version.
 // Reglas: cada migración corre en una transacción exclusiva y sube user_version
@@ -235,6 +236,12 @@ export const MIGRATIONS = [
         description: 'Fase 3: retiro del login con contraseña (users sin password, con email y linked_at; legacy_users.password vacío)',
         requiresBackup: true,
         up: migration3,
+    },
+    {
+        version: 4,
+        description: 'Fase 4: estado de sincronización (outbox.blocked_at/block_reason, sync_state, sync_meta); no modifica datos',
+        requiresBackup: true,
+        up: migration4,
     },
 ];
 

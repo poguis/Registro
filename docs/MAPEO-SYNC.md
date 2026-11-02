@@ -2,7 +2,7 @@
 
 Referencia para el mapeador de la Fase 4. Esquema local: `src/data/db/migration2.ts` (`user_version` 2). Esquema del servidor: `supabase/migrations/` (Fase 2).
 
-Hay un prototipo ejecutable de estas reglas en `scripts/lib/mapeo-sync.mjs`. `scripts/probar-fase2.mjs` lo usa para cargar en un Postgres local (PGlite) todas las BD reales y de prueba.
+Las reglas están implementadas en **`src/sync/mapping.ts`** (único lugar: lo usan el motor de sync, los repositorios para redondear dinero y los scripts de prueba). El motor está en `src/sync/` (ver "Motor de sincronización" al final). `scripts/probar-fase2.mjs` y `scripts/probar-fase4.mjs` lo ejercitan contra un Postgres local (PGlite).
 
 ## Alcance
 - **Se sincronizan 15 tablas:** `finance_contacts`, `finance_transactions`, `balance_history`, `finance_categories`, `services`, `entertainment_categories`, `entertainment_pauses`, `entertainment_quotas_history`, `series`, `seasons`, `watch_history`, `reading_history`, `backlog`, `work_people`, `cards`.
@@ -159,10 +159,10 @@ Es padre: `unique(id, user_id)`.
 - Postgres redondea `numeric(14,2)` con **empates alejándose de cero** (1,005 → 1,01; −1,005 → −1,01; 0,125 → 0,13). El mapeador debe redondear **exactamente igual** antes del push. Si no, el pull devuelve un valor distinto del que el celular cree haber enviado.
 - El redondeo se hace sobre el **valor en centavos con aritmética entera**, partiendo de la representación decimal más corta del número: `String(v)`, que es lo mismo que envía `JSON.stringify`.
   - Nunca con `Math.round(v * 100) / 100`: `1.005 * 100` es `100.49999999999999` en coma flotante, así que daría 1,00 mientras Postgres da 1,01.
-  - Prototipo: `toCents` / `roundMoney` en `scripts/lib/mapeo-sync.mjs`, con BigInt. Se compara contra Postgres en 15 casos límite (incluye 1,005, −1,005, 2,675, 0,125, 11,988000000000001 y notación exponencial).
+  - Implementación: `toCents` / `roundMoney` en `src/sync/mapping.ts`, con BigInt. Se compara contra Postgres en 15 casos límite (incluye 1,005, −1,005, 2,675, 0,125, 11,988000000000001 y notación exponencial).
 - El mapeador envía el monto **como texto** (`"11.99"`), no como número de coma flotante.
 - **Datos actuales:** 0 de 66 montos de las 8 BD cargadas cambian al redondear a 2 decimales.
-- **[PENDIENTE] Fase 4:** redondear también al escribir en SQLite (`total_value` Internacional = base × 1,20 y montos escritos con más de 2 decimales). Así el valor local ya es el mismo que guardará el servidor.
+- **Al escribir en SQLite (Fase 4):** `insertRow`, `updateRow` y `reviveRow` (`src/data/repositories/rows.ts`) redondean las columnas de dinero de cada tabla con la misma función (`roundMoneyColumns`). Ej.: `total_value` Internacional 9,99 × 1,20 = 11,988 → 11,99. La migración 4 no reescribe montos existentes: 0 de 61 valores de las BD reales y de prueba cambiarían.
 
 ## JSON
 - `days_of_week`: objeto `{"Monday": n, …, "Sunday": n}`. La forma array legada (`["Monday", …]`) se convierte en el push igual que lo hace hoy `getQuotasForDate` en `src/services/backlogUtils.js`: los días listados toman `frequency || 0` y el resto 0. Hoy no hay arrays en los datos.
@@ -181,8 +181,8 @@ Es padre: `unique(id, user_id)`.
 - `server_updated_at` se fija **al escribir la fila**, pero la fila solo es visible para otros **al confirmar** la transacción.
 - Si la transacción T1 escribe a las 10:00:00.100 y confirma a las 10:00:02, y mientras tanto T2 escribe a las 10:00:01 y confirma a las 10:00:01.5, un pull a las 10:00:01.8 ve T2 y avanza el cursor a 10:00:01. Cuando T1 confirma, su fila (10:00:00.100) queda **por detrás del cursor** y nunca se descargaría.
 - Con `clock_timestamp()` el hueco es solo el tiempo entre la escritura y el commit, no toda la transacción como con `now()`. Pero no es cero.
-- **Mitigación propuesta para la Fase 4** (no implementada aún):
-  1. **Ventana de solapamiento:** el pull pide `server_updated_at > cursor − Δ` (por ejemplo, Δ = 5 minutos, mucho más que la duración de cualquier transacción del push).
+- **Mitigación (implementada en la Fase 4):**
+  1. **Ventana de solapamiento de 60 s:** el pull pide `server_updated_at >= cursor − 60 s`. El rol `authenticated` tiene `statement_timeout` de 8 s en Supabase y cada petición de PostgREST es una transacción, así que ningún commit llega más de ~8 s fuera de orden; 60 s da 7× de margen.
   2. **Upsert idempotente local:** las filas repetidas por la ventana se aplican por `id` sin efectos secundarios. Si `updated_at` y el contenido son iguales, no hay cambio. Nunca se aplican incrementos relativos.
   3. El cursor avanza al máximo `(server_updated_at, id)` recibido y la paginación desempata por `id`.
   4. Alternativa más estricta si la ventana no basta: guardar `pg_current_xact_id()` por fila y descargar solo hasta `pg_snapshot_xmin(pg_current_snapshot())`, que garantiza que no queden transacciones abiertas por debajo del cursor. Requiere una columna y una función extra en el servidor.
@@ -196,5 +196,30 @@ Es padre: `unique(id, user_id)`.
 - **Grants:** `authenticated` tiene select, insert y update; `anon` no tiene nada. No hay delete para nadie del lado cliente.
 - **Borrar la cuenta** en `auth.users` borra en cascada todas sus filas. Es el único borrado físico.
 
-## Multidispositivo
-Sigue **[PENDIENTE]** (Fase 4). Las claves naturales `seasons(series_id, season_number)` y `finance_categories(user_id, name)` pueden chocar entre dispositivos en el pull; ver DECISIONES.md.
+## Multidispositivo y claves naturales (Fase 4)
+Una misma cuenta puede usar varios dispositivos (también cubre reinstalar o cambiar de celular). Las claves naturales `finance_categories(user_id, name)` y `seasons(series_id, season_number)` se resuelven por **fusión**: la fila local adopta el `id` del servidor. Nada referencia esas filas por `id` (`balance_history` guarda la categoría como texto; los historiales usan `series_id` + `season_number`).
+- **Push con 23505:** se busca la fila del servidor con la misma clave; la local pasa a ese `id` (y sus entradas de outbox) y se reintenta con el contenido local, que llega último y gana.
+- **Pull:** si llega una fila con la misma clave que una local de otro `id`, la local adopta el `id` del servidor. Si tenía cambios pendientes, los conserva y su push gana; si no, toma el contenido del servidor.
+- Si ya existe localmente otra fila con el `id` del servidor (caso patológico), la entrada se bloquea con "fusión imposible" y nada se pierde.
+- No se usan IDs deterministas: solo cubrirían las categorías por defecto nuevas; la fusión hace falta igual.
+
+## Motor de sincronización (Fase 4, `src/sync/`)
+- **Archivos:** `mapping.ts` (estas reglas), `transport.ts` (contrato y clasificación de errores), `supabaseTransport.ts` (supabase-js), `engine.ts` (`pushOutbox`, `pullTable`, `applyRemoteRows`, `syncOnce`, `enqueueAllForInitialUpload`, estado), `controller.ts` (single-flight y disparadores), `useSync.ts` (hook de la UI), `config.ts`.
+- **Activación:** `extra.syncEnabled` de `app.config.js`: **false en producción** hasta la Fase 5; true solo en la variante dev (proyecto Registro Dev). Requisitos por ciclo: cuenta vinculada, sesión válida y el uid de la sesión igual a `users.id`; si no, el ciclo se omite sin error.
+- **Disparadores** (solo en `startSyncTriggers`): abrir la app, volver a primer plano (`AppState` → active), recuperar conexión (NetInfo, `isConnected` false → true) y "Sincronizar ahora". Una sola ejecución a la vez; los disparadores que llegan durante una sincronización se fusionan en una ejecución extra. Sin tareas en segundo plano.
+- **Orden:** push de la outbox → pull de las 15 tablas, padres antes que hijos (orden de `TABLES`).
+- **Push:** agrupa la outbox por (tabla, `row_id`), lee el estado **actual** de cada fila, la mapea y hace upsert por `id` en lotes de 100. Un lote con error de datos se reintenta fila por fila para aislar la culpable. Se borran de la outbox **solo** las entradas leídas y confirmadas (por su `id`): una edición hecha durante el push queda pendiente. Nunca se descarta una entrada.
+- **Errores:**
+
+| Error | Clase | Qué hace |
+|---|---|---|
+| sin red, 408, 429, 5xx | transitorio | `attempts++`, `last_error`, `next_attempt_at` = ahora + min(30 s × 2^intentos, 1 h); el ciclo se detiene |
+| 401 / JWT vencido | sesión | el ciclo se detiene sin culpar a ninguna entrada ("Inicia sesión para sincronizar") |
+| **23505** (clave única) | fusión | fusión por clave natural (arriba); si la tabla no tiene clave natural o no hay fila que fusionar → bloqueada |
+| **23503** (padre inexistente en el servidor) | dependencia | se identifica el padre por la FK compuesta: si existe localmente, se encola su upsert (sin duplicar) y el hijo se reintenta después del padre en el mismo ciclo; si el padre tiene un error bloqueado, el hijo espera con backoff; **solo si el padre no existe localmente** el hijo se bloquea |
+| 23514, 42501, 22xxx, 23502, PGRST204 y demás 4xx | permanente | `blocked_at` + `block_reason`: visible en la UI, sin reintentos en bucle |
+
+- **Filas bloqueadas:** mientras una fila tenga una entrada bloqueada, **el pull no la actualiza** (lo que llegue del servidor para ese registro se omite). "Reintentar" en la UI desbloquea las entradas y el siguiente ciclo las vuelve a subir.
+- **Pull:** por tabla, desde `cursor − 60 s`, paginado de 500 en 500 por (`server_updated_at`, `id`) (keyset con desempate por `id`). El cursor se guarda **crudo** (µs y zona, sin pasar por `Date`) en `sync_state`, en la misma transacción que aplica la página. Aplicación idempotente sin outbox: se omiten las filas con cambios pendientes o bloqueados y las que ya son idénticas, así la segunda sincronización no escribe nada.
+- **Primera subida (Fase 5):** `enqueueAllForInitialUpload` encola todas las filas (vivas y tombstones) en orden de dependencias, en una transacción, sin duplicar entradas pendientes; después el mismo motor las sube. No se ejecuta sola y se niega con la sync apagada.
+- **Estado local** (migración 4): `outbox.blocked_at` / `block_reason`, `sync_state` (cursores) y `sync_meta` (última sincronización y último error).

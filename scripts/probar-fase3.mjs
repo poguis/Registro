@@ -56,14 +56,14 @@ const prepare = (label, source) => {
 };
 // Lleva una copia hasta la v2 con el runner real (sin la migración 3).
 async function toV2(path) {
-    const m3 = MIGRATIONS.pop();
+    const later = MIGRATIONS.splice(2); // quita las migraciones posteriores a la 2
     try {
         __setDatabasePath(path);
         const conn = await openDatabaseAsync('app_registro_v3.db');
         await quiet(() => runMigrations(conn, { createPhysicalCopy: async () => ({ path: 'stub' }), listDbFiles: () => [] }));
         await conn.closeAsync();
     } finally {
-        MIGRATIONS.push(m3);
+        MIGRATIONS.push(...later);
     }
 }
 const open = async (path) => {
@@ -143,7 +143,7 @@ for (const [label, source] of Object.entries(SOURCES)) {
     const log3 = d.prepare("SELECT COUNT(*) n FROM _migration_log WHERE version = 3 AND kind = 'summary'").get().n;
     d.close();
     const leaked = bytesContain(path, passwords);
-    check(`${label}: v2 → v${LATEST_VERSION}, copia previa pedida`, before.uv === 2 && r.ok && after.uv === 3 && backupCalls.includes('pre-migracion-v3'));
+    check(`${label}: v2 → v${LATEST_VERSION}, copia previa pedida`, before.uv === 2 && r.ok && after.uv === LATEST_VERSION && backupCalls.includes('pre-migracion-v3'));
     check(`${label}: 15 tablas idénticas (conteos y contenido) y outbox sin cambios`, sameDomain(before, after) && before.outbox === after.outbox,
         `${Object.values(after.counts).reduce((a, b) => a + b, 0)} filas`);
     check(`${label}: users sin password (con email y linked_at), mismos usuarios`, noPwCol && usersAfter === usersBefore, `${JSON.parse(usersAfter).length} cuenta(s)`);
@@ -171,7 +171,7 @@ section('Migración 3: fallos simulados');
     check('copia previa fallida: no migra y no toca nada', !rb.ok && sameAll(before, snapshot(path)));
     const rr = await open(path);
     await rr.svc.db?.closeAsync();
-    check('reintento: migra a v3', rr.ok && uv(path) === 3);
+    check(`reintento: migra hasta v${LATEST_VERSION}`, rr.ok && uv(path) === LATEST_VERSION);
 }
 
 // ---------------------------------------------------------------------------
@@ -284,7 +284,7 @@ if (migrated.B) {
     await useSingleton(path);
     asyncStore.clear();
     const idN = await quiet(() => flow.resolveStartupIdentity());
-    check('instalación nueva: exige login con Google', idN.kind === 'needs-login' && uv(path) === 3);
+    check('instalación nueva: exige login con Google', idN.kind === 'needs-login' && uv(path) === LATEST_VERSION);
     const uid = randomUUID();
     const aN = await quiet(() => flow.afterGoogleLogin(fakeSession(uid, 'nuevo@ejemplo.test')));
     const d = raw(path);

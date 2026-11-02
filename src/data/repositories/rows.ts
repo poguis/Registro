@@ -2,16 +2,19 @@ import { getConnection, type Row } from '../db/connection';
 import { enqueueChange } from '../outbox/outbox';
 import { newId } from '../ids';
 import { nowIso } from '../clock';
+import { roundMoneyColumns } from '../../sync/mapping';
 
 // Escrituras de dominio. Toda escritura pasa por aquí: fija las columnas de sync
-// y registra el cambio en la outbox en la misma transacción.
+// y registra el cambio en la outbox en la misma transacción. Los montos se redondean a
+// centavos (empates alejándose de cero) con la misma función que usa el push, así el
+// valor local es el mismo que guardará numeric(14,2) en el servidor.
 
 const placeholders = (n: number) => new Array(n).fill('?').join(', ');
 
 // Inserta una fila nueva y devuelve su id (UUID generado antes del INSERT).
 export async function insertRow(table: string, userId: string, values: Row): Promise<string> {
     const now = nowIso();
-    const row: Row = { id: newId(), user_id: userId, ...values, created_at: now, updated_at: now };
+    const row: Row = { id: newId(), user_id: userId, ...roundMoneyColumns(table, values), created_at: now, updated_at: now };
     const cols = Object.keys(row);
     await getConnection().runAsync(
         `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${placeholders(cols.length)})`,
@@ -22,7 +25,8 @@ export async function insertRow(table: string, userId: string, values: Row): Pro
 }
 
 // Actualiza columnas de una fila (no borrada) y fija updated_at. Devuelve si cambió algo.
-export async function updateRow(table: string, id: string, values: Row): Promise<boolean> {
+export async function updateRow(table: string, id: string, rawValues: Row): Promise<boolean> {
+    const values = roundMoneyColumns(table, rawValues);
     const cols = Object.keys(values);
     const res = await getConnection().runAsync(
         `UPDATE ${table} SET ${[...cols, 'updated_at'].map((c) => `${c} = ?`).join(', ')} WHERE id = ? AND deleted_at IS NULL`,
@@ -33,7 +37,8 @@ export async function updateRow(table: string, id: string, values: Row): Promise
 }
 
 // Revive una fila borrada lógicamente (deleted_at = NULL) y aplica valores.
-export async function reviveRow(table: string, id: string, values: Row = {}): Promise<void> {
+export async function reviveRow(table: string, id: string, rawValues: Row = {}): Promise<void> {
+    const values = roundMoneyColumns(table, rawValues);
     const cols = Object.keys(values);
     await getConnection().runAsync(
         `UPDATE ${table} SET ${[...cols, 'deleted_at', 'updated_at'].map((c) => `${c} = ?`).join(', ')} WHERE id = ?`,

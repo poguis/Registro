@@ -36,7 +36,7 @@ const count = (d, t, w = '') => d.prepare(`SELECT COUNT(*) n FROM ${t} ${w}`).ge
 
 const uvA = A.prepare('PRAGMA user_version').get().user_version;
 const uvB = B.prepare('PRAGMA user_version').get().user_version;
-check('user_version: antes 2, después 3', uvA === 2 && uvB === 3, `${uvA} → ${uvB}`);
+check('user_version: antes 2, después ≥ 3 (la 4 solo agrega estado de sync)', uvA === 2 && uvB >= 3, `${uvA} → ${uvB}`);
 
 // 1. Las 15 tablas: mismos conteos y mismo contenido salvo user_id
 const rows = [];
