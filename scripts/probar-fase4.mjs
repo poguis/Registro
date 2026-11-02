@@ -610,6 +610,177 @@ section('17. Cambio offline + fallo de red + reconexión antes de vencer el back
     await sync(A); await sync(B);
     await converged('17. A, B y servidor convergen', U, A, B);
 }
+
+// =========================================================================== 18
+section('18. Sync automática: tras cada cambio local (antirrebote) y periódica en primer plano');
+{
+    const { createSyncRunner, RESET_BACKOFF_REASONS } = await import('../src/sync/runner.ts');
+    const { createAutoSync } = await import('../src/sync/autoSync.ts');
+    const { setOutboxCommitListener } = await import('../src/data/db/connection.ts');
+    T.uid = U;
+    T.offline = false;
+    await sync(A); await sync(B);
+    use(A);
+    // Contador de ciclos en paralelo (debe ser siempre 1).
+    let active = 0;
+    let maxActive = 0;
+    let cycles = 0;
+    let busyRequests = 0;
+    let firstCycleAt = null;
+    const runner = createSyncRunner({
+        config: () => CFG,
+        transport: () => T,
+        onChange: () => { if (runner.state().syncing) { cycles++; firstCycleAt ??= Date.now(); } },
+    });
+    let connected = true;
+    const request = (reason) => {
+        if (runner.state().syncing) busyRequests++;
+        active++; maxActive = Math.max(maxActive, active);
+        const p = runner.request(reason);
+        return p ? p.finally(() => { active--; }) : (active--, null);
+    };
+    const auto = createAutoSync({
+        request,
+        isConnected: () => connected,
+        isBusy: () => runner.state().syncing,
+        debounceMs: DEFAULT_SYNC_CONFIG.changeDebounceMs,
+        periodMs: 300,
+    });
+    setOutboxCommitListener(() => auto.onLocalChange());
+    const sleep = (ms) => quiet(() => new Promise((r) => setTimeout(r, ms)));
+    // Espera a que no haya sync en curso ni antirrebote pendiente (tope 15 s).
+    const settle = async (minMs) => {
+        await sleep(minMs);
+        const t0 = Date.now();
+        while (runner.state().syncing && Date.now() - t0 < 15_000) await sleep(50);
+    };
+    const onServer = async (title) => (await pg.query('select count(*)::int n from public.backlog where user_id = $1 and title = $2', [U, title])).rows[0].n === 1;
+
+    check('los motivos automáticos no reinician el backoff', !RESET_BACKOFF_REASONS.has('cambio-local') && !RESET_BACKOFF_REASONS.has('periodico'));
+
+    // 1) Un cambio con conexión se sube solo, en unos 3 s, sin botón.
+    // (El ciclo contra PGlite tarda varios segundos: se mide cuándo EMPIEZA, no cuándo termina.)
+    cycles = 0;
+    firstCycleAt = null;
+    const t1 = Date.now();
+    await run(A, (s) => s.addBacklogItem(U, { type: 'movie', title: 'Auto 18' }));
+    await sleep(DEFAULT_SYNC_CONFIG.changeDebounceMs - 500);
+    const early = cycles;
+    let up = false;
+    while (!up && Date.now() - t1 < 30_000) { await sleep(100); up = await onServer('Auto 18') && !runner.state().syncing; }
+    const startedAfter = firstCycleAt ? firstCycleAt - t1 : -1;
+    check('un cambio con conexión se sube solo tras el antirrebote (~3 s), sin botón',
+        early === 0 && up && cycles === 1 && startedAfter >= DEFAULT_SYNC_CONFIG.changeDebounceMs && startedAfter < DEFAULT_SYNC_CONFIG.changeDebounceMs + 1_500 && (await outboxCount(A)) === 0,
+        `el ciclo empezó a los ${(startedAfter / 1000).toFixed(1)} s, ${cycles} ciclo(s)`);
+
+    // 2) Cinco cambios seguidos → un solo ciclo.
+    cycles = 0;
+    for (let i = 1; i <= 5; i++) await run(A, (s) => s.addBacklogItem(U, { type: 'movie', title: `Ráfaga 18-${i}` }));
+    await settle(DEFAULT_SYNC_CONFIG.changeDebounceMs + 300);
+    const all5 = (await pg.query("select count(*)::int n from public.backlog where user_id = $1 and title like 'Ráfaga 18-%'", [U])).rows[0].n;
+    check('5 cambios seguidos → 1 solo ciclo y los 5 en el servidor', cycles === 1 && all5 === 5 && (await outboxCount(A)) === 0, `${cycles} ciclo(s), ${all5} en el servidor`);
+
+    // 3) Sin conexión → 0 ciclos; al reconectar sube (el disparador de reconexión de controller.ts).
+    cycles = 0;
+    connected = false;
+    T.offline = true;
+    await run(A, (s) => s.addBacklogItem(U, { type: 'movie', title: 'Sin red 18' }));
+    await settle(DEFAULT_SYNC_CONFIG.changeDebounceMs + 500);
+    check('sin conexión: 0 ciclos y el cambio queda en la outbox', cycles === 0 && (await outboxCount(A)) === 1);
+    connected = true;
+    T.offline = false;
+    use(A);
+    await quiet(() => request('reconexion'));
+    check('al reconectar se sube', await onServer('Sin red 18') && (await outboxCount(A)) === 0);
+
+    // 4) El cambio local no reinicia el backoff de un error de red anterior.
+    T.offline = true;
+    use(A);
+    await run(A, (s) => s.addBacklogItem(U, { type: 'movie', title: 'Backoff 18' }));
+    await quiet(() => runner.request('boton')); // falla por red: queda con backoff
+    T.offline = false;
+    await run(A, (s) => s.addBacklogItem(U, { type: 'movie', title: 'Otro 18' }));
+    await settle(DEFAULT_SYNC_CONFIG.changeDebounceMs + 300);
+    const bk = await one(A, "SELECT o.attempts, o.next_attempt_at FROM outbox o JOIN backlog b ON b.id = o.row_id WHERE b.title = 'Backoff 18'");
+    check('la sync tras un cambio respeta el backoff: sube lo nuevo y no adelanta el que falló por red',
+        await onServer('Otro 18') && !(await onServer('Backoff 18')) && bk?.attempts === 1 && bk.next_attempt_at > new Date().toISOString());
+    use(A);
+    await quiet(() => request('reconexion')); // limpia: la reconexión sí lo reinicia
+
+    // 5) Periódico con el runner real: en primer plano corre solo y nunca hay dos ciclos a la vez.
+    cycles = 0; busyRequests = 0; maxActive = 0;
+    auto.setForeground(true);
+    auto.setForeground(true); // reanudar dos veces no duplica la cadena
+    const t5 = Date.now();
+    while (cycles < 2 && Date.now() - t5 < 60_000) await sleep(100);
+    auto.setForeground(false);
+    await settle(100);
+    const atPause = cycles;
+    check('periódico en primer plano (runner real): corre solo, sin ciclos a la vez ni extras encolados',
+        atPause >= 2 && maxActive === 1 && busyRequests === 0, `${atPause} ciclo(s), máx. ${maxActive} a la vez`);
+    await sleep(1_200);
+    check('en segundo plano el temporizador no corre', cycles === atPause, `${cycles - atPause} ciclo(s) en pausa`);
+    auto.stop();
+    setOutboxCommitListener(null);
+
+    // 6) Temporizador periódico con un request falso de duración controlada (no depende de PGlite).
+    const fake = (ms) => {
+        const st = { calls: 0, running: 0, max: 0, conn: true };
+        const a = createAutoSync({
+            request: async () => { st.calls++; st.running++; st.max = Math.max(st.max, st.running); await new Promise((r) => setTimeout(r, ms)); st.running--; },
+            isConnected: () => st.conn,
+            isBusy: () => st.running > 0,
+            debounceMs: 50,
+            periodMs: 100,
+        });
+        return { a, st };
+    };
+    {
+        const { a, st } = fake(0);
+        a.setForeground(true);
+        await sleep(1_050);
+        a.setForeground(false);
+        const n = st.calls;
+        await sleep(500);
+        check('periódico (falso, 100 ms): ~10 ciclos en 1 s y 0 en segundo plano', n >= 6 && n <= 11 && st.calls === n, `${n} ciclo(s), ${st.calls - n} en pausa`);
+        st.conn = false; st.calls = 0;
+        a.setForeground(true);
+        await sleep(500);
+        a.stop();
+        check('periódico sin conexión: 0 ciclos', st.calls === 0);
+    }
+    {
+        // Ciclo de 400 ms con período de 100 ms: el siguiente se programa al terminar → ~1 cada 500 ms.
+        const { a, st } = fake(400);
+        a.setForeground(true);
+        a.setForeground(true);
+        await sleep(2_050);
+        a.setForeground(false);
+        await sleep(500);
+        check('ciclo lento (400 ms > período 100 ms): nunca dos a la vez ni ciclos acumulados', st.max === 1 && st.calls >= 3 && st.calls <= 4,
+            `${st.calls} ciclo(s) en 2 s, máx. ${st.max} a la vez`);
+        // Volver a primer plano mientras un ciclo sigue en curso no arranca otro encima.
+        st.calls = 0; st.max = 0;
+        a.setForeground(true);
+        await sleep(150); // primer ciclo en curso (hasta ~500 ms)
+        a.setForeground(false);
+        a.setForeground(true);
+        await sleep(300);
+        a.stop();
+        await sleep(500);
+        check('pausar y reanudar con un ciclo en curso: sin ciclos encima', st.max === 1, `máx. ${st.max} a la vez`);
+        const { a: d, st: ds } = fake(0);
+        for (let i = 0; i < 5; i++) d.onLocalChange();
+        await sleep(300);
+        ds.conn = false;
+        d.onLocalChange();
+        await sleep(300);
+        d.stop();
+        check('antirrebote (falso): 5 cambios → 1 ciclo; sin conexión → 0', ds.calls === 1, `${ds.calls} ciclo(s)`);
+    }
+    await sync(A); await sync(B);
+    await converged('18. A, B y servidor convergen', U, A, B);
+}
 endScenario();
 
 console.log(failures === 0 ? '\nTODAS LAS PRUEBAS DE LA FASE 4 PASARON.' : `\n${failures} prueba(s) fallaron.`);

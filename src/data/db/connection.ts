@@ -32,6 +32,13 @@ export const getCurrentTx = (): TxState => {
     return currentTx;
 };
 
+// Aviso tras confirmar una transacción que encoló algo en la outbox (lo usa la sync automática,
+// src/sync/controller.ts). El motor de sync escribe la outbox fuera de tx(), así que no lo dispara.
+let outboxCommitListener: (() => void) | null = null;
+export const setOutboxCommitListener = (fn: (() => void) | null) => {
+    outboxCommitListener = fn;
+};
+
 let writeQueue: Promise<unknown> = Promise.resolve();
 
 // Cola serializada: cada tarea espera a que termine la anterior.
@@ -46,7 +53,8 @@ export function enqueue<T>(task: () => Promise<T>): Promise<T> {
 export async function tx<T>(task: () => Promise<T>): Promise<T> {
     const db = getConnection();
     let result: T | undefined;
-    currentTx = { touched: new Set() };
+    const state: TxState = { touched: new Set() };
+    currentTx = state;
     try {
         await db.withTransactionAsync(async () => {
             result = await task();
@@ -54,6 +62,9 @@ export async function tx<T>(task: () => Promise<T>): Promise<T> {
         });
     } finally {
         currentTx = null;
+    }
+    if (state.touched.size > 0 && outboxCommitListener) {
+        try { outboxCommitListener(); } catch { /* la sync nunca rompe una escritura */ }
     }
     return result as T;
 }

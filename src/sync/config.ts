@@ -12,6 +12,8 @@ export type SyncConfig = {
     // de ~8 s fuera de orden; 60 s da 7× de margen (docs/MAPEO-SYNC.md).
     overlapMs: number;
     maxPushRounds: number; // rondas de push por ciclo (padres encolados por 23503, fusiones)
+    changeDebounceMs: number; // antirrebote de la sync tras un cambio local (autoSync.ts)
+    periodicMs: number; // intervalo de la sync periódica en primer plano (autoSync.ts)
 };
 
 export const DEFAULT_SYNC_CONFIG: Omit<SyncConfig, 'enabled'> = {
@@ -19,6 +21,8 @@ export const DEFAULT_SYNC_CONFIG: Omit<SyncConfig, 'enabled'> = {
     batchSize: 100,
     overlapMs: 60_000,
     maxPushRounds: 5,
+    changeDebounceMs: 3_000,
+    periodicMs: 120_000,
 };
 
 export function getAppSyncConfig(): SyncConfig {

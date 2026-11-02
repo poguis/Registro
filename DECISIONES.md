@@ -58,6 +58,8 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 ## Sincronización
 - [OK] Cada escritura local se registra en la tabla `outbox` en la MISMA transacción.
 - [OK] Disparadores: apertura de la app, volver a primer plano, recuperar conexión (`@react-native-community/netinfo`) y botón manual. Sin tareas en segundo plano.
+- [OK] Fase 4.3: además, una sync tras cada cambio local (cuando una transacción encola algo en la outbox), con antirrebote de 3 s y solo si NetInfo indica conexión; varios cambios seguidos se agrupan en un ciclo y sin conexión no hace nada (sube al reconectar). Y una sync periódica cada 2 min (`periodicMs`, configurable) solo en primer plano y con conexión, pausada en segundo plano (AppState); el siguiente turno se programa al terminar el anterior y se salta si hay una sync en curso, así que nunca se acumulan ciclos. Ambos respetan el single-flight y el backoff (`src/sync/autoSync.ts`). Siguen sin tareas en segundo plano: solo temporizadores de JS con la app abierta.
+- [OK] Fase 4.3: al reconectar y con "Sincronizar ahora" se reinicia el backoff solo de las entradas que fallaron por error transitorio de red (no las bloqueadas ni los errores de sesión); el backoff automático entre ciclos no cambia.
 - [OK] Orden: primero push de la outbox, luego pull.
 - [OK] Push idempotente (upsert por `id`). Nunca incrementos relativos.
 - [OK] Pull con cursor sobre `server_updated_at`, asignado por trigger en Postgres (no por el reloj del celular), paginado y con desempate por `id`.
