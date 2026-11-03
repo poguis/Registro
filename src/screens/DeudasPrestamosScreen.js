@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '../contexts/ThemeContext';
 import db from '../services/db';
+import { useSyncRefresh } from '../sync/useSyncRefresh';
 import { parseDbTimestamp } from '../services/dateRange';
 
 export default function DeudasPrestamosScreen({ user, onBack }) {
@@ -39,6 +40,8 @@ export default function DeudasPrestamosScreen({ user, onBack }) {
     useEffect(() => {
         loadData();
     }, [activeTab]);
+    // Recarga si la sync trae cambios del servidor (sin tocar formularios, filtros ni scroll).
+    useSyncRefresh(() => loadData());
 
     const loadData = async () => {
         const type = activeTab === 'deudas' ? 'debt' : 'loan';

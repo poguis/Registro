@@ -17,15 +17,18 @@ import type { Transport } from './transport';
 
 type Listener = () => void;
 const listeners = new Set<Listener>();
+const dataListeners = new Set<Listener>(); // pantallas abiertas que recargan si la sync cambió datos
 let transport: Transport | null = null;
 
 const runner = createSyncRunner({
     config: getAppSyncConfig,
     transport: () => (transport ??= createSupabaseTransport()),
     onChange: () => listeners.forEach((l) => l()),
+    onDataChanged: () => dataListeners.forEach((l) => l()),
 });
 
 export const subscribe = (l: Listener) => { listeners.add(l); return () => { listeners.delete(l); }; };
+export const subscribeDataChanged = (l: Listener) => { dataListeners.add(l); return () => { dataListeners.delete(l); }; };
 export const getControllerState = () => runner.state();
 export const requestSync = (reason: string) => runner.request(reason);
 

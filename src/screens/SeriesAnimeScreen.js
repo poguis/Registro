@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '../contexts/ThemeContext';
 import db from '../services/db';
+import { useSyncRefresh } from '../sync/useSyncRefresh';
 import { calculateBacklog, getLocalDateString } from '../services/backlogUtils';
 
 const DAYS = [
@@ -165,6 +166,8 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
     useEffect(() => {
         fetchCategories();
     }, []);
+    // Recarga si la sync trae cambios del servidor (sin tocar formularios, filtros ni scroll).
+    useSyncRefresh(() => fetchCategories());
 
     const openModal = (item = null) => {
         if (item) {

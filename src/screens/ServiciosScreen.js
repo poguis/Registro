@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '../contexts/ThemeContext';
 import db from '../services/db';
+import { useSyncRefresh } from '../sync/useSyncRefresh';
 
 export default function ServiciosScreen({ user, onBack }) {
     const { theme, isDarkMode } = useTheme();
@@ -36,6 +37,8 @@ export default function ServiciosScreen({ user, onBack }) {
     useEffect(() => {
         loadServices();
     }, []);
+    // Recarga si la sync trae cambios del servidor (sin tocar formularios, filtros ni scroll).
+    useSyncRefresh(() => loadServices());
 
     const loadServices = async () => {
         const result = await db.getServices(user.id);

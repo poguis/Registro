@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import db from '../services/db';
+import { useSyncRefresh } from '../sync/useSyncRefresh';
 import { useTheme } from '../contexts/ThemeContext';
 
 const { width } = Dimensions.get('window');
@@ -61,6 +62,8 @@ export default function BacklogScreen({ user, onBack }) {
     useEffect(() => {
         loadItems();
     }, [activeTab, activeStatus, sortBy, order, activeFranchise]);
+    // Recarga si la sync trae cambios del servidor (sin tocar formularios, filtros ni scroll).
+    useSyncRefresh(() => loadItems());
 
     useEffect(() => {
         setActiveFranchise('Todos');

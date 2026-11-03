@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '../contexts/ThemeContext';
 import db from '../services/db';
+import { useSyncRefresh } from '../sync/useSyncRefresh';
 
 const { width } = Dimensions.get('window');
 
@@ -72,6 +73,8 @@ export default function TrabajoScreen({ user, onBack }) {
     useEffect(() => {
         loadPeople();
     }, []);
+    // Recarga si la sync trae cambios del servidor (sin tocar formularios, filtros ni scroll).
+    useSyncRefresh(() => loadPeople());
 
     const loadPeople = async () => {
         const res = await db.getWorkPeople(user.id);

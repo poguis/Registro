@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, FlatList, Modal, TextInput, A
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import db from '../services/db';
+import { useSyncRefresh } from '../sync/useSyncRefresh';
 import { calculateBacklog, calculateBacklogV2, getLocalDateString, getAbsoluteEpisodeCount, getWatchedCountSinceStart } from '../services/backlogUtils';
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -71,6 +72,8 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
     useEffect(() => {
         fetchSeries();
     }, [category]);
+    // Recarga si la sync trae cambios del servidor (sin tocar formularios, filtros ni scroll).
+    useSyncRefresh(() => Promise.all([refreshCategory(), fetchSeries()]));
 
     useEffect(() => {
         setCurrentCategory(category);

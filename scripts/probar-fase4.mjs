@@ -781,6 +781,42 @@ section('18. Sync automática: tras cada cambio local (antirrebote) y periódica
     await sync(A); await sync(B);
     await converged('18. A, B y servidor convergen', U, A, B);
 }
+
+// =========================================================================== 19
+section('19. Aviso a las pantallas: solo cuando la sync escribe datos locales');
+{
+    const { createSyncRunner } = await import('../src/sync/runner.ts');
+    T.uid = U;
+    T.offline = false;
+    await sync(A); await sync(B);
+    engine.takeLocalDataChanged(); // limpia la marca de los ciclos anteriores
+    let notices = 0;
+    const runnerB = createSyncRunner({ config: () => CFG, transport: () => T, onDataChanged: () => { notices++; } });
+    const reqB = async (reason) => { use(B); await quiet(() => runnerB.request(reason)); return runnerB.state().lastOutcome; };
+
+    await run(A, (s) => s.addBacklogItem(U, { type: 'movie', title: 'Aviso 19' }));
+    await sync(A);
+    const o1 = await reqB('periodico');
+    check('B baja un cambio de A → 1 aviso', o1?.status === 'ok' && o1.applied >= 1 && notices === 1, `aplicadas ${o1?.applied}, avisos ${notices}`);
+    const o2 = await reqB('periodico');
+    check('ciclo sin cambios del servidor → 0 avisos', o2?.status === 'ok' && o2.applied === 0 && notices === 1, `avisos ${notices}`);
+    await run(B, (s) => s.addBacklogItem(U, { type: 'movie', title: 'Propio 19' }));
+    const o3 = await reqB('cambio-local');
+    check('B sube un cambio propio (vuelve igual en el pull) → 0 avisos', o3?.status === 'ok' && o3.push.pushed >= 1 && o3.applied === 0 && notices === 1, `avisos ${notices}`);
+    T.offline = true;
+    await run(A, (s) => s.addBacklogItem(U, { type: 'movie', title: 'Offline 19' }));
+    const o4 = await reqB('periodico');
+    check('ciclo sin red → 0 avisos', o4?.status === 'offline' && notices === 1);
+    T.offline = false;
+    // Fusión por clave natural en el push (cambia el id local) → avisa.
+    await run(A, (s) => s.addFinanceCategory(U, 'Fusion 19'));
+    await run(B, (s) => s.addFinanceCategory(U, 'Fusion 19'));
+    await sync(A);
+    const o5 = await reqB('cambio-local');
+    check('fusión de id por clave natural → 1 aviso', o5?.status === 'ok' && o5.merged >= 1 && notices === 2, `fusiones ${o5?.merged}, avisos ${notices}`);
+    await sync(A); await sync(B);
+    await converged('19. A, B y servidor convergen', U, A, B);
+}
 endScenario();
 
 console.log(failures === 0 ? '\nTODAS LAS PRUEBAS DE LA FASE 4 PASARON.' : `\n${failures} prueba(s) fallaron.`);

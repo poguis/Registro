@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, FlatList, Alert, ActivityIndi
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import db from '../services/db';
+import { useSyncRefresh } from '../sync/useSyncRefresh';
 import { calculateBacklog, calculateBacklogV2, getAbsoluteEpisodeCount, getWatchedCountSinceStart } from '../services/backlogUtils';
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -16,8 +17,9 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
     const [counts, setCounts] = useState({ pending: 0, watched: 0 });
     const [currentCategory, setCurrentCategory] = useState(category || null);
 
-    const loadData = useCallback(async () => {
-        setLoading(true);
+    // silent: recarga sin indicador de carga (no desmonta la lista ni pierde el scroll).
+    const loadData = useCallback(async ({ silent = false } = {}) => {
+        if (!silent) setLoading(true);
         try {
             const [seriesResult, historyResult, categoriesResult] = await Promise.all([
                 db.getFullWatchlist(user.id, category ? category.id : null),
@@ -50,6 +52,8 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
     }, [category, currentTab]);
 
     useEffect(() => { loadData(); }, [loadData]);
+    // Recarga si la sync trae cambios del servidor (sin tocar formularios, filtros ni scroll).
+    useSyncRefresh(() => loadData({ silent: true }));
 
     const generateInterleavedList = (list) => {
         let episodes = [];

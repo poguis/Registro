@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '../contexts/ThemeContext';
 import db from '../services/db';
+import { useSyncRefresh } from '../sync/useSyncRefresh';
 
 export default function CardsScreen({ user, onBack }) {
     const { theme, isDarkMode } = useTheme();
@@ -36,6 +37,8 @@ export default function CardsScreen({ user, onBack }) {
     useEffect(() => {
         loadCards();
     }, []);
+    // Recarga si la sync trae cambios del servidor (sin tocar formularios, filtros ni scroll).
+    useSyncRefresh(() => loadCards());
 
     const loadCards = async () => {
         const result = await db.getCards(user.id);

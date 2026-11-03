@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '../contexts/ThemeContext';
 import db from '../services/db';
+import { useSyncRefresh } from '../sync/useSyncRefresh';
 import { getUtcRange, parseDbTimestamp } from '../services/dateRange';
 
 export default function DineroScreen({ user, onBack, onNavigate }) {
@@ -54,6 +55,8 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
     useEffect(() => {
         loadData();
     }, [dateFilter]);
+    // Recarga si la sync trae cambios del servidor (sin tocar formularios, filtros ni scroll).
+    useSyncRefresh(() => loadData());
 
     const loadData = async () => {
         await loadBalance();

@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '../contexts/ThemeContext';
 import db from '../services/db';
+import { useSyncRefresh } from '../sync/useSyncRefresh';
 import { getUtcRange, parseDbTimestamp } from '../services/dateRange';
 
 const { width } = Dimensions.get('window');
@@ -35,6 +36,8 @@ export default function StatisticsScreen({ user, onBack }) {
     useEffect(() => {
         loadStats();
     }, [period, customRange]);
+    // Recarga si la sync trae cambios del servidor (sin tocar formularios, filtros ni scroll).
+    useSyncRefresh(() => loadStats());
 
     // Días locales → límites UTC (created_at está en UTC)
     const getDates = () => getUtcRange(period, new Date(), customRange);

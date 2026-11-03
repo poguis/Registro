@@ -11,6 +11,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import db from '../services/db';
+import { useSyncRefresh } from '../sync/useSyncRefresh';
 import { useTheme } from '../contexts/ThemeContext';
 import { calculateBacklog, calculateBacklogV2, getLocalDateString, isDatePaused, getAbsoluteEpisodeCount, getWatchedCountSinceStart } from '../services/backlogUtils';
 
@@ -27,9 +28,12 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
     useEffect(() => {
         loadData();
     }, [tab]);
+    // Recarga si la sync trae cambios del servidor (sin tocar formularios, filtros ni scroll).
+    useSyncRefresh(() => loadData({ silent: true }));
 
-    const loadData = async () => {
-        setLoading(true);
+    // silent: recarga sin indicador de carga (no desmonta la lista ni pierde el scroll).
+    const loadData = async ({ silent = false } = {}) => {
+        if (!silent) setLoading(true);
         const [watchlistResult, historyResult, categoriesResult] = await Promise.all([
             db.getFullWatchlist(user.id, category ? category.id : null),
             db.getHistory(user.id, category ? category.id : null),

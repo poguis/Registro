@@ -29,6 +29,15 @@ async function localTx<T>(fn: () => Promise<T>): Promise<T> {
     });
 }
 
+// Marca de datos locales cambiados por la sync (filas del servidor aplicadas o ids fusionados).
+// La consume el runner al terminar cada ciclo para avisar a las pantallas abiertas que recarguen.
+let localDataChanged = false;
+export function takeLocalDataChanged(): boolean {
+    const v = localDataChanged;
+    localDataChanged = false;
+    return v;
+}
+
 const placeholders = (n: number) => new Array(n).fill('?').join(', ');
 
 // Cancelación cooperativa (watchdog): el motor la consulta entre pasos y se detiene antes de
@@ -182,7 +191,7 @@ export async function pushOutbox(cfg: SyncConfig, transport: Transport, uid: str
                     }
                     if (err.kind === 'conflict' && NATURAL_KEYS[table]) {
                         const m = await mergeOnPush(transport, table, b.local);
-                        if (m.ok) { res.merged++; retryNextRound = true; continue; }
+                        if (m.ok) { res.merged++; localDataChanged = true; retryNextRound = true; continue; }
                         if (m.errorKind) { await markTransient(b.g, m.reason, m.errorKind); res.transient++; res.stop = m.errorKind; return res; }
                         await markBlocked(b.g, m.reason); res.blocked++;
                         continue;
@@ -291,6 +300,7 @@ export async function pullTable(cfg: SyncConfig, transport: Transport, table: st
         const last = page.rows[page.rows.length - 1];
         pageAfter = { ts: last.server_updated_at, id: last.id };
         const newCursor = !cursor || after(pageAfter, cursor) ? pageAfter : cursor;
+        const writesBefore = res.applied + res.merged;
         await localTx(async () => {
             await applyRemoteRows(table, page.rows, uid, res);
             await db().runAsync(
@@ -301,6 +311,7 @@ export async function pullTable(cfg: SyncConfig, transport: Transport, table: st
             );
         });
         cursor = newCursor;
+        if (res.applied + res.merged > writesBefore) localDataChanged = true;
         if (page.rows.length < cfg.pageSize) break;
     }
     return res;
