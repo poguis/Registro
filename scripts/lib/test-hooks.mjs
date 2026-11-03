@@ -10,7 +10,8 @@
 //   Node 24 ejecuta los .ts quitando los tipos.
 import { registerHooks } from 'node:module';
 import { readFileSync, existsSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
 
 const shimUrl = new URL('./expo-sqlite-shim.mjs', import.meta.url).href;
 const backupStubUrl = new URL('./backup-stub.mjs', import.meta.url).href;
@@ -24,7 +25,10 @@ const secureStoreStubUrl = stub(`import { SecureStoreStub as S } from '${authStu
 const constantsStubUrl = stub(`import { constantsState } from '${authStubsUrl}'; export default { get expoConfig() { return constantsState.expoConfig; } };`);
 const reactNativeStubUrl = stub('export const AppState = { currentState: "active", addEventListener: () => ({ remove() {} }) };');
 const webBrowserStubUrl = stub('export const openAuthSessionAsync = async () => ({ type: "cancel" });');
-const supabaseStubUrl = stub('export const createClient = () => { throw new Error("supabase-js no se usa en las pruebas de PC"); };');
+// supabase-js no se usa en PC salvo isAuthRetryableFetchError (src/auth/sessionState.ts), que se
+// toma del auth-js instalado (el mismo que reexporta supabase-js en la app).
+const authJsUrl = pathToFileURL(createRequire(import.meta.url).resolve('@supabase/auth-js')).href;
+const supabaseStubUrl = stub(`export { isAuthRetryableFetchError } from '${authJsUrl}'; export const createClient = () => { throw new Error("supabase-js no se usa en las pruebas de PC"); };`);
 
 registerHooks({
     resolve(specifier, context, nextResolve) {

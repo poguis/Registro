@@ -15,6 +15,7 @@ export function createPgliteTransport(pg) {
     const t = {
         uid: null,
         offline: false,
+        sessionOffline: false,
         failUpsertAfter: null, // nº de upserts que funcionan antes de "cortar la red"
         failPullAfter: null,
         calls: { upsert: 0, pull: 0, find: 0 },
@@ -30,7 +31,8 @@ export function createPgliteTransport(pg) {
     const toError = (e) => remoteError(e.code || null, e.code ? statusFor(e.code) : 0, String(e.message || e));
     const parse = (rows) => rows.map((r) => JSON.parse(r.j));
 
-    t.session = async () => (t.uid ? { uid: t.uid } : null);
+    // sessionOffline: hay sesión guardada pero no se pudo renovar por falta de red (Fase 5).
+    t.session = async () => (t.uid && t.sessionOffline ? { offline: true } : t.uid ? { uid: t.uid } : null);
 
     t.upsert = async (table, rows) => {
         t.calls.upsert++;

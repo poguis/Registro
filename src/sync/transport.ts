@@ -15,8 +15,12 @@ export type RemoteRow = Record<string, any>;
 export type ErrorKind = 'network' | 'auth' | 'conflict' | 'fk' | 'permanent';
 export type RemoteError = { kind: ErrorKind; code: string | null; status: number | null; message: string };
 
+// Sesión para un ciclo: el uid; `offline` si hay sesión guardada pero no se pudo renovar por
+// falta de red; null si no hay sesión.
+export type SessionState = { uid: string } | { offline: true } | null;
+
 export interface Transport {
-    session(): Promise<{ uid: string } | null>;
+    session(): Promise<SessionState>;
     upsert(table: string, rows: RemoteRow[]): Promise<{ error: RemoteError | null }>;
     // Página ordenada por (server_updated_at, id). Primera página: server_updated_at >= since
     // (o todo si since es null); siguientes: después de `after` (keyset con desempate por id).

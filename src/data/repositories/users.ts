@@ -7,7 +7,7 @@ import { ensureCategory } from './money';
 // users.id pasa a ser el auth.uid() (ver src/data/db/linkAccount.ts).
 
 const db = () => getConnection();
-const DEFAULT_CATEGORIES = ['Comida', 'Transporte', 'Sueldo', 'Venta', 'Salud', 'Hogar'];
+export const DEFAULT_CATEGORIES = ['Comida', 'Transporte', 'Sueldo', 'Venta', 'Salud', 'Hogar'];
 
 export type SessionUser = { id: string; username: string };
 export type LocalUser = SessionUser & { email: string | null; linked_at: string | null };

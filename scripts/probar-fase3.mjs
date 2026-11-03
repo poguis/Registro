@@ -378,7 +378,8 @@ section('Variantes y URL de retorno');
     const dev = evalVariant('development');
     check('producción: com.poguis.Registro, "Registro", poguis-registro', prod.android.package === 'com.poguis.Registro' && prod.name === 'Registro' && prod.scheme === 'poguis-registro');
     check('desarrollo: com.poguis.Registro.dev, "Registro Dev", poguis-registro-dev', dev.android.package === 'com.poguis.Registro.dev' && dev.name === 'Registro Dev' && dev.scheme === 'poguis-registro-dev');
-    check('versión 1.2.0 / versionCode 3 en ambas', [prod, dev].every((c) => c.version === '1.2.0' && c.android.versionCode === 3));
+    // Misma versión en las dos variantes (la vigente de app.json; 1.3.0 / 4 desde la Fase 5).
+    check('versión 1.3.0 / versionCode 4 en ambas', [prod, dev].every((c) => c.version === '1.3.0' && c.android.versionCode === 4));
     check('plugin de firma: eas en producción, debug solo en dev', JSON.stringify(prod.plugins.at(-1)) === JSON.stringify(['./plugins/withReleaseSigning', { mode: 'eas' }])
         && JSON.stringify(dev.plugins.at(-1)) === JSON.stringify(['./plugins/withReleaseSigning', { mode: 'debug' }]));
     check('expo-secure-store excluido del Auto Backup (configureAndroidBackup: true)', prod.plugins.some((p) => Array.isArray(p) && p[0] === 'expo-secure-store' && p[1].configureAndroidBackup === true));

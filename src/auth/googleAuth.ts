@@ -4,6 +4,7 @@ import type { Session } from '@supabase/supabase-js';
 import { getSupabase } from './supabase';
 import { LargeSecureStore } from './secureStorage';
 import { getRedirectUrl, parseCallbackUrl } from './redirect';
+import { readSessionState, type StoredSessionState } from './sessionState';
 
 // Login con Google: OAuth + PKCE de Supabase en Custom Tabs (expo-web-browser).
 //   1. signInWithOAuth({ provider: 'google', options: { redirectTo, skipBrowserRedirect: true } })
@@ -83,14 +84,10 @@ export async function signOutGoogle(): Promise<void> {
     }
 }
 
-// Sesión guardada (puede estar vencida o no existir; sin red no falla la app).
-export async function getStoredSession(): Promise<Session | null> {
+// Sesión guardada (puede estar vencida o no existir; sin red no falla la app). `offline`: hay
+// sesión guardada pero no se pudo renovar por falta de red (ver sessionState.ts).
+export async function getStoredSession(): Promise<StoredSessionState> {
     const supabase = getSupabase();
-    if (!supabase) return null;
-    try {
-        const { data } = await supabase.auth.getSession();
-        return data.session;
-    } catch {
-        return null;
-    }
+    if (!supabase) return { session: null, offline: false };
+    return readSessionState(supabase.auth);
 }

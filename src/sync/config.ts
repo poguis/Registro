@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 
 // Configuración de la sincronización. `enabled` viene de app.config.js (extra.syncEnabled):
-// false en producción hasta la Fase 5, true solo en la variante dev. Las pruebas en PC pasan
+// true en las dos variantes desde la Fase 5 (cada una contra su proyecto). Las pruebas en PC pasan
 // su propia configuración al motor.
 export type SyncConfig = {
     enabled: boolean;

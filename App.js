@@ -96,8 +96,9 @@ export default function App() {
     initialize();
   }, [initialize]);
 
-  // Sincronización (Fase 4): disparadores solo con cuenta vinculada y donde la sync está
-  // habilitada (startSyncTriggers no hace nada en producción). Nunca bloquea la app.
+  // Sincronización: disparadores solo con cuenta vinculada y la sync habilitada (las dos
+  // variantes desde la Fase 5). Al vincular, `user` cambia y se vuelve a montar: el primer ciclo
+  // hace la primera subida (ensureInitialUpload). Nunca bloquea la app.
   useEffect(() => {
     if (!user || !user.linked) return undefined;
     return startSyncTriggers();
@@ -214,11 +215,12 @@ Tus datos no se modificaron.`);
     enterApp(localUser);
   };
 
-  // Aviso no bloqueante en Home.
+  // Aviso no bloqueante en Home. Sin red con la sesión guardada (sessionOffline) no se pide
+  // iniciar sesión: se renueva sola al volver la conexión.
   const homeNotice = !user || !auth.configured ? null
     : !user.linked
       ? { text: 'Vincula tu cuenta de Google para poder sincronizar tus datos más adelante.', actionLabel: 'Vincular con Google', onAction: handleGoogle, busy: auth.signingIn }
-      : !auth.session
+      : !auth.session && !auth.sessionOffline
         ? { text: 'Inicia sesión con Google para sincronizar (tus datos locales siguen disponibles).', actionLabel: 'Iniciar sesión', onAction: handleGoogle, busy: auth.signingIn }
         : null;
 

@@ -10,11 +10,12 @@
 // desarrollo ni al revés. Valores de .env (Expo CLI lo carga antes de evaluar este archivo):
 //   producción: EXPO_PUBLIC_SUPABASE_URL / EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY
 //   desarrollo: EXPO_PUBLIC_SUPABASE_DEV_URL / EXPO_PUBLIC_SUPABASE_DEV_PUBLISHABLE_KEY
-// extra.syncEnabled: la sincronización está APAGADA en producción hasta la Fase 5.
+// extra.syncEnabled: la sincronización está ENCENDIDA en las dos variantes desde la Fase 5
+// (cada una contra su proyecto). Apagado de emergencia: false aquí + versionCode nuevo.
 const VARIANTS = {
     production: {
         name: 'Registro', package: 'com.poguis.Registro', scheme: 'poguis-registro', signing: 'eas',
-        urlVar: 'EXPO_PUBLIC_SUPABASE_URL', keyVar: 'EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY', syncEnabled: false,
+        urlVar: 'EXPO_PUBLIC_SUPABASE_URL', keyVar: 'EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY', syncEnabled: true,
     },
     development: {
         name: 'Registro Dev', package: 'com.poguis.Registro.dev', scheme: 'poguis-registro-dev', signing: 'debug',

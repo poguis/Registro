@@ -2,7 +2,10 @@ import { AppState, type AppStateStatus } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import { getAppSyncConfig } from './config';
 import { createSupabaseTransport } from './supabaseTransport';
-import { createSyncRunner } from './runner';
+import { createSyncRunner, shouldSyncOnSessionRestored } from './runner';
+import { ensureInitialUpload } from './engine';
+import { getSupabase } from '../auth/supabase';
+import { subscribeSessionRestored } from '../auth/sessionState';
 import { createAutoSync } from './autoSync';
 import { setOutboxCommitListener } from '../data/db/connection';
 import type { Transport } from './transport';
@@ -13,7 +16,11 @@ import type { Transport } from './transport';
 // (registrados solo aquí, en startSyncTriggers): abrir la app, volver a primer plano
 // (AppState → 'active'), recuperar conexión (NetInfo: isConnected false → true), el botón
 // "Sincronizar ahora", cada cambio local con conexión (antirrebote de 3 s) y uno periódico cada
-// 2 min en primer plano con conexión (autoSync.ts). Sin tareas en segundo plano.
+// 2 min en primer plano con conexión (autoSync.ts) y la renovación del token (TOKEN_REFRESHED)
+// tras un ciclo sin conexión o sin sesión, por requestSync (single-flight y backoff). Sin tareas
+// en segundo plano.
+// Antes de cada ciclo, la primera subida (ensureInitialUpload, Fase 5): una sola vez por
+// dispositivo, sin red ni sesión.
 
 type Listener = () => void;
 const listeners = new Set<Listener>();
@@ -23,6 +30,7 @@ let transport: Transport | null = null;
 const runner = createSyncRunner({
     config: getAppSyncConfig,
     transport: () => (transport ??= createSupabaseTransport()),
+    prepare: () => ensureInitialUpload(getAppSyncConfig()),
     onChange: () => listeners.forEach((l) => l()),
     onDataChanged: () => dataListeners.forEach((l) => l()),
 });
@@ -56,7 +64,14 @@ export function startSyncTriggers(): () => void {
         if (connected === false && now) requestSync('reconexion');
         connected = now;
     });
+    const supabase = getSupabase();
+    const unsubscribeAuth = supabase
+        ? subscribeSessionRestored(supabase.auth, () => {
+            if (shouldSyncOnSessionRestored(runner.state().lastOutcome)) requestSync('sesion');
+        })
+        : () => {};
     return () => {
+        unsubscribeAuth();
         setOutboxCommitListener(null);
         auto.stop();
         appSub.remove();

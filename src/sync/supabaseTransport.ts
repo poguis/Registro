@@ -1,4 +1,5 @@
 import { getSupabase } from '../auth/supabase';
+import { readSessionState } from '../auth/sessionState';
 import { remoteError, type Transport, type RemoteError } from './transport';
 
 // Transporte con supabase-js (PostgREST). APIs según los .d.ts instalados de postgrest-js:
@@ -16,8 +17,9 @@ export function createSupabaseTransport(): Transport {
         async session() {
             const supabase = getSupabase();
             if (!supabase) return null;
-            const { data } = await supabase.auth.getSession();
-            return data.session ? { uid: data.session.user.id } : null;
+            const s = await readSessionState(supabase.auth);
+            if (s.session) return { uid: s.session.user.id };
+            return s.offline ? { offline: true } : null;
         },
         async upsert(table, rows) {
             const supabase = getSupabase();

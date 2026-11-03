@@ -367,7 +367,7 @@ check('datos sin vincular: "skipped not-linked"', nl.status === 'skipped' && nl.
 await sync(A);
 
 // =========================================================================== 13
-section('13. La sincronización está apagada en producción');
+section('13. Interruptor de la sync y aislamiento por variante (encendida en producción desde la Fase 5)');
 const calls0 = { ...T.calls };
 const dis = await sync(A, { ...CFG, enabled: false });
 check('enabled: false → "disabled" sin ninguna llamada al servidor', dis.status === 'disabled' && JSON.stringify(T.calls) === JSON.stringify(calls0));
@@ -384,12 +384,13 @@ const evalVariant = (v) => {
 };
 const prod = evalVariant(null);
 const dev = evalVariant('development');
-check('producción: syncEnabled false y solo el proyecto de producción', prod.extra.syncEnabled === false && prod.extra.supabase.url.includes('prodref') && !JSON.stringify(prod).includes('devref'));
+check('producción: syncEnabled true y solo el proyecto de producción', prod.extra.syncEnabled === true && prod.extra.supabase.url.includes('prodref') && !JSON.stringify(prod).includes('devref'));
 check('desarrollo: syncEnabled true y solo el proyecto Registro Dev', dev.extra.syncEnabled === true && dev.extra.supabase.url.includes('devref') && !JSON.stringify(dev).includes('prodref'));
 let refused = false;
 use(A);
 try { await engine.enqueueAllForInitialUpload({ ...CFG, enabled: false }); } catch { refused = true; }
 check('enqueueAllForInitialUpload se niega con la sync apagada', refused);
+check('ensureInitialUpload con la sync apagada → "disabled"', (await quiet(() => engine.ensureInitialUpload({ ...CFG, enabled: false }))).status === 'disabled');
 
 // =========================================================================== 14
 section('14. Primera subida completa (motor + enqueueAllForInitialUpload) y bajada a un dispositivo vacío');

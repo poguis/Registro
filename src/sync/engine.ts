@@ -4,7 +4,7 @@ import {
     TABLES, columnsOf, toRemote, fromRemote, sameAsLocal, MappingError, PARENT_FKS, NATURAL_KEYS,
 } from './mapping';
 import type { SyncConfig } from './config';
-import type { Transport, RemoteError, RemoteRow } from './transport';
+import type { Transport, RemoteError, RemoteRow, SessionState } from './transport';
 
 // Motor de sincronización (Fase 4). Puro respecto de la UI y del transporte: lo usan la app
 // (SupabaseTransport) y las pruebas en PC (PgliteTransport). Reglas (docs/MAPEO-SYNC.md):
@@ -120,8 +120,10 @@ export type PushResult = {
     stop: 'network' | 'auth' | 'cancelled' | null; lastError: string | null;
 };
 
+const emptyPush = (): PushResult => ({ pushed: 0, blocked: 0, transient: 0, merged: 0, parentsEnqueued: 0, stop: null, lastError: null });
+
 export async function pushOutbox(cfg: SyncConfig, transport: Transport, uid: string, cancel: CancelToken = NEVER): Promise<PushResult> {
-    const res: PushResult = { pushed: 0, blocked: 0, transient: 0, merged: 0, parentsEnqueued: 0, stop: null, lastError: null };
+    const res = emptyPush();
     const cancelled = () => { if (cancel.aborted) res.stop = 'cancelled'; return cancel.aborted; };
     for (let round = 0; round < cfg.maxPushRounds; round++) {
         if (cancelled()) return res;
@@ -367,8 +369,11 @@ export async function syncOnce(cfg: SyncConfig, transport: Transport, cancel: Ca
     if (!cfg.enabled) return { status: 'disabled' };
     const users = await db().getAllAsync<Row>('SELECT id, linked_at FROM users');
     if (users.length !== 1 || !users[0].linked_at) return { status: 'skipped', reason: 'not-linked' };
-    let session: { uid: string } | null = null;
+    let session: SessionState = null;
     try { session = await transport.session(); } catch { session = null; }
+    // Hay sesión guardada pero no se pudo renovar por falta de red: es "sin conexión", no "sin
+    // sesión" (la outbox no se toca y el indicador muestra los pendientes).
+    if (session && 'offline' in session) return { status: 'offline', push: emptyPush(), pulled: 0 };
     if (!session) return { status: 'skipped', reason: 'no-session' };
     if (session.uid !== users[0].id) return { status: 'skipped', reason: 'other-account' };
     const uid = session.uid;
@@ -428,25 +433,68 @@ export async function syncWithWatchdog(cfg: SyncConfig, transport: Transport, ti
 }
 
 // ---------------------------------------------------------------- primera subida (Fase 5)
-// Encola TODAS las filas (vivas y tombstones) de las 15 tablas en orden de dependencias, en
-// una transacción, sin duplicar entradas pendientes. No se ejecuta sola: la Fase 5 decidirá
-// cuándo llamarla. Rechaza la ejecución si la sync está apagada (producción).
+// Las filas migradas (Fase 1) y las vinculadas (Fase 3) nunca entraron en la outbox. La primera
+// subida encola TODAS las filas (vivas y tombstones) de las 15 tablas, en orden de dependencias y
+// sin duplicar entradas pendientes o bloqueadas; después el mismo motor las sube.
+
+// Encola dentro de la transacción en curso. Devuelve, por tabla, filas totales y encoladas.
+async function enqueueAllRows(): Promise<Record<string, { rows: number; enqueued: number }>> {
+    const counts: Record<string, { rows: number; enqueued: number }> = {};
+    for (const table of TABLES) {
+        const rows = (await db().getFirstAsync<Row>(`SELECT COUNT(*) AS n FROM ${table}`))!.n;
+        const r = await db().runAsync(
+            `INSERT INTO outbox (table_name, row_id, op, created_at, attempts)
+             SELECT ?, t.id, 'upsert', ?, 0 FROM ${table} t
+             WHERE NOT EXISTS (SELECT 1 FROM outbox o WHERE o.table_name = ? AND o.row_id = t.id)
+             ORDER BY t.created_at, t.id`,
+            [table, nowIso(), table]
+        );
+        counts[table] = { rows, enqueued: r.changes };
+    }
+    return counts;
+}
+
+// Encolado sin marca (lo usan las pruebas de la Fase 4). Rechaza la ejecución con la sync apagada.
 export async function enqueueAllForInitialUpload(cfg: SyncConfig): Promise<number> {
     if (!cfg.enabled) throw new Error('La sincronización está desactivada en esta variante.');
     let n = 0;
     await localTx(async () => {
-        for (const table of TABLES) {
-            const r = await db().runAsync(
-                `INSERT INTO outbox (table_name, row_id, op, created_at, attempts)
-                 SELECT ?, t.id, 'upsert', ?, 0 FROM ${table} t
-                 WHERE NOT EXISTS (SELECT 1 FROM outbox o WHERE o.table_name = ? AND o.row_id = t.id)
-                 ORDER BY t.created_at, t.id`,
-                [table, nowIso(), table]
-            );
-            n += r.changes;
-        }
+        for (const c of Object.values(await enqueueAllRows())) n += c.enqueued;
     });
     return n;
+}
+
+export type InitialUploadResult =
+    | { status: 'disabled' | 'not-linked' | 'already' }
+    | { status: 'done'; enqueued: number; counts: Record<string, { rows: number; enqueued: number }> };
+
+// Primera subida, UNA vez por dispositivo: con la sync habilitada y la cuenta vinculada, si
+// sync_meta no tiene `initial_upload_done_at`, encola todo y escribe la marca y el resumen (solo
+// conteos) en la MISMA transacción. No usa red ni sesión, así que funciona sin conexión. Es
+// idempotente: con la marca puesta solo cuesta una lectura. Pasa por la cola de escrituras
+// (localTx → enqueue), así que se serializa con las mutaciones de la app, y no dispara el aviso
+// de outbox de la sync automática (no usa tx()). La llama el runner antes de cada ciclo.
+export async function ensureInitialUpload(cfg: SyncConfig): Promise<InitialUploadResult> {
+    if (!cfg.enabled) return { status: 'disabled' };
+    let out: InitialUploadResult = { status: 'already' };
+    await localTx(async () => {
+        const users = await db().getAllAsync<Row>('SELECT id, linked_at FROM users');
+        if (users.length !== 1 || !users[0].linked_at) { out = { status: 'not-linked' }; return; }
+        const mark = await db().getFirstAsync<Row>("SELECT value FROM sync_meta WHERE key = 'initial_upload_done_at'");
+        if (mark && mark.value) return;
+        const counts = await enqueueAllRows();
+        const enqueued = Object.values(counts).reduce((n, c) => n + c.enqueued, 0);
+        const values: Record<string, string> = {
+            initial_upload_done_at: nowIso(),
+            initial_upload_uid: users[0].id,
+            initial_upload_summary: JSON.stringify(counts),
+        };
+        for (const [k, v] of Object.entries(values)) {
+            await db().runAsync('INSERT INTO sync_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [k, v]);
+        }
+        out = { status: 'done', enqueued, counts };
+    });
+    return out;
 }
 
 // ---------------------------------------------------------------- estado para la UI

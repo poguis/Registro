@@ -11,7 +11,18 @@ import type { Transport } from './transport';
 // falló sin conexión esperaría su backoff aunque la red ya volvió.
 // Al terminar cada ciclo, si la sync escribió datos locales (pull aplicado o fusión de ids), avisa
 // con onDataChanged para que las pantallas abiertas recarguen.
-export const RESET_BACKOFF_REASONS = new Set(['reconexion', 'boton']);
+// `prepare` (Fase 5: ensureInitialUpload) corre antes de CADA ciclo, también sin red: así la
+// primera subida queda encolada antes del primer ciclo, sea cual sea el disparador que llegue
+// primero, y tras vincular la cuenta. Si falla, se registra y el ciclo sigue (se reintenta en el
+// siguiente). 'sesion' = el token se renovó (hubo red para hacerlo).
+export const RESET_BACKOFF_REASONS = new Set(['reconexion', 'boton', 'sesion']);
+
+// ¿Reintentar al renovarse el token? Solo si el último ciclo no pudo sincronizar por falta de red
+// o de sesión. Nunca con la cuenta sin vincular ni con otra cuenta (renovar no lo arregla); con la
+// sync apagada ni siquiera se registra (startSyncTriggers) y request() no hace nada.
+export const shouldSyncOnSessionRestored = (last: SyncOutcome | null) =>
+    !!last && (last.status === 'offline'
+        || (last.status === 'skipped' && (last.reason === 'no-session' || last.reason === 'session-expired')));
 
 export type SyncRunner = {
     request(reason: string): Promise<void> | null;
@@ -22,6 +33,7 @@ export function createSyncRunner(opts: {
     config: () => SyncConfig;
     transport: () => Transport;
     timeoutMs?: number;
+    prepare?: () => Promise<unknown>;
     onChange?: () => void;
     onDataChanged?: () => void;
 }): SyncRunner {
@@ -43,6 +55,13 @@ export function createSyncRunner(opts: {
                     again = false;
                     syncing = true;
                     notify();
+                    if (opts.prepare) {
+                        try {
+                            await opts.prepare();
+                        } catch (e) {
+                            console.error('No se pudo preparar la primera subida:', e);
+                        }
+                    }
                     try {
                         if (resetBackoff) {
                             resetBackoff = false;

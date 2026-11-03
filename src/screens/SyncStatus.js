@@ -4,7 +4,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { useSync } from '../sync/useSync';
 
 // Indicador de sincronización (no bloqueante). Solo existe donde la sync está habilitada
-// (variante dev hasta la Fase 5); en producción no se muestra nada.
+// (las dos variantes desde la Fase 5). "pendientes" = filas distintas con cambios sin subir.
 const TABLE_LABELS = {
     finance_contacts: 'Contactos', finance_transactions: 'Deudas y préstamos', balance_history: 'Movimientos',
     finance_categories: 'Categorías', services: 'Servicios', entertainment_categories: 'Categorías de series',
