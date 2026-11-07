@@ -16,20 +16,20 @@ Reglas que siguen vigentes: plan mode y aprobación; nada contra el proyecto rem
 
 ## 2. Lista de Fase 6 del prompt de la Fase 5 (fuera de alcance entonces)
 - Borrar las tablas `legacy_*` y las copias físicas internas (pre-migración / pre-vinculación conservan la contraseña antigua; ver DECISIONES.md, [PENDIENTE]).
-- Eliminar el Client secret viejo de Google.
+- ~~Eliminar el Client secret viejo de Google~~: ya no aplica (6.1: el de la Fase 4 no existe; hay 1 solo secret, creado el 2026-11-02). **Ahora: rotar el client secret actual en la 6.3**, porque su valor quedó expuesto en un chat el 2026-11-07. El cliente OAuth es Web y lo comparten los dos proyectos: hay que actualizarlo en Auth → Google de ambos.
 - Actualizar `expo`: `npx expo-doctor` marca `expo` 54.0.33 frente a ~54.0.37 esperada (único chequeo que falla, 17/18).
 - N+1 de `getEntertainmentCategories`.
 - Limpiar el tombstone RLS (ahora junto con los 3 `[prueba F5]`, punto 1.4).
-- Play Store y Play App Signing (la llave de firma no se cambió hasta cerrar la Fase 5; ya se puede planificar).
+- Play Store y Play App Signing: **fuera de alcance** según DECISIONES.md (Alcance: hasta que la app funcione al 100 % para uso personal). Pasan a "Fuera de la Fase 6 (Fase 7 / backlog)".
 - PIN / huella.
 - Realtime.
 
 ## 3. Lista de la Fase 2 que sigue abierta (ítems 4–8)
 4. La tabla real `auth.users` y el `on delete cascade` al borrar una cuenta desde el dashboard.
-5. Versión y rol: PGlite es Postgres 18 y corrió como superusuario; Supabase corre 15–17 y el SQL Editor como `postgres`.
-6. `service_role` (no lo usa la app).
+5. ~~Versión y rol~~ **CERRADO (6.1):** PostgreSQL 17.11 en los dos proyectos; SQL Editor como `postgres` sin superusuario. Ver `docs/FASE6-AUDITORIA-SERVIDOR.md`.
+6. ~~`service_role`~~ **CERRADO (6.1):** bypassrls, sin S/I/U/D en las 15 tablas, 0 secret keys, nunca en el repo, el historial ni los APK; la clave legacy sigue activa → 6.3. Ver `docs/FASE6-AUDITORIA-SERVIDOR.md`.
 7. Concurrencia real (commits fuera de orden frente al cursor del pull) y rendimiento de RLS con muchas filas.
-8. Resultado del Security Advisor.
+8. ~~Resultado del Security Advisor~~ **CERRADO (6.1):** 1 WARN por proyecto (Leaked Password Protection, no aplica). Ver `docs/FASE6-AUDITORIA-SERVIDOR.md`.
 
 ## 4. Otros [PENDIENTE] de DECISIONES.md
 - Archivo `android.os.Looper` en la raíz y dependencias `@react-navigation` sin uso: ¿se eliminan?

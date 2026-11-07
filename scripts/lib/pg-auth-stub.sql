@@ -3,7 +3,7 @@
 --
 -- Replica lo que el esquema usa de la plataforma:
 --   - roles anon, authenticated y service_role (nologin);
---   - schema auth con auth.users(id) y auth.uid(), que lee el claim "sub" como Supabase
+--   - schema auth con auth.users(id, is_anonymous), auth.identities(provider) y auth.uid(), que lee el claim "sub" como Supabase
 --     (request.jwt.claim.sub o request.jwt.claims ->> 'sub');
 --   - usage del schema public para anon, authenticated y service_role (como en Supabase);
 --   - el peor caso de privilegios por defecto: todo lo nuevo en public queda concedido a
@@ -18,7 +18,16 @@ grant usage on schema auth to anon, authenticated, service_role;
 
 create table auth.users (
     id uuid primary key,
-    created_at timestamptz not null default now()
+    created_at timestamptz not null default now(),
+    is_anonymous boolean not null default false -- lo lee supabase/auditar-fase6.sql
+);
+
+-- Identidades de proveedor (como auth.identities de Supabase; solo las columnas que lee
+-- supabase/auditar-fase6.sql). Sin datos: las pruebas siembran lo que necesitan.
+create table auth.identities (
+    id uuid primary key default gen_random_uuid(),
+    user_id uuid not null references auth.users (id) on delete cascade,
+    provider text not null
 );
 
 create function auth.uid() returns uuid
