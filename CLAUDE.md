@@ -85,6 +85,11 @@ Pruebas de actualización con datos: AVD `Registro_GoogleAPIs_36` (imagen Google
 - Column mapping SQLite ↔ Postgres (types, rounding money to cents half-away-from-zero, `last_watched_at` 0 ↔ NULL, JSON shapes, server-only `server_updated_at`, cursor risk): `docs/MAPEO-SYNC.md`; implemented in `src/sync/mapping.ts` (`toRemote`, `fromRemote`, `roundMoneyColumns`, `NATURAL_KEYS`, `TABLES` in dependency order), which the test scripts import directly.
 - Projects: production **Poguis** (`apftkztkqvjpvdmeixzw`, used by the release; holds the real data since Phase 5) and **Registro Dev** (same 4 migrations, Google provider, redirect `poguis-registro-dev://auth/callback`; used by the dev variant and all sync tests). The dev redirect is not in production's Redirect URLs.
 - Server rules: RLS on all 15 tables; policies `to authenticated` for select/insert/update with `(select auth.uid()) = user_id`; no DELETE (soft delete). Grants: `authenticated` select/insert/update only, nothing to `anon`/`public`. Composite FKs `(parent_id, user_id)`; `user_id` → `auth.users` on delete cascade. No `security definer` functions.
+- Credentials and Auth config (Phase 6.3, 2026-11-08, applied by the user in the dashboards):
+  - **Legacy anon/service_role keys are DISABLED** ("Disable JWT-based keys") in both projects. The app uses only the `sb_publishable_` key; sync was tested in both projects. The dashboard (SQL Editor, Authentication → Users) works without secret keys. Disabled legacy keys are rejected in the `apikey` header but remain valid as JWTs. [PENDIENTE] migrate to JWT signing keys and revoke the legacy JWT secret; this also affects session signing. Decided when Phase 6 closes: 6.9 or backlog.
+  - **"Allow new users to sign up":** OFF in Poguis, ON in Registro Dev (for tests). An existing user can still sign in with sign-up OFF. Users can still be created from the dashboard (6.2 finding H2).
+  - **Google:** one Web OAuth client shared by both projects with 1 active client secret, rotated 2026-11-08; the old one was deleted. The consent screen is in Testing mode.
+  - **Plan:** Free in both projects. The app is used at least weekly; if a project is paused for inactivity, resume it from the dashboard (meanwhile the app shows "Sin conexión" and local data still works). The Site URL is unchanged (`localhost`, fallback only).
 
 ## Architecture
 

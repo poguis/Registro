@@ -147,12 +147,12 @@ F es válido (`validar-respaldo`: 37 tablas, 0 violaciones de FK, `legacy_users.
   - Queda la clave legacy activa → 6.3 (hallazgo 8).
 - **8. Security Advisor: CERRADO.** Un único WARN por proyecto (Leaked Password Protection), clasificado (d). Performance Advisor clasificado (a).
 
-## 12. Acciones propuestas (no aplicadas)
-| Acción | Subfase | Quién |
-|---|---|---|
-| Rotar el client secret de Google (cliente Web compartido) y actualizarlo en Auth → Google de los dos proyectos | 6.3 | usuario |
-| [PENDIENTE] Desactivar las claves legacy anon/service_role: primero Registro Dev, luego Poguis | 6.3 | usuario |
-| [PENDIENTE] Desactivar "Allow new users to sign up" en Poguis | 6.3 | usuario |
-| [PENDIENTE] Free o Pro | 6.3 | usuario |
-| Opcional: Site URL | 6.3 | usuario |
-| Agregar una segunda cuenta de Google como usuario de prueba y mantener el registro abierto en Registro Dev | 6.2 | usuario |
+## 12. Acciones propuestas
+| Acción | Subfase | Quién | Estado |
+|---|---|---|---|
+| Rotar el client secret de Google (cliente Web compartido) y actualizarlo en Auth → Google de los dos proyectos | 6.3 | usuario | **REALIZADA (2026-11-08):** el nuevo se agregó en los dos proyectos, el viejo se deshabilitó y, tras probar el login en Dev y en producción, se borró. Queda 1 secret activo, compartido. |
+| Desactivar las claves legacy anon/service_role: primero Registro Dev, luego Poguis | 6.3 | usuario | **REALIZADA (2026-11-08):** Disable JWT-based keys en los dos. La app sincroniza solo con la publishable, y el SQL Editor y Authentication → Users funcionan sin claves secretas. Quedan bloqueadas en el encabezado `apikey`, pero siguen siendo válidas como JWT → nuevo [PENDIENTE]: migrar a JWT signing keys y revocar el secreto JWT legacy (6.9 o backlog). |
+| Desactivar "Allow new users to sign up" en Poguis | 6.3 | usuario | **REALIZADA (2026-11-08):** cerrado en Poguis y abierto en Registro Dev. El usuario existente inicia sesión con el registro cerrado. |
+| Free o Pro | 6.3 | usuario | **REALIZADA (2026-11-08):** Free, con uso al menos semanal; si se pausa por inactividad, se reanuda desde el dashboard. |
+| Opcional: Site URL | 6.3 | usuario | **Sin cambios (2026-11-08):** informativo. |
+| Agregar una segunda cuenta de Google como usuario de prueba y mantener el registro abierto en Registro Dev | 6.2 | usuario | No hizo falta: la 6.2 usó un usuario de correo creado desde el panel. El registro de Registro Dev sigue abierto. |
