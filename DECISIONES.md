@@ -100,7 +100,13 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
      - **Site URL:** sin cambios (informativo).
      - Registro Dev quedó con un elemento de backlog de prueba `[prueba F6.3]`: datos de prueba, sin acción.
      - **Respaldo G del celular** (2026-11-08, después de la 6.3): válido (`validar-respaldo`), `user_version` 4, outbox 0. Conteos de las 15 tablas: 30 / 26 / 4 con un `user_id`, igual que el respaldo F.
-   - 6.4 APK: dependencias (parche de `expo`, `@react-navigation`, `android.os.Looper`).
+   - 6.4 **[CERRADA 2026-11-08]** APK de dependencias, commit `ed06602`, sin cambios en `src/`, el esquema local (`user_version` 4), las migraciones ni Supabase.
+     - **Dependencias:** `expo` 54.0.33 → **54.0.38** (parches de SDK 54; `expo-doctor` 18/18). `expo-sqlite` sigue en 16.0.10, con SQLite 3.50.3. Quitados, sin uso: `@react-navigation/native`, `@react-navigation/stack`, `react-native-screens` y `react-native-gesture-handler`. `react-native-safe-area-context` se queda porque lo usan `App.js` y 16 pantallas.
+     - **Repo:** `android.os.Looper` (archivo vacío) eliminado. `probar-fase3` se ajustó a la versión vigente.
+     - **APK 1.3.1 / versionCode 5:**
+       - **Dev** (firma `debug.keystore`, `fac61745…`, igual que la 1.2.0): instalado encima en el celular, de versionCode 3 a 5 con el mismo `firstInstallTime`. Pruebas en el celular OK: pantallas, escritura, sync, modo avión, respaldo y reinicio.
+       - **Producción** (firma EAS `31:32:DE:…:3E:52`, sin cambios): `install -r` sobre la 1.3.0, de versionCode 4 a 5 con el mismo `firstInstallTime` (2026-09-21). Abrió con la sesión iniciada, los datos visibles y "Sincronizado".
+     - **Respaldos:** H (antes, app 1.3.0) e I (después, app 1.3.1) válidos, `user_version` 4 y outbox vacía. `comparar-sync` H vs I: idénticos en las 15 tablas, con el mismo saldo. `verificar-fase5` de Poguis = conteos de I en las 16 filas (30 / 26 / 4, un `user_id`).
    - 6.5 APK: correcciones menores (indicador sin red y plural "pendiente(s)", `signOut` sin red, listar `respaldos/` en el meta del respaldo, N+1 de `getEntertainmentCategories`, avisos de Node) y **el rango redundante del pull**. Hallazgo H1 de la 6.2: el `or(...)` del keyset no da rango al índice, y cada página intermedia descarta todas las filas anteriores al cursor (25.000 filas en 459 ms en Registro Dev; ≈ 45 s de servidor para una primera sincronización de 50.000 filas). La corrección es agregar `gte('server_updated_at', after.ts)` en `supabaseTransport.ts` `pullPage`, que devuelve las mismas filas y en PGlite pasa de 25.000 a ~0 filas descartadas. No es urgente. Medición y propuesta: `docs/FASE6-PRUEBAS-SERVIDOR.md`, secciones 8–9.
    - 6.6 APK: siembra de las categorías por defecto tras el primer pull.
    - 6.7 Limpieza local destructiva (`legacy_*` y copias físicas con la contraseña antigua). La excepción a "no borrar datos" se decide y documenta al llegar a 6.7.
@@ -120,7 +126,7 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 - [OK] Al inicio de Fase 1, Claude Code cuenta las cuentas locales y se detiene a informar antes de migrar. Si hay una sola, se asocia a la primera cuenta Google (Fase 3).
 - [OK] Cuentas locales: el dispositivo tiene 1 cuenta (respaldo 2026-10-20). Se asocia a la primera cuenta Google en Fase 3.
 - [OK] Estados de series: `Nueva`, `Mirando`, `Pausado` (los tres cuentan para el límite activo, pestaña Viendo), `En espera`, `Terminado`. Backlog: type `movie|series|anime|reading`, status `Pendiente|Mirando|Terminado`. Se aplican como CHECK en Postgres (Fase 2); localmente se validan en los repositorios.
-- [PENDIENTE] Archivo `android.os.Looper` y dependencias `@react-navigation` sin uso: ¿se eliminan?
+- [OK] Fase 6.4 (2026-11-08): eliminados `android.os.Looper` y las dependencias sin uso `@react-navigation/native`, `@react-navigation/stack`, `react-native-screens` y `react-native-gesture-handler`.
 - [PENDIENTE] Restaurar un respaldo dentro de la app.
 - [OK] Fase 3 (migración 3): `users` se reconstruye sin `password` (con `email` y `linked_at`, sin `UNIQUE(username)`) y `legacy_users.password` queda vacío; con `PRAGMA secure_delete` el texto viejo no queda en el archivo. Las copias físicas previas sí lo conservan (ver Fase 6).
 - [OK] Vinculación: operación única con copia física previa y una transacción exclusiva; `users.id` y el `user_id` de las 15 tablas pasan a ser el `auth.uid()`; no encola en la outbox ni cambia `updated_at`; borra `@user_session`; pide confirmación mostrando el email de Google.

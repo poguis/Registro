@@ -17,6 +17,13 @@ Reglas que siguen vigentes: plan mode y aprobación; nada contra el proyecto rem
   Respaldo G del celular válido: 30 / 26 / 4 con un `user_id`.
 
   Nuevo [PENDIENTE]: migrar a JWT signing keys y revocar el secreto JWT legacy. Se decide al cerrar la Fase 6, como 6.9 o en el backlog. Detalle en DECISIONES.md.
+- **6.4 cerrada** (2026-11-08), commit `ed06602`:
+  - `expo` 54.0.38 (parches de SDK 54; `expo-doctor` 18/18);
+  - quitados `@react-navigation/*`, `react-native-screens`, `react-native-gesture-handler` y `android.os.Looper`;
+  - APK 1.3.1 / versionCode 5 instalado encima en el celular, Dev y producción, con la firma sin cambios y el mismo `firstInstallTime`;
+  - respaldos H e I idénticos en las 15 tablas y `verificar-fase5` = I (30 / 26 / 4).
+
+  Sin cambios en `src/` ni en el esquema (`user_version` 4).
 
 ## 1. Anotado durante la Fase 5
 1. **Categorías por defecto en una instalación nueva.** Hoy se siembran al iniciar sesión y, al subir, la fusión por clave natural (23505) sube el contenido del dispositivo NUEVO: cambia `created_at`/`updated_at` de las categorías del celular (pasó en la 5.5, esperado) y podría revivir una categoría por defecto borrada. Mejora: no sembrarlas hasta completar el primer pull (y sembrar solo las que falten).
@@ -31,7 +38,7 @@ Reglas que siguen vigentes: plan mode y aprobación; nada contra el proyecto rem
 ## 2. Lista de Fase 6 del prompt de la Fase 5 (fuera de alcance entonces)
 - Borrar las tablas `legacy_*` y las copias físicas internas (pre-migración / pre-vinculación conservan la contraseña antigua; ver DECISIONES.md, [PENDIENTE]).
 - ~~Eliminar el Client secret viejo de Google~~: ya no aplica (6.1: el de la Fase 4 no existe; hay 1 solo secret, creado el 2026-11-02). ~~Rotar el client secret actual en la 6.3~~ **HECHO (6.3, 2026-11-08):** el secret quedó expuesto en un chat el 2026-11-07. Se agregó el nuevo en Auth → Google de los dos proyectos, se deshabilitó el viejo, se probó el login en Dev y en producción, y se borró el viejo. Queda 1 secret activo, compartido por los dos proyectos.
-- Actualizar `expo`: `npx expo-doctor` marca `expo` 54.0.33 frente a ~54.0.37 esperada (único chequeo que falla, 17/18).
+- ~~Actualizar `expo`~~ **HECHO (6.4):** 54.0.33 → 54.0.38; `expo-doctor` 18/18.
 - N+1 de `getEntertainmentCategories`.
 - Limpiar el tombstone RLS (ahora junto con los 3 `[prueba F5]`, punto 1.4).
 - Play Store y Play App Signing: **fuera de alcance** según DECISIONES.md (Alcance: hasta que la app funcione al 100 % para uso personal). Pasan a "Fuera de la Fase 6 (Fase 7 / backlog)".
@@ -51,7 +58,7 @@ Reglas que siguen vigentes: plan mode y aprobación; nada contra el proyecto rem
 8. ~~Resultado del Security Advisor~~ **CERRADO (6.1):** 1 WARN por proyecto (Leaked Password Protection, no aplica). Ver `docs/FASE6-AUDITORIA-SERVIDOR.md`.
 
 ## 4. Otros [PENDIENTE] de DECISIONES.md
-- Archivo `android.os.Looper` en la raíz y dependencias `@react-navigation` sin uso: ¿se eliminan?
+- ~~Archivo `android.os.Looper` y dependencias `@react-navigation` sin uso~~ **HECHO (6.4):** eliminados.
 - Restaurar un respaldo dentro de la app.
 
 ## 5. Verificado en la Fase 5 y lo que no
