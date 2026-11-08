@@ -9,8 +9,10 @@
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { TABLES } from '../src/sync/mapping.ts';
 import { openReadOnly } from './lib/sqlite-utils.mjs';
+import './lib/ts-esm-hook.mjs';
+// src/ se carga después del hook (sin aviso MODULE_TYPELESS_PACKAGE_JSON, Fase 6.5).
+const { TABLES } = await import('../src/sync/mapping.ts');
 
 // ---------------------------------------------------------------- --conteos <db>
 const args = process.argv.slice(2);

@@ -378,7 +378,7 @@ Tus datos no se modificaron.`);
                 <HomeScreen
                   user={user}
                   onNavigate={handleNavigate}
-                  onLogout={auth.session ? handleLogout : null}
+                  onLogout={auth.session || auth.sessionOffline ? handleLogout : null}
                   notice={homeNotice}
                   devTools={IS_DEV_VARIANT}
                 />

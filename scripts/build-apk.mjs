@@ -30,13 +30,20 @@ const BUILD_TOOLS = join(SDK, 'build-tools', '36.0.0');
 const isWin = process.platform === 'win32';
 
 const fail = (msg) => { console.error(`\n✖ ${msg}`); process.exit(1); };
+// En Windows, npx / gradlew.bat / apksigner.bat necesitan shell (Node no ejecuta .cmd/.bat sin
+// ella). Para no pasar `args` junto con `shell: true` (aviso DEP0190, Fase 6.5) se arma UN solo
+// comando con cada argumento citado si hace falta. En Linux/macOS, sin shell y con args.
+const quoteArg = (a) => (/^[\w@%+=:,./\\-]+$/.test(a) ? a : `"${String(a).replace(/"/g, '""')}"`);
+const spawnCmd = (cmd, args, opts = {}) => (isWin
+    ? spawnSync([cmd, ...args].map(quoteArg).join(' '), { ...opts, shell: true })
+    : spawnSync(cmd, args, opts));
 const run = (cmd, args, opts = {}) => {
     console.log(`\n$ ${cmd} ${args.join(' ')}`);
-    const r = spawnSync(cmd, args, { stdio: 'inherit', shell: isWin, ...opts });
+    const r = spawnCmd(cmd, args, { stdio: 'inherit', ...opts });
     if (r.status !== 0) fail(`${cmd} terminó con código ${r.status}`);
 };
 const capture = (cmd, args) => {
-    const r = spawnSync(cmd, args, { encoding: 'utf8', shell: isWin });
+    const r = spawnCmd(cmd, args, { encoding: 'utf8' });
     if (r.status !== 0) fail(`${cmd} falló: ${r.stderr || r.stdout}`);
     return r.stdout;
 };
@@ -68,7 +75,7 @@ if (existsSync('android') && !existsSync(BACKUP)) {
 // mantiene bloqueados archivos de android/app/build y --clean falla con EBUSY.
 const env = { ...process.env, CI: '1', EXPO_NO_GIT_STATUS: '1' };
 if (existsSync(isWin ? 'android/gradlew.bat' : 'android/gradlew')) {
-    spawnSync(isWin ? '.\\gradlew.bat' : './gradlew', ['--stop'], { cwd: 'android', stdio: 'inherit', shell: isWin, env: { ...env, JAVA_HOME: JDK } });
+    spawnCmd(isWin ? '.\\gradlew.bat' : './gradlew', ['--stop'], { cwd: 'android', stdio: 'inherit', env: { ...env, JAVA_HOME: JDK } });
 }
 if (CONF.appVariant) env.APP_VARIANT = CONF.appVariant; else delete env.APP_VARIANT;
 run('npx', ['expo', 'prebuild', '-p', 'android', '--clean', '--no-install'], { env });

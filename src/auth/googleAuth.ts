@@ -5,6 +5,7 @@ import { getSupabase } from './supabase';
 import { LargeSecureStore } from './secureStorage';
 import { getRedirectUrl, parseCallbackUrl } from './redirect';
 import { readSessionState, type StoredSessionState } from './sessionState';
+import { signOutLocally } from './signOutLocal';
 
 // Login con Google: OAuth + PKCE de Supabase en Custom Tabs (expo-web-browser).
 //   1. signInWithOAuth({ provider: 'google', options: { redirectTo, skipBrowserRedirect: true } })
@@ -73,12 +74,15 @@ async function runGoogleFlow(supabase: NonNullable<ReturnType<typeof getSupabase
     }
 }
 
-// Cierra la sesión de Google SOLO en este dispositivo. No toca los datos locales.
+// Cierra la sesión de Google SOLO en este dispositivo, también sin red (signOutLocal.ts). No toca
+// los datos locales. Solo se llama cuando el usuario lo pide (o al bloquear un login de otra
+// cuenta, accountFlow.ts); la app nunca cierra la sesión por su cuenta.
 export async function signOutGoogle(): Promise<void> {
     const supabase = getSupabase();
     if (!supabase) return;
     try {
-        await supabase.auth.signOut({ scope: 'local' });
+        const r = await signOutLocally(supabase.auth, LargeSecureStore);
+        if (!r.cleared) console.error('No se pudo borrar la sesión guardada.');
     } catch (e) {
         console.error('Error al cerrar sesión de Google:', e);
     }

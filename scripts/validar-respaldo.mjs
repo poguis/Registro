@@ -39,6 +39,20 @@ const backup = JSON.parse(readFileSync(jsonPath, 'utf8'));
 const { meta, data } = backup;
 check('Formato registro-respaldo', meta && meta.format === 'registro-respaldo', meta && `v${meta.formatVersion}`);
 console.log(`     creado: ${meta.createdAt} · app ${meta.appVersion} · SQLite ${meta.sqliteVersion} · user_version ${meta.userVersion} · archivo ${meta.databaseFile}`);
+check('Versión de formato conocida (1 o 2)', meta.formatVersion === 1 || meta.formatVersion === 2, `v${meta.formatVersion}`);
+
+// Formato 2 (Fase 6.5): listado de respaldos/ con SOLO nombre, tamaño y fecha (nunca contenido).
+// Formato 1: no lo tiene; se avisa y se sigue validando igual.
+if (meta.formatVersion >= 2) {
+    const list = meta.backupDirFiles;
+    const keysOk = (f) => f && JSON.stringify(Object.keys(f).sort()) === '["modifiedAt","name","size"]';
+    const valuesOk = (f) => typeof f.name === 'string' && Number.isInteger(f.size) && f.size >= 0
+        && (f.modifiedAt === null || !Number.isNaN(Date.parse(f.modifiedAt)));
+    check('Listado de respaldos/ (solo nombre, tamaño y fecha)', Array.isArray(list) && list.every((f) => keysOk(f) && valuesOk(f)),
+        Array.isArray(list) ? `${list.length} archivo(s)` : 'falta backupDirFiles');
+} else {
+    console.log('     formato 1: sin listado de respaldos/ (respaldo anterior a la Fase 6.5)');
+}
 
 const schemaTables = meta.schema.map((t) => t.name).sort();
 const dataTables = Object.keys(data).sort();

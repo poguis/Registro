@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
 import { useSync } from '../sync/useSync';
+import { describeSyncStatus } from '../sync/syncStatusText';
 
 // Indicador de sincronización (no bloqueante). Solo existe donde la sync está habilitada
 // (las dos variantes desde la Fase 5). "pendientes" = filas distintas con cambios sin subir.
@@ -12,29 +13,21 @@ const TABLE_LABELS = {
     watch_history: 'Vistos', reading_history: 'Leídos', backlog: 'Pendientes', work_people: 'Trabajo', cards: 'Tarjetas',
 };
 
-const ago = (iso) => {
-    const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
-    if (s < 60) return 'hace un momento';
-    if (s < 3600) return `hace ${Math.round(s / 60)} min`;
-    if (s < 86400) return `hace ${Math.round(s / 3600)} h`;
-    return `hace ${Math.round(s / 86400)} d`;
-};
-
+// El texto lo decide describeSyncStatus (src/sync/syncStatusText.ts, función pura con pruebas).
 export default function SyncStatus() {
     const { theme } = useTheme();
-    const { enabled, status, syncing, outcome, syncNow, retryBlocked } = useSync();
+    const { enabled, status, syncing, outcome, connected, syncNow, retryBlocked } = useSync();
     if (!enabled) return null;
 
-    const pending = status ? status.pending : 0;
     const blocked = status ? status.blocked : [];
-    let text;
-    if (syncing) text = 'Sincronizando…';
-    else if (outcome && outcome.status === 'skipped' && outcome.reason !== 'not-linked') text = 'Inicia sesión con Google para sincronizar';
-    else if (outcome && outcome.status === 'skipped') text = 'Vincula tu cuenta para sincronizar';
-    else if (outcome && outcome.status === 'timeout') text = `La sincronización tardó demasiado; se reintentará${pending ? ` · ${pending} pendiente(s)` : ''}`;
-    else if (outcome && outcome.status === 'offline') text =`Sin conexión — ${pending} ${pending === 1 ? 'cambio pendiente' : 'cambios pendientes'}`;
-    else if (status && status.lastSuccessAt) text = `Sincronizado ${ago(status.lastSuccessAt)}${pending ? ` · ${pending} pendiente(s)` : ''}`;
-    else text = pending ? `${pending} cambio(s) sin sincronizar` : 'Aún no sincronizado';
+    const { text } = describeSyncStatus({
+        connected,
+        pending: status ? status.pending : 0,
+        syncing,
+        outcome,
+        lastSuccessAt: status ? status.lastSuccessAt : null,
+        nowMs: Date.now(),
+    });
 
     const showBlocked = () => {
         const lines = blocked.slice(0, 6).map((b) => `• ${TABLE_LABELS[b.table] || b.table}: ${b.reason}`).join('\n');

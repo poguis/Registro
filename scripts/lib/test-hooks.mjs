@@ -7,7 +7,11 @@
 // - 'expo-file-system' / 'expo-sharing' → stubs sobre node:fs (para probar backup.js);
 // - '*.json' → módulo ESM (como lo hace Metro);
 // - imports relativos sin extensión → '.ts' si existe, si no '.js' (convención de Metro).
-//   Node 24 ejecuta los .ts quitando los tipos.
+//   Node 24 ejecuta los .ts quitando los tipos;
+// - '@react-native-community/netinfo' → stub: las pruebas emiten los avisos con
+//   globalThis.__netInfoEmit(isConnected) (Fase 6.5, indicador de sync);
+// - módulos de src/ → ESM explícito (ts-esm-hook.mjs: sin aviso MODULE_TYPELESS_PACKAGE_JSON).
+import './ts-esm-hook.mjs';
 import { registerHooks } from 'node:module';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -25,6 +29,7 @@ const secureStoreStubUrl = stub(`import { SecureStoreStub as S } from '${authStu
 const constantsStubUrl = stub(`import { constantsState } from '${authStubsUrl}'; export default { get expoConfig() { return constantsState.expoConfig; } };`);
 const reactNativeStubUrl = stub('export const AppState = { currentState: "active", addEventListener: () => ({ remove() {} }) };');
 const webBrowserStubUrl = stub('export const openAuthSessionAsync = async () => ({ type: "cancel" });');
+const netInfoStubUrl = stub('const ls = new Set(); globalThis.__netInfoEmit = (c) => { for (const l of [...ls]) l({ isConnected: c }); }; export default { addEventListener(l) { ls.add(l); return () => ls.delete(l); } };');
 // supabase-js no se usa en PC salvo isAuthRetryableFetchError (src/auth/sessionState.ts), que se
 // toma del auth-js instalado (el mismo que reexporta supabase-js en la app).
 const authJsUrl = pathToFileURL(createRequire(import.meta.url).resolve('@supabase/auth-js')).href;
@@ -39,6 +44,7 @@ registerHooks({
         if (specifier === 'expo-constants') return { url: constantsStubUrl, shortCircuit: true };
         if (specifier === 'react-native') return { url: reactNativeStubUrl, shortCircuit: true };
         if (specifier === 'expo-web-browser') return { url: webBrowserStubUrl, shortCircuit: true };
+        if (specifier === '@react-native-community/netinfo') return { url: netInfoStubUrl, shortCircuit: true };
         if (specifier === '@supabase/supabase-js') return { url: supabaseStubUrl, shortCircuit: true };
         if (specifier === 'expo-file-system') return { url: fileSystemStubUrl, shortCircuit: true };
         if (specifier === 'expo-sharing') return { url: sharingStubUrl, shortCircuit: true };

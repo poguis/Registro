@@ -14,7 +14,9 @@ import { DB_NAME } from './dbConfig';
 
 export const PASSWORD_PLACEHOLDER = '[OCULTO]';
 const BACKUP_FORMAT = 'registro-respaldo';
-const BACKUP_FORMAT_VERSION = 1;
+// 2 (Fase 6.5): el meta añade `backupDirFiles` (nombre, tamaño y fecha de los archivos de
+// respaldos/). Los respaldos de formato 1 no lo tienen; validar-respaldo.mjs acepta los dos.
+const BACKUP_FORMAT_VERSION = 2;
 
 const pad = (n) => String(n).padStart(2, '0');
 
@@ -64,6 +66,21 @@ export function listDbFilesNextTo(databasePath) {
     return dir.list()
         .filter((item) => item instanceof File && /\.db(-wal|-shm|-journal)?$/i.test(item.name))
         .map((f) => ({ name: f.name, size: f.size }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Lista nombre, tamaño y fecha de modificación (ISO, de File.modificationTime en ms) de los
+// archivos de respaldos/: copias pre-migración, pre-vinculación y respaldos anteriores.
+// SOLO lista: no abre, no lee el contenido, no mueve y no borra nada.
+export function listBackupDirFiles(databasePath) {
+    const dir = new Directory(toFileUri(`${dirname(databasePath)}/respaldos`));
+    if (!dir.exists) return [];
+    return dir.list()
+        .filter((item) => item instanceof File)
+        .map((f) => {
+            const ms = f.modificationTime;
+            return { name: f.name, size: f.size, modifiedAt: typeof ms === 'number' && ms > 0 ? new Date(ms).toISOString() : null };
+        })
         .sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -117,6 +134,7 @@ export async function createJsonBackup(stamp = fileStamp()) {
             passwordsReplacedWith: PASSWORD_PLACEHOLDER,
             counts,
             dbFilesInSqliteDir: listDbFilesNextTo(conn.databasePath),
+            backupDirFiles: listBackupDirFiles(conn.databasePath),
             schema: tables,
             indexes,
         };

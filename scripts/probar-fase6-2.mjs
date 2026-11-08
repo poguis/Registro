@@ -12,8 +12,10 @@
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync, readdirSync } from 'node:fs';
 import { randomUUID, createHash } from 'node:crypto';
-import { TABLES } from '../src/sync/mapping.ts';
-import { createPgliteTransport } from './lib/pglite-transport.mjs';
+import './lib/ts-esm-hook.mjs';
+// src/ (y pglite-transport, que importa transport.ts) se cargan después del hook (Fase 6.5).
+const { TABLES } = await import('../src/sync/mapping.ts');
+const { createPgliteTransport } = await import('./lib/pglite-transport.mjs');
 
 // ---------------------------------------------------------------- parámetros
 const args = process.argv.slice(2);

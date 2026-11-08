@@ -12,6 +12,23 @@ const fromPostgrest = (error: any, status: number | null): RemoteError =>
     remoteError(error?.code ?? null, status, String(error?.message || error || 'error'));
 const thrown = (e: any): RemoteError => remoteError(null, 0, String(e?.message || e || 'error de red'));
 
+// Filtro del pull (keyset por (server_updated_at, id)). Con cursor, además del OR de siempre, un
+// filtro REDUNDANTE `server_updated_at >= cursor.ts` (Fase 6.5, hallazgo H1 de la 6.2): toda fila
+// que cumple el OR lo cumple, así que devuelve exactamente las mismas filas, pero Postgres puede
+// usarlo como rango del índice *_pull_idx en vez de recorrer y descartar todas las filas del
+// usuario anteriores al cursor (docs/FASE6-PRUEBAS-SERVIDOR.md, secciones 8–9). El OR, el orden y
+// el límite no cambian. Sin cursor pero con `since` (primera página de un ciclo incremental), el
+// gte de siempre.
+type PullFilterable<Q> = { gte(column: string, value: string): Q; or(filters: string): Q };
+export function applyPullFilter<Q extends PullFilterable<Q>>(q: Q, { since, after }: { since: string | null; after: { ts: string; id: string } | null }): Q {
+    if (after) {
+        return q.gte('server_updated_at', after.ts)
+            .or(`server_updated_at.gt."${after.ts}",and(server_updated_at.eq."${after.ts}",id.gt.${after.id})`);
+    }
+    if (since) return q.gte('server_updated_at', since);
+    return q;
+}
+
 export function createSupabaseTransport(): Transport {
     return {
         async session() {
@@ -35,12 +52,7 @@ export function createSupabaseTransport(): Transport {
             const supabase = getSupabase();
             if (!supabase) return { rows: [], error: remoteError(null, 401, 'Supabase no configurado') };
             try {
-                let q = supabase.from(table).select('*');
-                if (after) {
-                    q = q.or(`server_updated_at.gt."${after.ts}",and(server_updated_at.eq."${after.ts}",id.gt.${after.id})`);
-                } else if (since) {
-                    q = q.gte('server_updated_at', since);
-                }
+                const q = applyPullFilter(supabase.from(table).select('*'), { since, after });
                 const { data, error, status } = await q
                     .order('server_updated_at', { ascending: true })
                     .order('id', { ascending: true })

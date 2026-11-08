@@ -9,7 +9,9 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
-import { TABLES, toRemote, columnsOf, roundMoney, changesWhenRounded, MappingError } from '../src/sync/mapping.ts';
+import './lib/ts-esm-hook.mjs';
+// src/ se carga después del hook (sin aviso MODULE_TYPELESS_PACKAGE_JSON, Fase 6.5).
+const { TABLES, toRemote, columnsOf, roundMoney, changesWhenRounded, MappingError } = await import('../src/sync/mapping.ts');
 
 // Fila SQLite → columnas y parámetros para INSERT (jsonb como texto JSON).
 const mapRow = (table, row) => {

@@ -58,7 +58,8 @@ export function createPgliteTransport(pg) {
         const params = [];
         if (after) {
             params.push(after.ts, after.id);
-            where = `(server_updated_at > $1::timestamptz or (server_updated_at = $1::timestamptz and id > $2::uuid))`;
+            // Mismo filtro que supabaseTransport.applyPullFilter: rango redundante + OR del keyset.
+            where = `server_updated_at >= $1::timestamptz and (server_updated_at > $1::timestamptz or (server_updated_at = $1::timestamptz and id > $2::uuid))`;
         } else if (since) {
             params.push(since);
             where = 'server_updated_at >= $1::timestamptz';

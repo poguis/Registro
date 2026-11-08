@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getAppSyncConfig } from './config';
-import { getControllerState, requestSync, subscribe } from './controller';
+import { getConnectivity, getControllerState, requestSync, subscribe } from './controller';
 import { getSyncStatus, unblockAll, type SyncStatus } from './engine';
 import type { SyncOutcome } from './engine';
 
@@ -11,7 +11,9 @@ export function useSync() {
     const [status, setStatus] = useState<SyncStatus | null>(null);
     const [syncing, setSyncing] = useState(false);
     const [outcome, setOutcome] = useState<SyncOutcome | null>(null);
+    const [connected, setConnected] = useState<boolean | null>(null);
 
+    // Solo lee estado local (SQLite + controlador): nunca dispara un ciclo ni llama a la red.
     const refresh = useCallback(async () => {
         try {
             setStatus(await getSyncStatus());
@@ -21,6 +23,7 @@ export function useSync() {
         const s = getControllerState();
         setSyncing(s.syncing);
         setOutcome(s.lastOutcome);
+        setConnected(getConnectivity());
     }, []);
 
     useEffect(() => {
@@ -38,5 +41,5 @@ export function useSync() {
         requestSync('reintentar');
     }, [refresh]);
 
-    return { enabled, status, syncing, outcome, syncNow, retryBlocked };
+    return { enabled, status, syncing, outcome, connected, syncNow, retryBlocked };
 }

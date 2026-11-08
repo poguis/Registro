@@ -24,6 +24,8 @@ export class File {
     get exists() { return existsSync(toPath(this.uri)); }
     get name() { return basename(toPath(this.uri)); }
     get size() { return this.exists ? statSync(toPath(this.uri)).size : 0; }
+    // Como File.modificationTime de expo-file-system 19: ms desde la época, o null si no existe.
+    get modificationTime() { return this.exists ? statSync(toPath(this.uri)).mtimeMs : null; }
     create() {
         if (this.exists) throw new Error(`El archivo ya existe: ${this.uri}`);
         writeFileSync(toPath(this.uri), '');

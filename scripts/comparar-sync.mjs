@@ -15,7 +15,9 @@ import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { openReadOnly } from './lib/sqlite-utils.mjs';
-import { TABLES, toRemote, toCents } from '../src/sync/mapping.ts';
+import './lib/ts-esm-hook.mjs';
+// src/ se carga después del hook (sin aviso MODULE_TYPELESS_PACKAGE_JSON, Fase 6.5).
+const { TABLES, toRemote, toCents } = await import('../src/sync/mapping.ts');
 
 const canon = (v) => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x)
     ? Object.fromEntries(Object.keys(x).sort().map((key) => [key, x[key]])) : x));

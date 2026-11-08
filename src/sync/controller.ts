@@ -22,10 +22,17 @@ import type { Transport } from './transport';
 // Antes de cada ciclo, la primera subida (ensureInitialUpload, Fase 5): una sola vez por
 // dispositivo, sin red ni sesión.
 
+// Conectividad (Fase 6.5): el indicador usa el mismo aviso de NetInfo que los disparadores
+// (sin una segunda suscripción). null hasta el primer aviso. Los listeners de la UI también se
+// avisan cuando cambia la conectividad y tras cada commit que encola en la outbox: solo releen
+// el estado local (getSyncStatus), nunca disparan un ciclo ni llaman a la red.
+
 type Listener = () => void;
 const listeners = new Set<Listener>();
 const dataListeners = new Set<Listener>(); // pantallas abiertas que recargan si la sync cambió datos
 let transport: Transport | null = null;
+let connectivity: boolean | null = null;
+const notifyUi = () => listeners.forEach((l) => { try { l(); } catch { /* la UI nunca rompe la sync */ } });
 
 const runner = createSyncRunner({
     config: getAppSyncConfig,
@@ -38,6 +45,7 @@ const runner = createSyncRunner({
 export const subscribe = (l: Listener) => { listeners.add(l); return () => { listeners.delete(l); }; };
 export const subscribeDataChanged = (l: Listener) => { dataListeners.add(l); return () => { dataListeners.delete(l); }; };
 export const getControllerState = () => runner.state();
+export const getConnectivity = () => connectivity;
 export const requestSync = (reason: string) => runner.request(reason);
 
 // Registra los disparadores automáticos. Devuelve la función para quitarlos.
@@ -52,7 +60,10 @@ export function startSyncTriggers(): () => void {
         debounceMs: cfg.changeDebounceMs,
         periodMs: cfg.periodicMs,
     });
-    setOutboxCommitListener(() => auto.onLocalChange());
+    setOutboxCommitListener(() => {
+        auto.onLocalChange();
+        notifyUi(); // el conteo de pendientes cambió: la UI lo relee (sin red ni ciclo)
+    });
     requestSync('apertura');
     auto.setForeground(AppState.currentState === 'active');
     const appSub = AppState.addEventListener('change', (state: AppStateStatus) => {
@@ -62,7 +73,10 @@ export function startSyncTriggers(): () => void {
     const unsubscribeNet = NetInfo.addEventListener((state) => {
         const now = state.isConnected === true;
         if (connected === false && now) requestSync('reconexion');
+        const changed = connected !== now;
         connected = now;
+        connectivity = now;
+        if (changed) notifyUi();
     });
     const supabase = getSupabase();
     const unsubscribeAuth = supabase
@@ -76,5 +90,6 @@ export function startSyncTriggers(): () => void {
         auto.stop();
         appSub.remove();
         unsubscribeNet();
+        connectivity = null;
     };
 }

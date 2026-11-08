@@ -42,28 +42,61 @@ export async function addEntertainmentCategory(userId: string, data: CategoryInp
     return categoryId;
 }
 
-// Categorías con su progreso agregado (N+1 conservado hasta la Fase 6).
+// Agrupa filas por una columna conservando el orden de llegada.
+const groupBy = (rows: Row[], key: string): Map<string, Row[]> => {
+    const map = new Map<string, Row[]>();
+    for (const row of rows) {
+        const k = row[key];
+        const list = map.get(k);
+        if (list) list.push(row);
+        else map.set(k, [row]);
+    }
+    return map;
+};
+
+// Categorías con su progreso agregado. Fase 6.5: 5 consultas fijas (antes 1 + 3 por categoría
+// + 1 por serie) con el mismo resultado. Mismos filtros que antes (los hijos por category_id /
+// series_id y deleted_at IS NULL) y el mismo orden dentro de cada categoría: las cuotas por
+// start_date (empates por rowid) y las pausas por rowid, el orden en que SQLite las devolvía.
+// La columna de agrupación (category_id / series_id) se lee aparte y no se devuelve.
+const CATEGORY_IDS = 'SELECT id FROM entertainment_categories WHERE user_id = ? AND deleted_at IS NULL';
+
 export async function getEntertainmentCategories(userId: string): Promise<Row[]> {
     const categories = await db().getAllAsync<Row>(
         'SELECT * FROM entertainment_categories WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at DESC',
         [userId]
     );
-    return Promise.all(categories.map(async (cat) => {
-        const quotasHistory = await db().getAllAsync<Row>(
-            'SELECT quotas, start_date, end_date FROM entertainment_quotas_history WHERE category_id = ? AND deleted_at IS NULL ORDER BY start_date ASC',
-            [cat.id]
-        );
-        const seriesList = await db().getAllAsync<Row>(
-            'SELECT id, current_season, current_episode, initial_season, initial_episode, status, cycle_offset FROM series WHERE category_id = ? AND deleted_at IS NULL',
-            [cat.id]
-        );
+    if (categories.length === 0) return [];
+    const quotasByCategory = groupBy(await db().getAllAsync<Row>(
+        `SELECT category_id AS _group, quotas, start_date, end_date FROM entertainment_quotas_history
+         WHERE category_id IN (${CATEGORY_IDS}) AND deleted_at IS NULL ORDER BY category_id, start_date ASC, rowid ASC`,
+        [userId]
+    ), '_group');
+    const seriesByCategory = groupBy(await db().getAllAsync<Row>(
+        `SELECT category_id AS _group, id, current_season, current_episode, initial_season, initial_episode, status, cycle_offset FROM series
+         WHERE category_id IN (${CATEGORY_IDS}) AND deleted_at IS NULL ORDER BY category_id, rowid ASC`,
+        [userId]
+    ), '_group');
+    const seasonsBySeries = groupBy(await db().getAllAsync<Row>(
+        `SELECT series_id AS _group, season_number, episode_count FROM seasons
+         WHERE series_id IN (SELECT id FROM series WHERE category_id IN (${CATEGORY_IDS}) AND deleted_at IS NULL)
+           AND deleted_at IS NULL ORDER BY series_id, rowid ASC`,
+        [userId]
+    ), '_group');
+    const pausesByCategory = groupBy(await db().getAllAsync<Row>(
+        `SELECT category_id AS _group, pause_start, pause_end FROM entertainment_pauses
+         WHERE category_id IN (${CATEGORY_IDS}) AND deleted_at IS NULL ORDER BY category_id, rowid ASC`,
+        [userId]
+    ), '_group');
+    const strip = ({ _group, ...rest }: Row) => rest;
+
+    return categories.map((cat) => {
+        const quotasHistory = (quotasByCategory.get(cat.id) || []).map(strip);
+        const seriesList = seriesByCategory.get(cat.id) || [];
 
         let totalWatched = 0;
         for (const s of seriesList) {
-            const seasons = await db().getAllAsync<Row>(
-                'SELECT season_number, episode_count FROM seasons WHERE series_id = ? AND deleted_at IS NULL',
-                [s.id]
-            );
+            const seasons = seasonsBySeries.get(s.id) || [];
             const getAbs = (seasonNum: number, episodeNum: number) => {
                 let count = 0;
                 for (let i = 1; i < seasonNum; i++) {
@@ -82,10 +115,7 @@ export async function getEntertainmentCategories(userId: string): Promise<Row[]>
             totalWatched += (diff > 0 ? diff : 0) + (s.cycle_offset || 0);
         }
 
-        const pauses = await db().getAllAsync<Row>(
-            'SELECT pause_start, pause_end FROM entertainment_pauses WHERE category_id = ? AND deleted_at IS NULL',
-            [cat.id]
-        );
+        const pauses = (pausesByCategory.get(cat.id) || []).map(strip);
         return {
             ...cat,
             days_of_week: parseJson(cat.days_of_week, []),
@@ -94,7 +124,7 @@ export async function getEntertainmentCategories(userId: string): Promise<Row[]>
             quotas_history: quotasHistory.map((qh) => ({ ...qh, quotas: parseJson(qh.quotas, {}) })),
             is_paused: pauses.some((p) => !p.pause_end),
         };
-    }));
+    });
 }
 
 export async function getCategoryPauses(categoryId: string): Promise<Row[]> {
