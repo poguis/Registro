@@ -24,11 +24,16 @@ Reglas que siguen vigentes: plan mode y aprobación; nada contra el proyecto rem
 - PIN / huella.
 - Realtime.
 
-## 3. Lista de la Fase 2 que sigue abierta (ítems 4–8)
-4. La tabla real `auth.users` y el `on delete cascade` al borrar una cuenta desde el dashboard.
+## 3. Lista de la Fase 2 (ítems 4–8; todos cerrados en la Fase 6: 5, 6 y 8 en la 6.1; 4 y 7 en la 6.2)
+4. ~~La tabla real `auth.users` y el `on delete cascade`~~ **CERRADO (6.2):** en Registro Dev se borró desde el dashboard, sin error, un usuario de prueba con 119.840 filas sintéticas (`supabase/pruebas-fase6-2/01`). Resultado: 0 filas en las 15 tablas, uid ausente y el otro usuario idéntico a la línea base; no hizo falta el plan B (04); auditoría posterior 18/18. Ver `docs/FASE6-PRUEBAS-SERVIDOR.md` §7.
 5. ~~Versión y rol~~ **CERRADO (6.1):** PostgreSQL 17.11 en los dos proyectos; SQL Editor como `postgres` sin superusuario. Ver `docs/FASE6-AUDITORIA-SERVIDOR.md`.
 6. ~~`service_role`~~ **CERRADO (6.1):** bypassrls, sin S/I/U/D en las 15 tablas, 0 secret keys, nunca en el repo, el historial ni los APK; la clave legacy sigue activa → 6.3. Ver `docs/FASE6-AUDITORIA-SERVIDOR.md`.
-7. Concurrencia real (commits fuera de orden frente al cursor del pull) y rendimiento de RLS con muchas filas.
+7. ~~Concurrencia real y rendimiento de RLS con muchas filas~~ **CERRADO (6.2):**
+   - **RLS:** se aplicó en los 9 planes del pull (`02`). Páginas típicas 7–18 ms; la peor a 50.000 filas ≈ 0,9 s frente a los 8 s del timeout (≥ 8,7× de margen).
+   - **Concurrencia:** verificada por documentación, sin medición empírica. 0 empates de `server_updated_at` en Supabase.
+   - **Hallazgo H1 (b-app) → 6.5:** añadir al pull el rango redundante `gte('server_updated_at', after.ts)`.
+
+   Ensayo local: `scripts/probar-fase6-2.mjs`. Detalle: `docs/FASE6-PRUEBAS-SERVIDOR.md` §8–9.
 8. ~~Resultado del Security Advisor~~ **CERRADO (6.1):** 1 WARN por proyecto (Leaked Password Protection, no aplica). Ver `docs/FASE6-AUDITORIA-SERVIDOR.md`.
 
 ## 4. Otros [PENDIENTE] de DECISIONES.md
