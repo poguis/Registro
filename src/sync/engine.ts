@@ -1,4 +1,5 @@
-import { getConnection, enqueue, type Row } from '../data/db/connection';
+import { getConnection, enqueue, mutate, type Row } from '../data/db/connection';
+import { seedPendingDefaultCategories } from '../data/repositories/users';
 import { nowIso } from '../data/clock';
 import {
     TABLES, columnsOf, toRemote, fromRemote, sameAsLocal, MappingError, PARENT_FKS, NATURAL_KEYS,
@@ -355,7 +356,7 @@ export type SyncOutcome =
     | { status: 'skipped'; reason: 'not-linked' | 'no-session' | 'other-account' | 'session-expired' }
     | { status: 'offline'; push: PushResult; pulled: number }
     | { status: 'timeout' }
-    | { status: 'ok'; push: PushResult; pulled: number; applied: number; skippedPending: number; merged: number; remoteWrites: number; localWrites: number };
+    | { status: 'ok'; push: PushResult; pulled: number; applied: number; skippedPending: number; merged: number; remoteWrites: number; localWrites: number; seededDefaults: number };
 
 async function setMeta(values: Record<string, string | null>) {
     await localTx(async () => {
@@ -389,7 +390,7 @@ export async function syncOnce(cfg: SyncConfig, transport: Transport, cancel: Ca
         await setMeta({ last_error: push.lastError });
         return { status: 'offline', push, pulled: 0 };
     }
-    let pulled = 0, applied = 0, skippedPending = 0, merged = 0;
+    let pulled = 0, applied = 0, skippedPending = 0, merged = 0, seededDefaults = 0;
     for (const table of TABLES) {
         const r = await pullTable(cfg, transport, table, uid, cancel);
         if (r.cancelled) return { status: 'timeout' };
@@ -399,11 +400,41 @@ export async function syncOnce(cfg: SyncConfig, transport: Transport, cancel: Ca
             if (r.error.kind === 'auth') return { status: 'skipped', reason: 'session-expired' };
             return { status: 'offline', push, pulled };
         }
+        // Fase 6.6: siembra diferida de las categorías por defecto. Aquí el pull de
+        // finance_categories terminó COMPLETO (todas las páginas, sin error ni cancelación), así que
+        // todas las filas del servidor, incluidos los tombstones, ya están en local y solo se siembra
+        // lo que falte. Solo actúa con la marca de createLinkedUser (instalación nueva con la sync
+        // encendida); sin marca no hace nada. Va por `mutate` (cola + tx): las filas entran en la
+        // outbox como cualquier creación local.
+        if (table === 'finance_categories') {
+            seededDefaults = await mutate(() => seedPendingDefaultCategories(uid));
+            if (seededDefaults > 0) localDataChanged = true;
+        }
     }
-    await setMeta({ last_success_at: nowIso(), last_error: push.lastError && push.blocked ? push.lastError : null });
+    // Lo sembrado se sube en el mismo ciclo para converger sin esperar al siguiente.
+    let push2 = emptyPush();
+    if (seededDefaults > 0) {
+        push2 = await pushOutbox(cfg, transport, uid, cancel);
+        if (push2.stop === 'cancelled') return { status: 'timeout' };
+        if (push2.stop === 'auth') {
+            await setMeta({ last_error: push2.lastError });
+            return { status: 'skipped', reason: 'session-expired' };
+        }
+        if (push2.stop === 'network') {
+            await setMeta({ last_error: push2.lastError });
+            return { status: 'offline', push: push2, pulled };
+        }
+    }
+    const lastError = (push2.blocked ? push2.lastError : null) || (push.lastError && push.blocked ? push.lastError : null);
+    await setMeta({ last_success_at: nowIso(), last_error: lastError });
+    const totalPush: PushResult = {
+        pushed: push.pushed + push2.pushed, blocked: push.blocked + push2.blocked, transient: push.transient + push2.transient,
+        merged: push.merged + push2.merged, parentsEnqueued: push.parentsEnqueued + push2.parentsEnqueued,
+        stop: null, lastError: push2.lastError || push.lastError,
+    };
     return {
-        status: 'ok', push, pulled, applied, skippedPending, merged: merged + push.merged,
-        remoteWrites: push.pushed, localWrites: applied,
+        status: 'ok', push: totalPush, pulled, applied, skippedPending, merged: merged + totalPush.merged,
+        remoteWrites: totalPush.pushed, localWrites: applied, seededDefaults,
     };
 }
 

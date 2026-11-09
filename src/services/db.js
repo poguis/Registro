@@ -14,6 +14,7 @@ import * as series from '../data/repositories/series';
 import * as history from '../data/repositories/history';
 import * as backlog from '../data/repositories/backlog';
 import * as work from '../data/repositories/work';
+import { getAppSyncConfig } from '../sync/config';
 
 // Fachada de datos usada por las pantallas. Mantiene los nombres y las formas de
 // retorno ({ success, ... }) de siempre y delega en los repositorios de src/data.
@@ -112,11 +113,13 @@ class DatabaseService {
         }
     }
 
-    // Instalación nueva: crea la cuenta ya vinculada a Google (id = auth.uid()).
+    // Instalación nueva: crea la cuenta ya vinculada a Google (id = auth.uid()). Con la sync
+    // encendida, las categorías por defecto se siembran tras el primer pull (Fase 6.6).
     async createLinkedUser(uid, email) {
         if (!this.db) await this.init();
         try {
-            return ok({ user: await mutate(() => users.createLinkedUser(uid, email)) });
+            const deferDefaultCategories = getAppSyncConfig().enabled;
+            return ok({ user: await mutate(() => users.createLinkedUser(uid, email, { deferDefaultCategories })) });
         } catch (error) {
             return failed('Error creating linked user:', error);
         }

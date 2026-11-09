@@ -301,6 +301,7 @@ const JUSTIFIED = {
     'SELECT id, username, email, linked_at FROM users': 'users no tiene borrado lógico (tabla local)',
     'SELECT u.id, u.username FROM _id_map': 'tablas internas de la migración',
     'SELECT payload FROM _migration_log': 'tabla interna de la migración',
+    'SELECT value FROM sync_meta': 'sync_meta: tabla interna de la sync (clave/valor), sin borrado lógico (marca de siembra, Fase 6.6)',
 };
 const reads = [];
 for (const f of repoFiles) {
