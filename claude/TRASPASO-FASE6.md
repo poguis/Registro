@@ -24,22 +24,31 @@ Reglas que siguen vigentes: plan mode y aprobación; nada contra el proyecto rem
   - respaldos H e I idénticos en las 15 tablas y `verificar-fase5` = I (30 / 26 / 4).
 
   Sin cambios en `src/` ni en el esquema (`user_version` 4).
+- **6.5 cerrada** (2026-11-08), commit `dcdc59d`, APK 1.3.2 / versionCode 6 en Dev y producción:
+  - indicador con NetInfo y plural correcto;
+  - "Cerrar sesión" sin red;
+  - respaldo en formato 2 (`backupDirFiles`);
+  - N+1 de entretenimiento: 5 consultas, idéntico a `f3772d9` en 3 casos;
+  - rango redundante del pull;
+  - avisos de Node.
+
+  Respaldos antes y después idénticos y `verificar-fase5` = después (30 / 26 / 4). Regla de sesión y su única excepción en DECISIONES.md. Sin migraciones locales ni cambios en Supabase.
 
 ## 1. Anotado durante la Fase 5
 1. **Categorías por defecto en una instalación nueva.** Hoy se siembran al iniciar sesión y, al subir, la fusión por clave natural (23505) sube el contenido del dispositivo NUEVO: cambia `created_at`/`updated_at` de las categorías del celular (pasó en la 5.5, esperado) y podría revivir una categoría por defecto borrada. Mejora: no sembrarlas hasta completar el primer pull (y sembrar solo las que falten).
-2. **Indicador sin red tras un cambio local.** `autoSync.onLocalChange` no pide ciclo sin conexión según NetInfo y `SyncStatus` conserva el último "ok", así que muestra "Sincronizado hace X · N pendiente(s)" (visto en la 5.6 B3). Mejora: mostrar "Sin conexión" según NetInfo y no decir "Sincronizado" cuando hay pendientes. Corregir también el plural "pendiente(s)".
-3. **Copias físicas previas sin verificación directa.** El respaldo solo lista los `.db` de la carpeta de la BD, no los de `respaldos/` (copias `pre-migracion-vN` y `pre-vinculacion`). En el release no depurable la copia previa solo se confirma de forma indirecta. Mejora: listar también `respaldos/` en el meta del respaldo, u otra verificación.
+2. **HECHO (6.5).** ~~**Indicador sin red tras un cambio local.**~~ `autoSync.onLocalChange` no pide ciclo sin conexión según NetInfo y `SyncStatus` conserva el último "ok", así que muestra "Sincronizado hace X · N pendiente(s)" (visto en la 5.6 B3). Mejora: mostrar "Sin conexión" según NetInfo y no decir "Sincronizado" cuando hay pendientes. Corregir también el plural "pendiente(s)".
+3. **HECHO (6.5:** el respaldo lista `respaldos/` en `meta.backupDirFiles`**).** ~~**Copias físicas previas sin verificación directa.**~~ El respaldo solo lista los `.db` de la carpeta de la BD, no los de `respaldos/` (copias `pre-migracion-vN` y `pre-vinculacion`). En el release no depurable la copia previa solo se confirma de forma indirecta. Mejora: listar también `respaldos/` en el meta del respaldo, u otra verificación.
 4. **Tombstones de prueba en el servidor:** `backlog` de Poguis tiene 4 filas borradas (`[prueba RLS]` de la Fase 3 + 3 `[prueba F5]`). Están también en el celular. Decidir si se limpian; no hay DELETE desde el cliente, así que sería un SQL aparte aplicado por el usuario (no migración), con respaldo previo, y los celulares conservarían su copia local.
-5. **`signOut` sin red con el token vencido:** `signOut({ scope: 'local' })` devuelve error sin borrar la sesión local (auth-js no la quita si no puede validar). Valorar borrar la sesión local igualmente.
+5. **HECHO (6.5:** `signOutLocal.ts`**).** ~~**`signOut` sin red con el token vencido:**~~ `signOut({ scope: 'local' })` devuelve error sin borrar la sesión local (auth-js no la quita si no puede validar). Valorar borrar la sesión local igualmente.
 6. **Tablas vacías sin cursor:** el pull solo guarda cursor cuando recibe filas; las tablas vacías se piden completas en cada ciclo (hoy 11 consultas vacías). Inocuo; valorar guardar un cursor "vacío".
-7. **Avisos de Node en los scripts:** `MODULE_TYPELESS_PACKAGE_JSON` al importar `.ts` y `DEP0190` (shell: true) en `build-apk.mjs`. Inocuos.
+7. **HECHO (6.5:** `ts-esm-hook.mjs` y un solo comando citado**).** ~~**Avisos de Node en los scripts:**~~ `MODULE_TYPELESS_PACKAGE_JSON` al importar `.ts` y `DEP0190` (shell: true) en `build-apk.mjs`. Inocuos.
 8. ~~**Plan Free de Supabase:**~~ **RESUELTO (6.3):** se queda en Free, con uso al menos semanal. Si Supabase pausa el proyecto por inactividad, se reanuda desde el dashboard; mientras tanto la app muestra "Sin conexión" y los datos locales siguen disponibles.
 
 ## 2. Lista de Fase 6 del prompt de la Fase 5 (fuera de alcance entonces)
 - Borrar las tablas `legacy_*` y las copias físicas internas (pre-migración / pre-vinculación conservan la contraseña antigua; ver DECISIONES.md, [PENDIENTE]).
 - ~~Eliminar el Client secret viejo de Google~~: ya no aplica (6.1: el de la Fase 4 no existe; hay 1 solo secret, creado el 2026-11-02). ~~Rotar el client secret actual en la 6.3~~ **HECHO (6.3, 2026-11-08):** el secret quedó expuesto en un chat el 2026-11-07. Se agregó el nuevo en Auth → Google de los dos proyectos, se deshabilitó el viejo, se probó el login en Dev y en producción, y se borró el viejo. Queda 1 secret activo, compartido por los dos proyectos.
 - ~~Actualizar `expo`~~ **HECHO (6.4):** 54.0.33 → 54.0.38; `expo-doctor` 18/18.
-- N+1 de `getEntertainmentCategories`.
+- ~~N+1 de `getEntertainmentCategories`~~ **HECHO (6.5):** 5 consultas fijas, idéntico a `f3772d9`.
 - Limpiar el tombstone RLS (ahora junto con los 3 `[prueba F5]`, punto 1.4).
 - Play Store y Play App Signing: **fuera de alcance** según DECISIONES.md (Alcance: hasta que la app funcione al 100 % para uso personal). Pasan a "Fuera de la Fase 6 (Fase 7 / backlog)".
 - PIN / huella.

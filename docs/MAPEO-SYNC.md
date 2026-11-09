@@ -221,14 +221,23 @@ Una misma cuenta puede usar varios dispositivos (también cubre reinstalar o cam
 
 - **Filas bloqueadas:** mientras una fila tenga una entrada bloqueada, **el pull no la actualiza** (lo que llegue del servidor para ese registro se omite). "Reintentar" en la UI desbloquea las entradas y el siguiente ciclo las vuelve a subir.
 - **Pull:** por tabla, desde `cursor − 60 s`, paginado de 500 en 500 por (`server_updated_at`, `id`) (keyset con desempate por `id`). El cursor se guarda **crudo** (µs y zona, sin pasar por `Date`) en `sync_state`, en la misma transacción que aplica la página. Aplicación idempotente sin outbox: se omiten las filas con cambios pendientes o bloqueados y las que ya son idénticas, así la segunda sincronización no escribe nada.
-  - **Rendimiento medido (6.2, hallazgo H1):** desde la segunda página el filtro es `or(server_updated_at.gt.X, and(server_updated_at.eq.X, id.gt.Y))`, y Postgres no extrae de ese `OR` un rango para `*_pull_idx`. Recorre las filas del usuario desde el principio y descarta como `Filter` todas las anteriores al cursor.
+  - **Rango del pull: corregido en 1.3.2 (Fase 6.5).** Hallazgo H1 de la 6.2: desde la segunda página el filtro es `or(server_updated_at.gt.X, and(server_updated_at.eq.X, id.gt.Y))`, y Postgres no extrae de ese `OR` un rango para `*_pull_idx`. Recorre las filas del usuario desde el principio y descarta como `Filter` todas las anteriores al cursor.
     - En Registro Dev, una página intermedia de 50.000 filas descartó 25.000 filas en 459 ms; una primera sincronización completa cuesta O(N²/500), unos 45 s de servidor por tabla de 50.000 filas.
     - Sigue muy por debajo del timeout de 8 s por página.
-    - Corrección prevista para la **6.5:** agregar el filtro redundante `server_updated_at >= X` (`gte`), que devuelve las mismas filas y convierte el recorrido en un rango.
+    - **Corrección (1.3.2):** con cursor, el pull agrega el filtro redundante `gte('server_updated_at', cursor.ts)` delante del mismo `or(...)` (`supabaseTransport.applyPullFilter`; también en `pglite-transport.mjs`). Toda fila que cumple el `OR` lo cumple, así que las páginas son las mismas, pero el recorrido es un rango del índice: en PGlite, la página intermedia pasa de 10.000 filas descartadas a 201 (`probar-fase6-5`). El `OR`, el orden y el tamaño de página no cambian.
 
-    Medición y propuesta: `docs/FASE6-PRUEBAS-SERVIDOR.md`, secciones 8–9.
+    Medición: `docs/FASE6-PRUEBAS-SERVIDOR.md`, secciones 8–9.
 - **Primera subida (Fase 5):** `ensureInitialUpload` encola UNA vez por dispositivo todas las filas (vivas y tombstones) en orden de dependencias, sin duplicar entradas pendientes o bloqueadas, y en la misma transacción escribe en `sync_meta` `initial_upload_done_at`, `initial_upload_uid` e `initial_upload_summary` (`{tabla: {rows, enqueued}}`, solo conteos). Requiere la sync habilitada y la cuenta vinculada; no usa red ni sesión. El runner la llama como `prepare` antes de cada ciclo (con la marca es una lectura), por la cola de escrituras, así que se serializa con las mutaciones de la app y no dispara `autoSync`. Después el mismo motor las sube. (`enqueueAllForInitialUpload`, sin marca, queda para las pruebas.)
 - **Pantallas:** cuando un ciclo escribe datos locales (pull aplicado o id fusionado), el runner avisa al terminar y las pantallas con datos recargan con `useSyncRefresh(reload)` sin perder formularios, filtros ni scroll. Un ciclo que solo sube cambios propios no avisa.
-- **Indicador:** "N pendientes" = filas DISTINTAS (`table_name`, `row_id`) con entradas no bloqueadas, no entradas crudas.
+- **Indicador:** "N pendientes" = filas DISTINTAS (`table_name`, `row_id`) con entradas no bloqueadas, no entradas crudas. Estados (1.3.2, `describeSyncStatus` en `syncStatusText.ts`), en este orden:
+  1. sin red según NetInfo → "Sin conexión", o "Sin conexión — 1 cambio pendiente" / "Sin conexión — N cambios pendientes";
+  2. ciclo en curso → "Sincronizando…";
+  3. sin sesión o sin vincular → los avisos de siempre;
+  4. watchdog → aviso + pendientes;
+  5. ciclo "offline" con NetInfo en línea → "Sin conexión…";
+  6. pendientes con red → "Sincronizando…";
+  7. si no → "Sincronizado hace X".
+
+  Nunca "Sincronizado" con pendientes; sin red nunca pide iniciar sesión.
 - **Estado local** (migración 4): `outbox.blocked_at` / `block_reason`, `sync_state` (cursores) y `sync_meta` (última sincronización, último error y la marca de la primera subida). El cursor de una tabla se guarda solo cuando el pull recibe filas: las tablas vacías en el servidor no tienen fila en `sync_state` y se piden completas (consulta vacía). Criterio de verificación: cursor en toda tabla con filas en el servidor (Fase 5: 4/4).
 - **Verificación (Fase 5):** `scripts/comparar-sync.mjs` compara dos BD con esta normalización (`toRemote` + JSON canónico); `supabase/verificar-fase5.sql` da conteos por tabla y el número de `user_id` del servidor (solo lectura).
