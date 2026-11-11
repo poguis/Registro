@@ -256,14 +256,15 @@ check('resolveSessionUser de un id inexistente → sin usuario (se cierra la ses
 await rse.svc.db.closeAsync();
 
 // ---------------------------------------------------------------------------
-section('Respaldo de una BD migrada: ninguna contraseña visible (legacy_users; users ya no tiene password)');
+section('Respaldo de una BD migrada: ninguna columna password (users sin password desde la 3; legacy_* eliminadas en la 5)');
 const backup = await import('../src/services/backup.js');
 __setDatabasePath(pSe);
 const { result: bk } = await quiet(() => backup.createBackup());
 const bkJson = JSON.parse(readFileSync(bk.json.path, 'utf8'));
 const pwTables = Object.keys(bkJson.data).filter((t) => bkJson.data[t].some((r) => 'password' in r));
-check('solo legacy_users tiene columna password en el JSON (users ya no)', pwTables.length === 1 && pwTables[0] === 'legacy_users', pwTables.join(', '));
-check('toda columna password del JSON está oculta', pwTables.every((t) => bkJson.data[t].every((r) => r.password === '[OCULTO]')));
+// Fase 6.7: tras la migración 5 no queda ninguna tabla legacy_* ni columna password.
+check('ninguna tabla con columna password ni legacy_* en el JSON (migración 5)', pwTables.length === 0 && !Object.keys(bkJson.data).some((t) => t.startsWith('legacy_')),
+    pwTables.join(', ') || 'ninguna');
 const runValidator = (json, out) => {
     try {
         execSync(`node scripts/validar-respaldo.mjs "${json}" --db "${bk.physical.path}" --out "${out}" --overwrite`, { stdio: 'pipe' });
@@ -274,13 +275,13 @@ const runValidator = (json, out) => {
 };
 const valid = runValidator(bk.json.path, `${WORK}/validado-v2.sqlite`);
 check('validar-respaldo.mjs acepta el respaldo v2 y coincide con la copia .db', valid.ok, valid.ok ? '' : valid.out.split('\n').filter((l) => l.startsWith('FALLA')).join(' | '));
-// Respaldo alterado: una contraseña visible en legacy_users debe hacer fallar al validador.
+// Respaldo alterado: una contraseña visible (aquí en users) debe hacer fallar al validador.
 const tampered = JSON.parse(JSON.stringify(bkJson));
-tampered.data.legacy_users[0].password = 'visible';
+tampered.data.users[0].password = 'visible';
 const tamperedPath = `${WORK}/respaldo-alterado.json`;
 writeFileSync(tamperedPath, JSON.stringify(tampered));
 const invalid = runValidator(tamperedPath, `${WORK}/alterado.sqlite`);
-check('validar-respaldo.mjs FALLA si legacy_users.password está visible', !invalid.ok && invalid.out.includes('FALLA legacy_users.password oculto'));
+check('validar-respaldo.mjs FALLA si aparece una contraseña visible', !invalid.ok && invalid.out.includes('FALLA users.password oculto'));
 
 // ---------------------------------------------------------------------------
 section('Criterio 9: grep');

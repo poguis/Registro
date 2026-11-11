@@ -54,9 +54,9 @@ const prepare = (label, source) => {
     copyFileSync(source, `${dir}/app_registro_v3.db`);
     return `${dir}/app_registro_v3.db`;
 };
-// Lleva una copia hasta la v2 con el runner real (sin la migración 3).
-async function toV2(path) {
-    const later = MIGRATIONS.splice(2); // quita las migraciones posteriores a la 2
+// Lleva una copia hasta la versión `target` con el runner real (sin las migraciones posteriores).
+async function toVersion(path, target) {
+    const later = MIGRATIONS.splice(target); // quita las migraciones posteriores a `target`
     try {
         __setDatabasePath(path);
         const conn = await openDatabaseAsync('app_registro_v3.db');
@@ -66,6 +66,7 @@ async function toV2(path) {
         MIGRATIONS.push(...later);
     }
 }
+const toV2 = (path) => toVersion(path, 2);
 const open = async (path) => {
     __setDatabasePath(path);
     const svc = new DatabaseService();
@@ -87,7 +88,8 @@ function snapshot(path, { withoutUserId = false } = {}) {
     }
     s.outbox = d.prepare('SELECT COUNT(*) n FROM outbox').get().n;
     s.users = hashRows(d.prepare('SELECT * FROM users').all());
-    s.legacyUsers = hashRows(d.prepare('SELECT * FROM legacy_users').all());
+    // Desde la migración 5 (Fase 6.7) legacy_users ya no existe tras migrar hasta la última versión.
+    s.legacyUsers = colsOf(d, 'legacy_users').length ? hashRows(d.prepare('SELECT * FROM legacy_users').all()) : 'ausente';
     s.log = d.prepare('SELECT COUNT(*) n FROM _migration_log').get().n;
     s.uv = d.prepare('PRAGMA user_version').get().user_version;
     d.close();
@@ -99,7 +101,7 @@ const passwordsOf = (path) => {
     const d = raw(path);
     const out = [];
     for (const t of ['users', 'legacy_users']) {
-        if (colsOf(d, t).includes('password')) {
+        if (colsOf(d, t).includes('password')) { // colsOf da [] si la tabla no existe
             for (const r of d.prepare(`SELECT password FROM ${t}`).all()) if (r.password && r.password.length >= 3) out.push(r.password);
         }
     }
@@ -138,7 +140,8 @@ for (const [label, source] of Object.entries(SOURCES)) {
     const after = snapshot(path);
     const d = raw(path);
     const noPwCol = !colsOf(d, 'users').includes('password') && ['email', 'linked_at'].every((c) => colsOf(d, 'users').includes(c));
-    const legacyVisible = d.prepare("SELECT COUNT(*) n FROM legacy_users WHERE password <> ''").get().n;
+    const legacyGone = colsOf(d, 'legacy_users').length === 0;
+    const log5 = d.prepare("SELECT COUNT(*) n FROM _migration_log WHERE version = 5 AND kind = 'summary'").get().n;
     const usersAfter = JSON.stringify(d.prepare('SELECT id, username FROM users ORDER BY id').all().map((x) => ({ ...x })));
     const log3 = d.prepare("SELECT COUNT(*) n FROM _migration_log WHERE version = 3 AND kind = 'summary'").get().n;
     d.close();
@@ -147,7 +150,15 @@ for (const [label, source] of Object.entries(SOURCES)) {
     check(`${label}: 15 tablas idénticas (conteos y contenido) y outbox sin cambios`, sameDomain(before, after) && before.outbox === after.outbox,
         `${Object.values(after.counts).reduce((a, b) => a + b, 0)} filas`);
     check(`${label}: users sin password (con email y linked_at), mismos usuarios`, noPwCol && usersAfter === usersBefore, `${JSON.parse(usersAfter).length} cuenta(s)`);
-    check(`${label}: legacy_users.password vacío y resumen en _migration_log`, legacyVisible === 0 && log3 === 1);
+    // Estado de la migración 3 (legacy_users.password vacío) en una copia llevada solo hasta la v3:
+    // con la 5 (Fase 6.7) la tabla desaparece al migrar hasta la última versión.
+    const path3 = prepare(`${key}-v3`, source);
+    await toVersion(path3, 3);
+    const d3 = raw(path3);
+    const legacyVisible3 = d3.prepare("SELECT COUNT(*) n FROM legacy_users WHERE password <> ''").get().n;
+    d3.close();
+    check(`${label}: en v3, legacy_users.password vacío; en v${LATEST_VERSION}, legacy_users eliminada (migración 5); resúmenes de la 3 y la 5 en _migration_log`,
+        legacyVisible3 === 0 && bytesContain(path3, passwords) === 0 && legacyGone && log3 === 1 && log5 === 1);
     check(`${label}: secure_delete — 0 de ${passwords.length} contraseña(s) quedan en los bytes del .db`, leaked === 0 && !existsSync(`${path}-journal`));
     const r2 = await open(path);
     await r2.svc.db?.closeAsync();
@@ -378,8 +389,8 @@ section('Variantes y URL de retorno');
     const dev = evalVariant('development');
     check('producción: com.poguis.Registro, "Registro", poguis-registro', prod.android.package === 'com.poguis.Registro' && prod.name === 'Registro' && prod.scheme === 'poguis-registro');
     check('desarrollo: com.poguis.Registro.dev, "Registro Dev", poguis-registro-dev', dev.android.package === 'com.poguis.Registro.dev' && dev.name === 'Registro Dev' && dev.scheme === 'poguis-registro-dev');
-    // Misma versión en las dos variantes (la vigente de app.json; 1.3.3 / 7 desde la Fase 6.6).
-    check('versión 1.3.3 / versionCode 7 en ambas', [prod, dev].every((c) => c.version === '1.3.3' && c.android.versionCode === 7));
+    // Misma versión en las dos variantes (la vigente de app.json; 1.3.4 / 8 desde la Fase 6.7).
+    check('versión 1.3.4 / versionCode 8 en ambas', [prod, dev].every((c) => c.version === '1.3.4' && c.android.versionCode === 8));
     check('plugin de firma: eas en producción, debug solo en dev', JSON.stringify(prod.plugins.at(-1)) === JSON.stringify(['./plugins/withReleaseSigning', { mode: 'eas' }])
         && JSON.stringify(dev.plugins.at(-1)) === JSON.stringify(['./plugins/withReleaseSigning', { mode: 'debug' }]));
     check('expo-secure-store excluido del Auto Backup (configureAndroidBackup: true)', prod.plugins.some((p) => Array.isArray(p) && p[0] === 'expo-secure-store' && p[1].configureAndroidBackup === true));

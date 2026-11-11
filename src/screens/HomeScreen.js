@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useTheme } from '../contexts/ThemeContext';
 import { backupAndShare } from '../services/backup';
+import db from '../services/db';
 import { showBackupResult } from './backupResult';
 import SyncStatus from './SyncStatus';
 
@@ -45,6 +46,9 @@ export default function HomeScreen({ user, onLogout, onNavigate, notice, devTool
         setIsBackingUp(true);
         try {
             const summary = await backupAndShare();
+            // Fase 6.7: limpieza de respaldos/ solo cuando el .db y el .json nuevos ya están escritos;
+            // el respaldo recién creado está protegido. Nunca bloquea ni falla el respaldo.
+            db.cleanupBackups(summary.stamp).catch(() => {});
             showBackupResult(summary, 'Asegúrate de guardarlos fuera del teléfono (Drive, correo o PC).');
         } catch (error) {
             console.error('Error creating backup:', error);

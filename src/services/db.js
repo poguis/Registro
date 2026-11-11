@@ -15,6 +15,12 @@ import * as history from '../data/repositories/history';
 import * as backlog from '../data/repositories/backlog';
 import * as work from '../data/repositories/work';
 import { getAppSyncConfig } from '../sync/config';
+import { cleanupBackupDir, hasBackupDir } from './backupCleanup';
+
+// Limpieza de respaldos/ (Fase 6.7): marca de la primera limpieza y resumen (solo conteos) en sync_meta.
+const BACKUP_CLEANUP_FIRST = 'backup_cleanup_first_at';
+const BACKUP_CLEANUP_LAST_AT = 'backup_cleanup_last_at';
+const BACKUP_CLEANUP_LAST_SUMMARY = 'backup_cleanup_last_summary';
 
 // Fachada de datos usada por las pantallas. Mantiene los nombres y las formas de
 // retorno ({ success, ... }) de siempre y delega en los repositorios de src/data.
@@ -84,6 +90,9 @@ class DatabaseService {
             this.db = conn;
             this.lastInitError = null;
             console.log('Database initialized successfully');
+            // Fase 6.7: primera limpieza de respaldos/, una sola vez, DESPUÉS de las migraciones (así
+            // la copia pre-migración que se conserva es la v5). No bloquea la apertura ni puede fallarla.
+            this.initialBackupCleanup = this._initialBackupCleanup();
             return true;
         } catch (error) {
             console.error('Database initialization failed:', error);
@@ -98,6 +107,45 @@ class DatabaseService {
                 }
             }
             return false;
+        }
+    }
+
+    // --- LIMPIEZA DE RESPALDOS (Fase 6.7) ---
+    // Retención de respaldos/ (backupRetention.ts + backupCleanup.js): solo borra dentro de esa
+    // carpeta. Nunca lanza; deja en sync_meta la fecha y un resumen sin nombres.
+    async _runBackupCleanup(protectKeys, first) {
+        const databasePath = this.db && this.db.databasePath;
+        if (!hasBackupDir(databasePath)) return null; // nada que limpiar (p. ej. pruebas sin carpeta)
+        const summary = await cleanupBackupDir({ databasePath, protectKeys });
+        const now = new Date().toISOString();
+        const values = [[BACKUP_CLEANUP_LAST_AT, now], [BACKUP_CLEANUP_LAST_SUMMARY, JSON.stringify(summary)]];
+        if (first) values.push([BACKUP_CLEANUP_FIRST, now]);
+        await enqueue(async () => {
+            for (const [k, v] of values) {
+                await this.db.runAsync('INSERT INTO sync_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', [k, v]);
+            }
+        });
+        return summary;
+    }
+
+    async _initialBackupCleanup() {
+        try {
+            const mark = await this.db.getFirstAsync('SELECT value FROM sync_meta WHERE key = ?', [BACKUP_CLEANUP_FIRST]);
+            if (mark && mark.value) return null;
+            return await this._runBackupCleanup([], true);
+        } catch (error) {
+            console.error('Error en la limpieza inicial de respaldos:', error);
+            return null;
+        }
+    }
+
+    // Tras "Respaldar datos": `protectStamp` es el sello del respaldo recién creado (nunca se borra).
+    async cleanupBackups(protectStamp = null) {
+        if (!this.db) await this.init();
+        try {
+            return ok({ summary: await this._runBackupCleanup(protectStamp ? [protectStamp] : [], false) });
+        } catch (error) {
+            return failed('Error cleaning backups:', error);
         }
     }
 

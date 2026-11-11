@@ -95,6 +95,10 @@ for (const [label, source, migratedOnDevice] of DATABASES) {
         watch: { ...oldDb.prepare('SELECT MIN(watched_at) mn, MAX(watched_at) mx FROM watch_history').get() },
         read: { ...oldDb.prepare('SELECT MIN(read_at) mn, MAX(read_at) mx FROM reading_history').get() },
     };
+    // Conteos de las tablas antiguas tal como las copió la migración 2 a legacy_*. Se leen de la BD
+    // "antes" (mismas tablas y contenido): desde la migración 5 (Fase 6.7) legacy_* ya no existe
+    // después de migrar hasta la última versión.
+    const legacyCounts = Object.fromEntries(MIGRATED_TABLES.map((t) => [t, oldDb.prepare(`SELECT COUNT(*) n FROM ${t}`).get().n]));
     oldDb.close();
 
     // ---- DESPUÉS (migraciones 1 y 2 con el código actual) ----
@@ -118,7 +122,7 @@ for (const [label, source, migratedOnDevice] of DATABASES) {
     const rows = [];
     let countsOk = true;
     for (const t of MIGRATED_TABLES) {
-        const legacyN = one(`SELECT COUNT(*) n FROM legacy_${t}`).n;
+        const legacyN = legacyCounts[t];
         const newN = one(`SELECT COUNT(*) n FROM ${t}${t === 'users' ? '' : ' WHERE deleted_at IS NULL'}`).n;
         const allowed = t === 'balance_history' ? log.balanceAdjustments.length : 0;
         const ok = newN === legacyN + allowed - (t === 'seasons' ? log.seasonDuplicatesDiscarded : 0);

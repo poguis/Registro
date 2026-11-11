@@ -55,7 +55,8 @@ const backupsBefore = backupCalls.length;
 const A = await newDevice('A', source);
 const uvA = (await one(A, 'PRAGMA user_version')).user_version;
 check(`migración 4 aplicada (user_version ${uvSource} → ${uvA}) con copia física previa`,
-    uvA === 4 && (uvSource >= 4 || backupCalls.slice(backupsBefore).includes('pre-migracion-v4')), backupCalls.slice(backupsBefore).join(', '));
+    // Desde la Fase 6.7 init() sigue hasta la migración 5 (elimina legacy_*): se exige ≥ 4.
+    uvA >= 4 && (uvSource >= 4 || backupCalls.slice(backupsBefore).includes('pre-migracion-v4')), backupCalls.slice(backupsBefore).join(', '));
 const users = await all(A, 'SELECT id, linked_at FROM users');
 check('1 cuenta local, vinculada', users.length === 1 && !!users[0].linked_at);
 const uid = users[0].id;

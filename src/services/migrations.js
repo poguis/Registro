@@ -2,10 +2,12 @@ import { maybeFail } from './devFlags';
 import { migration2 } from '../data/db/migration2';
 import { migration3 } from '../data/db/migration3';
 import { migration4 } from '../data/db/migration4';
+import { migration5 } from '../data/db/migration5';
 
 // Migraciones de esquema versionadas con PRAGMA user_version.
 // Reglas: cada migración corre en una transacción exclusiva y sube user_version
-// solo si termina bien. Nunca se renombra el archivo .db ni se borran datos.
+// solo si termina bien. Nunca se renombra el archivo .db ni se borran datos (única
+// excepción autorizada: la migración 5 elimina las tablas legacy_*, con copia previa).
 // Las migraciones con versión >= 2 exigen antes una copia física de la BD.
 
 // Línea base: las 16 tablas tal como las creaba db.js, en orden de dependencias.
@@ -242,6 +244,12 @@ export const MIGRATIONS = [
         description: 'Fase 4: estado de sincronización (outbox.blocked_at/block_reason, sync_state, sync_meta); no modifica datos',
         requiresBackup: true,
         up: migration4,
+    },
+    {
+        version: 5,
+        description: 'Fase 6.7: elimina las tablas legacy_* (lista explícita, con copia previa); no toca ninguna otra tabla',
+        requiresBackup: true,
+        up: migration5,
     },
 ];
 

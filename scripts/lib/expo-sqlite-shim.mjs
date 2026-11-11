@@ -54,4 +54,13 @@ class ShimDatabase {
     async closeAsync() { this._db.close(); }
 }
 
-export const openDatabaseAsync = async () => new ShimDatabase(currentPath);
+// Con `directory` (tercer argumento, como expo-sqlite), abre `directory/nombre`; si no, la ruta fijada
+// por la prueba. Lo usa la limpieza de respaldos/ (Fase 6.7) para verificar copias.
+// __openLog registra las rutas abiertas con `directory` (las pruebas comprueban qué copias se abrieron).
+export const __openLog = [];
+export const openDatabaseAsync = async (name, _options, directory) => {
+    if (!directory) return new ShimDatabase(currentPath);
+    const path = `${String(directory).replace(/^file:\/\//, '').replace(/\/+$/, '')}/${name}`;
+    __openLog.push(path);
+    return new ShimDatabase(path);
+};

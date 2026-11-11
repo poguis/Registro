@@ -9,8 +9,10 @@ import { DB_NAME } from './dbConfig';
 // así que funciona aunque la migración haya fallado.
 // Genera dos archivos con la misma marca de tiempo:
 //   - copia física (.db) con VACUUM INTO: conserva todo, incluidas las contraseñas;
-//   - JSON con todas las tablas y metadatos: toda columna `password` (users, legacy_users
-//     o cualquier otra tabla) va reemplazada por un marcador.
+//   - JSON con todas las tablas y metadatos: toda columna `password` (users o legacy_users en
+//     BD anteriores a la migración 5, o cualquier otra tabla) va reemplazada por un marcador.
+//     Desde la migración 5 (Fase 6.7) ya no queda ninguna tabla con columna password.
+// La retención de respaldos/ (Fase 6.7) está en backupRetention.ts + backupCleanup.js.
 
 export const PASSWORD_PLACEHOLDER = '[OCULTO]';
 const BACKUP_FORMAT = 'registro-respaldo';

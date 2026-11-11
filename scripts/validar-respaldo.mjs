@@ -62,9 +62,16 @@ for (const table of dataTables) {
     check(`Conteo ${table}`, data[table].length === meta.counts[table], `${data[table].length} filas (meta: ${meta.counts[table]})`);
 }
 // Ninguna columna password puede quedar visible, en ninguna tabla (users, legacy_users, ...).
+// Hasta user_version 4, legacy_users conserva su columna password (vacía desde la migración 3).
+// Desde la 5 (Fase 6.7: legacy_* eliminadas) ya no queda ninguna tabla con columna password.
 const tablesWithPassword = dataTables.filter((t) =>
     data[t].some((r) => 'password' in r) || /\bpassword\b/i.test(meta.schema.find((s) => s.name === t)?.sql || ''));
-check('Hay tablas con columna password', tablesWithPassword.length > 0, tablesWithPassword.join(', '));
+if (Number(meta.userVersion) >= 5) {
+    check('Sin columnas password (user_version ≥ 5: legacy_* eliminadas)', tablesWithPassword.length === 0 && !dataTables.some((t) => t.startsWith('legacy_')),
+        tablesWithPassword.length ? tablesWithPassword.join(', ') : 'ninguna');
+} else {
+    check('Hay tablas con columna password', tablesWithPassword.length > 0, tablesWithPassword.join(', '));
+}
 for (const table of tablesWithPassword) {
     const visible = data[table].filter((r) => r.password !== PASSWORD_PLACEHOLDER).length;
     check(`${table}.password oculto en el JSON`, visible === 0, `${data[table].length} fila(s), ${visible} visible(s)`);
