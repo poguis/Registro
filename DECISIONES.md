@@ -118,13 +118,43 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
        - **Dev** (firma `fac61745…`): instalado encima, de versionCode 5 a 6 con el mismo `firstInstallTime`. Pruebas en el celular OK, incluido cerrar sesión sin red tras más de 1 hora y volver a entrar con la misma cuenta.
        - **Producción** (firma EAS `31:32:DE:…:3E:52`): `install -r` sobre la 1.3.1, de versionCode 5 a 6 con el mismo `firstInstallTime` (2026-09-21 07:49:29). Abrió con la sesión iniciada, los datos visibles y "Sincronizado hace X".
      - **Respaldos del celular:** "antes" (app 1.3.1, formato 1) y "después" (app 1.3.2, formato 2, 45 archivos en `respaldos/`) válidos, `user_version` 4 y outbox vacía. `comparar-sync`: idénticos en las 15 tablas, con el mismo saldo. `verificar-fase5` de Poguis = conteos de "después" en las 16 filas (30 / 26 / 4, un `user_id`).
-   - 6.6 APK: siembra de las categorías por defecto tras el primer pull.
+   - 6.6 **[CERRADA 2026-11-10]** APK de siembra de las categorías por defecto tras el primer pull (H2 de la Fase 5), commit `378a164`, sin migraciones locales (`user_version` 4) ni cambios en Supabase.
+     - **Siembra diferida:** con la sync encendida, `createLinkedUser` en una BD sin usuarios no siembra; escribe en `sync_meta` la marca `default_categories_pending` = uid. Después del pull COMPLETO de `finance_categories` (todas las páginas, sin error ni cancelación), `syncOnce` llama a `seedPendingDefaultCategories` (por `mutate`). Esa función:
+       - solo actúa si la marca es exactamente el uid;
+       - crea solo los nombres por defecto que no tienen ninguna fila, ni viva ni borrada, así que nunca revive una categoría borrada;
+       - pone las creaciones en la outbox;
+       - en la misma transacción limpia la marca (valor NULL) y escribe `default_categories_seeded_at`.
+
+       Si se sembró algo, se sube en el mismo ciclo (segundo push). Si el pull no se completa, no se siembra y se reintenta en el ciclo siguiente. Con la sync apagada, se siembra como antes. Las instalaciones existentes nunca crean la marca ni siembran.
+     - **Pruebas:** `scripts/probar-fase6-6.mjs`, 29 OK, casos a–i:
+       - a) el servidor ya tiene las 6, una borrada: no se siembra nada y el servidor queda idéntico, incluidos `icon` y las fechas;
+       - b) servidor vacío: se siembran 6 y convergen en el mismo ciclo;
+       - c) el servidor tiene 4: se siembran solo las 2 que faltan;
+       - d) el pull falla: no se siembra y, al completarse, solo lo que falta;
+       - e) cierre a mitad de la siembra: se deshace entera, sin duplicados al reabrir;
+       - f) sync apagada: siembra inmediata;
+       - g) BD existente vinculada: nunca siembra;
+       - h) escenario H2: con el comportamiento anterior la borrada revive; ahora no;
+       - i) la marca con otro uid: no siembra ni toca la marca.
+
+       `probar-fase1` gana una única excepción justificada en su chequeo de lecturas sin `deleted_at`: `'SELECT value FROM sync_meta'`, porque es una tabla interna de la sync sin borrado lógico. `money.ts` (`ensureCategory`) no cambió.
+     - **Prueba en Registro Dev (2026-11-10):**
+       - La app no permite borrar categorías, así que el tombstone de "Venta" se hizo en el SQL Editor con un `DO $ … $` de una sola sentencia y guardas (`raise exception` si el uid no existe en el proyecto o si el UPDATE no afecta exactamente 1 fila).
+       - Se descartó la consulta B propuesta (un UPDATE con `('texto')::int` dentro de un `CASE`): Postgres pliega las constantes al planificar, así que el cast de un literal falla aunque esté en una rama que no se usa.
+       - Celular dev 1.3.2 → 1.3.3, de versionCode 6 a 7 con el mismo `firstInstallTime`.
+       - AVD limpio `Registro_Limpio_66` (APK dev, sin la app antes, `install` sin `-r`): tras iniciar sesión con la cuenta dev, Dinero quedó idéntico al celular, sin "Venta" ni duplicados, y el celular siguió igual. El respaldo del AVD no se obtuvo a tiempo (solo quedaron las copias pre-migración de la BD vacía), y el AVD se borró.
+       - Una consulta de solo lectura en Registro Dev demostró que el AVD no subió categorías: 6 filas, sin repetidos, "Venta" borrada con el `server_updated_at` más reciente y ninguna fila posterior.
+       - Respaldo del celular dev: formato 2, app 1.3.3, outbox vacía, sin la marca; sus categorías coinciden con las del servidor en nombre, borrada, icono y `created_at`.
+       - También se borró el AVD `Registro_Verif_36` de la Fase 5.
+     - **Producción:** `install -r` de la 1.3.3 (firma EAS `31:32:DE:…:3E:52`) sobre la 1.3.2, de versionCode 6 a 7 con el mismo `firstInstallTime` (2026-09-21 07:49:29). Dinero quedó igual. Respaldos "antes" (app 1.3.2) y "después" (app 1.3.3): formato 2, `user_version` 4, outbox vacía, sin claves `default_categories*`; `comparar-sync`, idénticos en las 15 tablas con el mismo saldo. El primer `verificar-fase5` se ejecutó **por error en Registro Dev** (6/16 filas distintas) y se repitió en Poguis: 16/16 iguales a "después" (30 / 26 / 4, un `user_id`).
+     - **Registro Dev:** "Venta" quedó como tombstone de prueba en `finance_categories`, sin acción.
    - 6.7 Limpieza local destructiva (`legacy_*` y copias físicas con la contraseña antigua). La excepción a "no borrar datos" se decide y documenta al llegar a 6.7.
    - 6.8 Tombstones de prueba en Poguis (4 en `backlog`). Se decide al llegar; recomendación: no limpiar.
 
 ### Fuera de la Fase 6 (Fase 7 / backlog)
 - PIN / huella.
 - Realtime.
+- IDEA (no es una decisión): la app no permite borrar ni ocultar categorías de dinero desde la interfaz (visto en la 6.6). Además, Dinero también muestra los nombres usados en `balance_history` (`getDistinctCategories`).
 - Play Store / Play App Signing (sigue vigente el [OK] de Alcance: fuera de alcance hasta que la app funcione al 100 % para uso personal).
 - Restaurar un respaldo dentro de la app (sigue [PENDIENTE]).
 
@@ -148,7 +178,7 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 - [PENDIENTE] Migrar a JWT signing keys y revocar el secreto JWT legacy. Invalida del todo los tokens legacy, que siguen siendo válidos como JWT aunque estén bloqueados en el encabezado `apikey`, y afecta a la firma de las sesiones. Se decide al cerrar la Fase 6: subfase 6.9 o backlog.
 - [OK] Fase 6.3 (2026-11-08): "Allow new users to sign up" cerrado en Poguis y abierto en Registro Dev (para pruebas). El usuario existente inicia sesión con el registro cerrado. No impide crear usuarios desde el panel (hallazgo H2 de la 6.2).
 - [OK] Fase 6.3 (2026-11-08): plan Free. La app se usa al menos una vez por semana; si Supabase pausa el proyecto por inactividad, se reanuda desde el dashboard (mientras tanto la app muestra "Sin conexión" y los datos locales siguen disponibles).
-- [PENDIENTE] Fase 6: en una instalación nueva, no sembrar las categorías por defecto hasta completar el primer pull (hoy la fusión sube el contenido del dispositivo nuevo: cambia fechas y podría revivir una categoría por defecto borrada).
+- [OK] Fase 6.6 (2026-11-10): en una instalación nueva con la sync encendida, las categorías por defecto se siembran solo después del primer pull completo de `finance_categories`, y solo las que falten (sin revivir las borradas). Con la sync apagada, como antes; las instalaciones existentes nunca siembran.
 
 ## Propuestas nuevas (para aprobar)
 - [OK] En Fase 1, `user_id` = UUID del usuario local. En Fase 3, al primer login, se reescribe a `auth.uid()` en todas las tablas y en la outbox, en una sola transacción.

@@ -33,9 +33,15 @@ Reglas que siguen vigentes: plan mode y aprobación; nada contra el proyecto rem
   - avisos de Node.
 
   Respaldos antes y después idénticos y `verificar-fase5` = después (30 / 26 / 4). Regla de sesión y su única excepción en DECISIONES.md. Sin migraciones locales ni cambios en Supabase.
+- **6.6 cerrada** (2026-11-10), commit `378a164`, APK 1.3.3 / versionCode 7 en Dev y producción:
+  - siembra diferida de las categorías por defecto, después del primer pull completo y solo las que faltan, sin revivir borradas;
+  - `probar-fase6-6`, casos a–i;
+  - en Registro Dev, tombstone de "Venta" y un AVD limpio sin "Venta" ni duplicados.
+
+  En producción, respaldos antes y después idénticos y `verificar-fase5` (repetido en Poguis; el primero se ejecutó por error en Registro Dev) = después (30 / 26 / 4).
 
 ## 1. Anotado durante la Fase 5
-1. **Categorías por defecto en una instalación nueva.** Hoy se siembran al iniciar sesión y, al subir, la fusión por clave natural (23505) sube el contenido del dispositivo NUEVO: cambia `created_at`/`updated_at` de las categorías del celular (pasó en la 5.5, esperado) y podría revivir una categoría por defecto borrada. Mejora: no sembrarlas hasta completar el primer pull (y sembrar solo las que falten).
+1. **HECHO (6.6:** siembra diferida tras el primer pull**).** ~~**Categorías por defecto en una instalación nueva.**~~ Hoy se siembran al iniciar sesión y, al subir, la fusión por clave natural (23505) sube el contenido del dispositivo NUEVO: cambia `created_at`/`updated_at` de las categorías del celular (pasó en la 5.5, esperado) y podría revivir una categoría por defecto borrada. Mejora: no sembrarlas hasta completar el primer pull (y sembrar solo las que falten).
 2. **HECHO (6.5).** ~~**Indicador sin red tras un cambio local.**~~ `autoSync.onLocalChange` no pide ciclo sin conexión según NetInfo y `SyncStatus` conserva el último "ok", así que muestra "Sincronizado hace X · N pendiente(s)" (visto en la 5.6 B3). Mejora: mostrar "Sin conexión" según NetInfo y no decir "Sincronizado" cuando hay pendientes. Corregir también el plural "pendiente(s)".
 3. **HECHO (6.5:** el respaldo lista `respaldos/` en `meta.backupDirFiles`**).** ~~**Copias físicas previas sin verificación directa.**~~ El respaldo solo lista los `.db` de la carpeta de la BD, no los de `respaldos/` (copias `pre-migracion-vN` y `pre-vinculacion`). En el release no depurable la copia previa solo se confirma de forma indirecta. Mejora: listar también `respaldos/` en el meta del respaldo, u otra verificación.
 4. **Tombstones de prueba en el servidor:** `backlog` de Poguis tiene 4 filas borradas (`[prueba RLS]` de la Fase 3 + 3 `[prueba F5]`). Están también en el celular. Decidir si se limpian; no hay DELETE desde el cliente, así que sería un SQL aparte aplicado por el usuario (no migración), con respaldo previo, y los celulares conservarían su copia local.
