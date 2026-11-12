@@ -39,6 +39,14 @@ Reglas que siguen vigentes: plan mode y aprobación; nada contra el proyecto rem
   - en Registro Dev, tombstone de "Venta" y un AVD limpio sin "Venta" ni duplicados.
 
   En producción, respaldos antes y después idénticos y `verificar-fase5` (repetido en Poguis; el primero se ejecutó por error en Registro Dev) = después (30 / 26 / 4).
+- **6.7 cerrada** (2026-11-11), commit `c01c283`, APK 1.3.4 / versionCode 8 en Dev y producción:
+  - migración 5 (elimina las 16 `legacy_*` por lista explícita);
+  - retención de `respaldos/`: 10 respaldos más la pre-migración más reciente; las 11 copias con contraseña, borradas.
+
+  Archivo permanente `registro_respaldo_20261111-202909` en la PC y en Drive. En producción, archivo = después = segundo en las 15 tablas, y `verificar-fase5` 16/16.
+
+  Pendiente del usuario: las 43 copias con contraseña de `.local-data/` (DECISIONES.md).
+- **Queda la 6.8:** tombstones de prueba en Poguis.
 
 ## 1. Anotado durante la Fase 5
 1. **HECHO (6.6:** siembra diferida tras el primer pull**).** ~~**Categorías por defecto en una instalación nueva.**~~ Hoy se siembran al iniciar sesión y, al subir, la fusión por clave natural (23505) sube el contenido del dispositivo NUEVO: cambia `created_at`/`updated_at` de las categorías del celular (pasó en la 5.5, esperado) y podría revivir una categoría por defecto borrada. Mejora: no sembrarlas hasta completar el primer pull (y sembrar solo las que falten).
@@ -51,7 +59,7 @@ Reglas que siguen vigentes: plan mode y aprobación; nada contra el proyecto rem
 8. ~~**Plan Free de Supabase:**~~ **RESUELTO (6.3):** se queda en Free, con uso al menos semanal. Si Supabase pausa el proyecto por inactividad, se reanuda desde el dashboard; mientras tanto la app muestra "Sin conexión" y los datos locales siguen disponibles.
 
 ## 2. Lista de Fase 6 del prompt de la Fase 5 (fuera de alcance entonces)
-- Borrar las tablas `legacy_*` y las copias físicas internas (pre-migración / pre-vinculación conservan la contraseña antigua; ver DECISIONES.md, [PENDIENTE]).
+- ~~Borrar las tablas `legacy_*` y las copias físicas internas~~ **HECHO (6.7):** migración 5 y retención de `respaldos/`. Las copias de `.local-data/` las decide el usuario (DECISIONES.md).
 - ~~Eliminar el Client secret viejo de Google~~: ya no aplica (6.1: el de la Fase 4 no existe; hay 1 solo secret, creado el 2026-11-02). ~~Rotar el client secret actual en la 6.3~~ **HECHO (6.3, 2026-11-08):** el secret quedó expuesto en un chat el 2026-11-07. Se agregó el nuevo en Auth → Google de los dos proyectos, se deshabilitó el viejo, se probó el login en Dev y en producción, y se borró el viejo. Queda 1 secret activo, compartido por los dos proyectos.
 - ~~Actualizar `expo`~~ **HECHO (6.4):** 54.0.33 → 54.0.38; `expo-doctor` 18/18.
 - ~~N+1 de `getEntertainmentCategories`~~ **HECHO (6.5):** 5 consultas fijas, idéntico a `f3772d9`.

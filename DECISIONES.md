@@ -148,7 +148,52 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
        - También se borró el AVD `Registro_Verif_36` de la Fase 5.
      - **Producción:** `install -r` de la 1.3.3 (firma EAS `31:32:DE:…:3E:52`) sobre la 1.3.2, de versionCode 6 a 7 con el mismo `firstInstallTime` (2026-09-21 07:49:29). Dinero quedó igual. Respaldos "antes" (app 1.3.2) y "después" (app 1.3.3): formato 2, `user_version` 4, outbox vacía, sin claves `default_categories*`; `comparar-sync`, idénticos en las 15 tablas con el mismo saldo. El primer `verificar-fase5` se ejecutó **por error en Registro Dev** (6/16 filas distintas) y se repitió en Poguis: 16/16 iguales a "después" (30 / 26 / 4, un `user_id`).
      - **Registro Dev:** "Venta" quedó como tombstone de prueba en `finance_categories`, sin acción.
-   - 6.7 Limpieza local destructiva (`legacy_*` y copias físicas con la contraseña antigua). La excepción a "no borrar datos" se decide y documenta al llegar a 6.7.
+   - 6.7 **[CERRADA 2026-11-11]** Limpieza local destructiva: migración 5 (`legacy_*`) y retención de `respaldos/`. Commit `c01c283`, APK 1.3.4 / versionCode 8. Es la única subfase de la Fase 6 que borra datos de forma irreversible.
+     - **Excepción autorizada por el dueño de los datos** a "ninguna migración borra datos", la única:
+       - **La migración 5** (`src/data/db/migration5.ts`, con `requiresBackup`, que crea `pre-migracion-v5`) elimina SOLO estas 16 tablas, por **lista explícita**, de hijos a padres:
+         - `legacy_finance_transactions`, `legacy_entertainment_pauses`, `legacy_entertainment_quotas_history`, `legacy_seasons`;
+         - `legacy_watch_history`, `legacy_reading_history`, `legacy_series`, `legacy_entertainment_categories`;
+         - `legacy_finance_contacts`, `legacy_balance_history`, `legacy_finance_categories`, `legacy_services`;
+         - `legacy_backlog`, `legacy_work_people`, `legacy_cards`, `legacy_users`.
+
+         No renombra ni recrea el `.db`, no hace VACUUM y no toca ninguna otra tabla: verifica que los conteos de las 15 tablas sincronizadas, `users`, `outbox`, `sync_meta`, `sync_state`, `_id_map` y `_migration_log` no cambian. `LATEST_VERSION` = 5.
+       - **Borrado de archivos**, solo dentro de `respaldos/`.
+     - **Reglas de retención** (`backupRetention.ts`, función pura):
+       - se conservan los 10 respaldos manuales más recientes (el `.db` y el `.json` de un mismo sello forman un par) y la copia pre-migración más reciente;
+       - los patrones son exactos y admiten un sufijo `-N` opcional (`registro_respaldo_<sello>[-N].(db|json)`, `registro_pre-migracion-vN_<sello>[-N].db`, `registro_pre-vinculacion_<sello>[-N].db`);
+       - **una copia con la contraseña antigua nunca se conserva**: su par se borra entero y no ocupa ninguno de los 10 puestos;
+       - **el respaldo recién creado nunca se borra**;
+       - la pre-vinculación se borra;
+       - un nombre desconocido se conserva y se informa.
+
+       La limpieza corre una vez al abrir la 1.3.4, después de la migración 5 (marca `sync_meta.backup_cleanup_first_at`), y después de cada "Respaldar datos". Deja en `sync_meta` (`backup_cleanup_last_at`, `backup_cleanup_last_summary`) un resumen sin nombres.
+     - **Verificación de la contraseña en el celular** (`backupCleanup.js`): solo sobre los archivos que se conservarían.
+       - Los JSON se analizan en busca de campos `password` visibles.
+       - Los `.db` se abren directamente con `expo-sqlite`. La versión 16.0.10 **no tiene modo de solo lectura**: sus opciones son `enableChangeListener`, `useNewConnection`, `finalizeUnusedStatementsBeforeClosing` y las de libSQL, y en Android abre con `sqlite3_open`.
+       - **Mitigaciones:**
+         - antes se lee la cabecera, y solo se abre un archivo en modo de diario clásico (no WAL);
+         - solo se abre si no hay `-journal`, `-wal` ni `-shm`;
+         - solo se hacen lecturas;
+         - después se comprueba que no aparecieron archivos auxiliares y que el tamaño no cambió;
+         - si no se puede verificar, decide la cabecera (`user_version` ≤ 2) o la fecha frente a la migración 3.
+       - **Guardas al borrar:** el nombre tiene que coincidir con un patrón (sin `/` ni `..`), la ruta tiene que ser exactamente `respaldos/<nombre>` y nunca la BD principal, y un fallo al borrar no detiene a los demás.
+     - **Pruebas:** `scripts/probar-fase6-7.mjs`, 39 OK. Cubren la migración 5 sobre el fixture y sobre una copia del respaldo real, el inventario real de 49 archivos (= D4), la tabla de casos, el ejecutor y la integración.
+       - `probar-fase1/3`, `dryrun-fase1/5` y `validar-respaldo` se adaptaron a la v5, con su justificación en el commit.
+       - Diagnóstico: 11 copias internas con la contraseña antigua (5 comprobadas en su copia de la PC y 6 deducidas por esquema o fecha).
+     - **Registro Dev (2026-11-11):**
+       - 1.3.3 → 1.3.4, de versionCode 7 a 8 con el mismo `firstInstallTime`, sin pantalla de error;
+       - respaldos "antes" (v4, 16 `legacy_*`), "después" y "segundo" (v5, sin `legacy_*` ni columna `password`);
+       - la limpieza inicial borró las pre-migraciones v2, v3 y v4 (3 archivos);
+       - "segundo" conservó "después" y el propio;
+       - `comparar-sync`: idénticos en las 15 tablas.
+     - **Producción (2026-11-11):**
+       - **Archivo permanente** antes de instalar: `registro_respaldo_20261111-202909` (`.db` y `.json`, app 1.3.3, `user_version` 4, 30 / 26 / 4), en `.local-data/fase6-7/prod/archivo/` (solo ese par) y en Google Drive, carpeta `RESPALDO/PROD`. No se borra nunca. Hizo también de respaldo "antes".
+       - `install -r` de la 1.3.4 (firma EAS `31:32:DE:…:3E:52`) sobre la 1.3.3, de versionCode 7 a 8 con el mismo `firstInstallTime`, sin pantalla de error.
+       - Respaldos "después" (`…203404`) y "segundo" (`…203553`): v5, sin `legacy_*` ni columna `password`, outbox vacía. Están en `.local-data/fase6-7/prod/`, junto con `verificar-fase5-poguis.json`.
+       - **Limpieza inicial:** 32 borrados (5.722.177 B), 21 conservados, 0 con contraseña conservada y 0 fallos. Quedan 10 respaldos (incluido el archivo) y la `pre-migracion-v5`; ni rastro de las 11 copias con contraseña ni de la pre-vinculación. Coincide exactamente con aplicar las reglas al listado del archivo.
+       - La limpieza tras "después" borró el par más viejo (2 archivos), y "segundo" conservó "después" y el propio.
+       - `comparar-sync`: archivo vs después y después vs segundo, idénticos en las 15 tablas con el mismo saldo.
+       - `verificar-fase5` de Poguis: 16/16 = "después" (30 / 26 / 4, un `user_id`).
    - 6.8 Tombstones de prueba en Poguis (4 en `backlog`). Se decide al llegar; recomendación: no limpiar.
 
 ### Fuera de la Fase 6 (Fase 7 / backlog)
@@ -173,7 +218,19 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 - [OK] Una cuenta Google por dispositivo: si los datos ya están vinculados a otra cuenta, o hay varias cuentas locales, el login se bloquea con un mensaje y no se toca nada.
 - [OK] Offline-first del acceso: con datos locales la app SIEMPRE abre (sin red, con token vencido o sin sesión). Solo una instalación sin datos exige el login con Google. Cerrar sesión de Google borra solo la sesión y no bloquea la app.
 - [OK] Fase 6.5 (2026-11-08), regla de sesión: **la app nunca cierra la sesión sola**; solo el usuario, con "Cerrar sesión" (que funciona también sin red) o borrando los datos de la app. Sin red o con el token vencido, la sesión sigue guardada. Cerrar sesión no toca los datos locales (BD, outbox, respaldos), y las reglas de vinculación no cambian. **Única excepción aceptada:** auth-js borra la sesión por su cuenta cuando el servidor rechaza definitivamente el refresh token (sesión revocada o usuario borrado) y el access token ya venció. Nunca ocurre por falta de red ni por un token vencido.
-- [PENDIENTE] Fase 6: las copias físicas pre-migración/pre-vinculación dentro del celular conservan la contraseña antigua; decidir si se eliminan (con aprobación del usuario).
+- [OK] Fase 6.7 (2026-11-11): las copias internas con la contraseña antigua (pre-migración v2/v3 y respaldos anteriores a la migración 3, 11 en total) se borraron en el celular con la retención de `respaldos/`, que nunca conserva una copia con contraseña.
+- [PENDIENTE] (usuario) Decidir qué hacer con las 43 copias con la contraseña antigua que hay en `.local-data/` (lista D3 de la 6.7). Claude Code no las toca.
+  - Destaca `emulador-fase1/respaldo/registro_respaldo_20261021-033646.json`, con la contraseña **visible** en el JSON.
+  - **Del celular real:**
+    - `respaldo-real/registro_respaldo_20261020-211827.db`;
+    - `respaldo-pre-fase1/registro_respaldo_20261025-191228.db` y `cargado.sqlite`;
+    - `respaldo-post-fase1/registro_respaldo_20261025-191742.db` y `cargado.sqlite`;
+    - `respaldo-post-fase1-fix/registro_respaldo_20261025-195442.db`;
+    - `respaldo-pre-fase3/registro_respaldo_20261101-123248.db`;
+    - `revalidado-post-fase1.sqlite`;
+    - `dryrun-fase1/real/antes/app_registro_v3.db`.
+  - **De pruebas y emulador (34):** `emulador*/…`, `emulador-fase3/almacen-release/…`, `dryrun-fase1/A|B|C/antes`, `pruebas-pc/…` y `pruebas-fase1/alterado.*` (alterados a propósito por la prueba).
+  - **Recomendación:** borrar las de pruebas y emulador; las del celular real, borrarlas o guardarlas cifradas fuera del repo.
 - [OK] Fase 6.3 (2026-11-08): claves legacy anon/service_role desactivadas (Disable JWT-based keys) en Registro Dev y en Poguis. Las dos variantes usan solo `sb_publishable_`, y la sincronización se probó en las dos.
 - [PENDIENTE] Migrar a JWT signing keys y revocar el secreto JWT legacy. Invalida del todo los tokens legacy, que siguen siendo válidos como JWT aunque estén bloqueados en el encabezado `apikey`, y afecta a la firma de las sesiones. Se decide al cerrar la Fase 6: subfase 6.9 o backlog.
 - [OK] Fase 6.3 (2026-11-08): "Allow new users to sign up" cerrado en Poguis y abierto en Registro Dev (para pruebas). El usuario existente inicia sesión con el registro cerrado. No impide crear usuarios desde el panel (hallazgo H2 de la 6.2).
@@ -183,7 +240,7 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 ## Propuestas nuevas (para aprobar)
 - [OK] En Fase 1, `user_id` = UUID del usuario local. En Fase 3, al primer login, se reescribe a `auth.uid()` en todas las tablas y en la outbox, en una sola transacción.
 - [OK] Las filas migradas NO se encolan en la outbox. El primer sync (Fase 5) hace upsert idempotente de todas las filas existentes.
-- [OK] Las tablas originales se conservan renombradas como `legacy_*` hasta la Fase 6 (rollback sin restaurar respaldo). Se borran solo con aprobación explícita.
+- [OK] Las tablas originales se conservaron renombradas como `legacy_*` hasta la Fase 6. **Eliminadas en la Fase 6.7** (migración 5, con aprobación explícita y copia previa `pre-migracion-v5`; archivo permanente en `.local-data/fase6-7/prod/archivo/` y en Google Drive, `RESPALDO/PROD`).
 - [OK] Columnas de sync (`created_at`, `updated_at`, `deleted_at`) en TEXT ISO-8601 UTC `YYYY-MM-DDTHH:MM:SS.sssZ`. Los epoch ms existentes (`watched_at`, `read_at`, `last_watched_at`) se quedan como INTEGER y se convierten a timestamptz en el mapeo de sync.
 - [OK] `users` es tabla local (no se sincroniza ni pasa por la outbox).
 - [OK] Variantes con `app.config.js` (`APP_VARIANT`): producción `com.poguis.Registro` / "Registro" / `poguis-registro`; desarrollo `com.poguis.Registro.dev` / "Registro Dev" / `poguis-registro-dev`. Se instalan una al lado de la otra, cada una con su BD. La firma la pone el config plugin `plugins/withReleaseSigning.js` en cada `prebuild`: EAS en producción; `debug.keystore` solo en dev. La prueba de RLS existe solo en la variante dev.
