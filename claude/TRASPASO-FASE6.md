@@ -1,5 +1,7 @@
 # Traspaso a la Fase 6 (endurecimiento)
 
+> **CERRADO (2026-11-11): la Fase 6 está cerrada.** Este documento queda como histórico. El estado vigente, la forma de trabajo y el backlog están en `claude/TRASPASO-FASE7.md`.
+
 Estado al cerrar la Fase 5 (2026-11-04): APK 1.3.0 / versionCode 4 (commit `db1ee50`, firma EAS) en el celular, con la sync encendida contra **Poguis** (producción). Datos reales en el servidor: `balance_history` 1, `finance_categories` 6, `work_people` 3 y 4 tombstones de prueba en `backlog`; un único `user_id`. `user_version` local 4. Registro Dev sigue en el celular con su propio proyecto. Detalle en DECISIONES.md (Fase 5) y CLAUDE.md.
 
 Reglas que siguen vigentes: plan mode y aprobación; nada contra el proyecto remoto (solo archivos SQL que aplica el usuario); nunca desinstalar ni borrar datos sin aprobación explícita; respaldo validado antes y después de tocar datos reales; un APK de producción nunca en un emulador con datos de prueba.
@@ -45,14 +47,15 @@ Reglas que siguen vigentes: plan mode y aprobación; nada contra el proyecto rem
 
   Archivo permanente `registro_respaldo_20261111-202909` en la PC y en Drive. En producción, archivo = después = segundo en las 15 tablas, y `verificar-fase5` 16/16.
 
-  Pendiente del usuario: las 43 copias con contraseña de `.local-data/` (DECISIONES.md).
-- **Queda la 6.8:** tombstones de prueba en Poguis.
+  Copias con contraseña de `.local-data/`: reclasificadas al cerrar la Fase 6 (42; grupo A lo borra el usuario, grupo B queda [PENDIENTE]; DECISIONES.md).
+- **6.8 cerrada sin cambios** (2026-11-11): los 4 tombstones de prueba de Poguis se quedan (decisión del usuario; motivo en DECISIONES.md).
+- **JWT signing keys:** al backlog de la Fase 7, no hay 6.9.
 
 ## 1. Anotado durante la Fase 5
 1. **HECHO (6.6:** siembra diferida tras el primer pull**).** ~~**Categorías por defecto en una instalación nueva.**~~ Hoy se siembran al iniciar sesión y, al subir, la fusión por clave natural (23505) sube el contenido del dispositivo NUEVO: cambia `created_at`/`updated_at` de las categorías del celular (pasó en la 5.5, esperado) y podría revivir una categoría por defecto borrada. Mejora: no sembrarlas hasta completar el primer pull (y sembrar solo las que falten).
 2. **HECHO (6.5).** ~~**Indicador sin red tras un cambio local.**~~ `autoSync.onLocalChange` no pide ciclo sin conexión según NetInfo y `SyncStatus` conserva el último "ok", así que muestra "Sincronizado hace X · N pendiente(s)" (visto en la 5.6 B3). Mejora: mostrar "Sin conexión" según NetInfo y no decir "Sincronizado" cuando hay pendientes. Corregir también el plural "pendiente(s)".
 3. **HECHO (6.5:** el respaldo lista `respaldos/` en `meta.backupDirFiles`**).** ~~**Copias físicas previas sin verificación directa.**~~ El respaldo solo lista los `.db` de la carpeta de la BD, no los de `respaldos/` (copias `pre-migracion-vN` y `pre-vinculacion`). En el release no depurable la copia previa solo se confirma de forma indirecta. Mejora: listar también `respaldos/` en el meta del respaldo, u otra verificación.
-4. **Tombstones de prueba en el servidor:** `backlog` de Poguis tiene 4 filas borradas (`[prueba RLS]` de la Fase 3 + 3 `[prueba F5]`). Están también en el celular. Decidir si se limpian; no hay DELETE desde el cliente, así que sería un SQL aparte aplicado por el usuario (no migración), con respaldo previo, y los celulares conservarían su copia local.
+4. **DECIDIDO (6.8: no se limpian).** **Tombstones de prueba en el servidor:** `backlog` de Poguis tiene 4 filas borradas (`[prueba RLS]` de la Fase 3 + 3 `[prueba F5]`). Están también en el celular. Decidir si se limpian; no hay DELETE desde el cliente, así que sería un SQL aparte aplicado por el usuario (no migración), con respaldo previo, y los celulares conservarían su copia local.
 5. **HECHO (6.5:** `signOutLocal.ts`**).** ~~**`signOut` sin red con el token vencido:**~~ `signOut({ scope: 'local' })` devuelve error sin borrar la sesión local (auth-js no la quita si no puede validar). Valorar borrar la sesión local igualmente.
 6. **Tablas vacías sin cursor:** el pull solo guarda cursor cuando recibe filas; las tablas vacías se piden completas en cada ciclo (hoy 11 consultas vacías). Inocuo; valorar guardar un cursor "vacío".
 7. **HECHO (6.5:** `ts-esm-hook.mjs` y un solo comando citado**).** ~~**Avisos de Node en los scripts:**~~ `MODULE_TYPELESS_PACKAGE_JSON` al importar `.ts` y `DEP0190` (shell: true) en `build-apk.mjs`. Inocuos.
@@ -63,7 +66,7 @@ Reglas que siguen vigentes: plan mode y aprobación; nada contra el proyecto rem
 - ~~Eliminar el Client secret viejo de Google~~: ya no aplica (6.1: el de la Fase 4 no existe; hay 1 solo secret, creado el 2026-11-02). ~~Rotar el client secret actual en la 6.3~~ **HECHO (6.3, 2026-11-08):** el secret quedó expuesto en un chat el 2026-11-07. Se agregó el nuevo en Auth → Google de los dos proyectos, se deshabilitó el viejo, se probó el login en Dev y en producción, y se borró el viejo. Queda 1 secret activo, compartido por los dos proyectos.
 - ~~Actualizar `expo`~~ **HECHO (6.4):** 54.0.33 → 54.0.38; `expo-doctor` 18/18.
 - ~~N+1 de `getEntertainmentCategories`~~ **HECHO (6.5):** 5 consultas fijas, idéntico a `f3772d9`.
-- Limpiar el tombstone RLS (ahora junto con los 3 `[prueba F5]`, punto 1.4).
+- ~~Limpiar el tombstone RLS (ahora junto con los 3 `[prueba F5]`, punto 1.4).~~ **DECIDIDO (6.8):** no se limpian.
 - Play Store y Play App Signing: **fuera de alcance** según DECISIONES.md (Alcance: hasta que la app funcione al 100 % para uso personal). Pasan a "Fuera de la Fase 6 (Fase 7 / backlog)".
 - PIN / huella.
 - Realtime.
