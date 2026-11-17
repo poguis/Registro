@@ -1,6 +1,6 @@
 # Traspaso a la Fase 7
 
-Estado al cerrar la Fase 6 (2026-11-11). Las fases 0–6 están cerradas; el detalle de cada una está en DECISIONES.md (Fases) y CLAUDE.md. El traspaso anterior (`claude/TRASPASO-FASE6.md`) queda como histórico.
+Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar la 7.1 (2026-11-16). Las fases 0–6 están cerradas; el detalle de cada una está en DECISIONES.md (Fases) y CLAUDE.md. El traspaso anterior (`claude/TRASPASO-FASE6.md`) queda como histórico.
 
 ## 1. Estado actual
 
@@ -35,7 +35,8 @@ Estado al cerrar la Fase 6 (2026-11-11). Las fases 0–6 están cerradas; el det
   - `dcdc59d`, `29f5a32` (6.5)
   - `378a164`, `6277242` (6.6)
   - `c01c283`, `9950d0d` (6.7)
-  - y el commit de este cierre.
+  - `f97227f` (cierre de la Fase 6).
+- Commits de la Fase 7: `89a3514` (7.1, implementación) y el commit de cierre de la 7.1.
 
 ### Credenciales (nombres y ubicación, nunca valores)
 - `.env` (fuera de git; plantilla `.env.example`): `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (Poguis) y `EXPO_PUBLIC_SUPABASE_DEV_URL` / `EXPO_PUBLIC_SUPABASE_DEV_PUBLISHABLE_KEY` (Registro Dev). Solo claves `sb_publishable_`; 0 secret keys en los dos proyectos.
@@ -70,14 +71,19 @@ Estado al cerrar la Fase 6 (2026-11-11). Las fases 0–6 están cerradas; el det
 - `.local-data/` es de solo lectura para Claude Code (las copias de trabajo van al scratchpad), sin imprimir valores de `.env`, contraseñas ni contenido de filas. `adb` solo con el emulador (`-s emulator-5554`) cuando se autorice; el celular lo maneja el usuario.
 - Git: solo `main`; nunca push, merge, rebase, reset --hard ni clean.
 
+- **Fixtures de prueba (7.1):** las suites leen `.local-data/fixtures-saneados/` (o `REGISTRO_FIXTURES_DIR`) a través de `scripts/lib/fixtures.mjs`. Los originales se borraron, así que esa carpeta ya no se puede regenerar: hay que conservarla.
+  - El usuario guarda una copia (los 7 `.db` y `manifest.json`) en Google Drive, carpeta `RESPALDO/FIXTURES`. Se trata como dato privado: 2 fixtures tienen datos reales del celular, aunque sin contraseña.
+  - Al restaurarla, `fixture()` valida cada copia contra el SHA-256 de `manifest.json`. Si falta algo o no coincide, las suites fallan con un mensaje claro.
+
 ## 3. Backlog de la Fase 7 (sin orden decidido; cada punto se planifica y aprueba aparte)
+Cerrado: el punto 7 (7.1, ver §5). Los demás siguen pendientes.
 1. **PIN / huella** para abrir la app. Cuidar que no rompa el offline-first: con datos locales la app siempre abre.
 2. **Realtime** (cambios que llegan sin esperar al ciclo de 2 min). Hoy no está en la publicación de Realtime (auditoría 6.1); hace falta revisar RLS y el consumo del plan Free.
 3. **Play Store / Play App Signing.** Hoy está fuera de alcance según el [OK] de Alcance, hasta que la app funcione al 100 % para uso personal. Implica la clave de subida frente al keystore de EAS actual: planificarlo sin perder la posibilidad de instalar encima.
 4. **Restaurar un respaldo dentro de la app** ([PENDIENTE]). Hay que decidir qué pasa con la sync, la outbox y el `user_id`.
 5. **JWT signing keys:** migrar y revocar el secreto JWT legacy ([PENDIENTE]). **Antes, investigar el efecto sobre las sesiones activas** (si cierra la sesión del celular y cómo se recupera, también sin red). Riesgo teórico: `service_role` nunca se filtró y las claves legacy ya están desactivadas como API keys.
 6. **Borrar u ocultar categorías de dinero** desde la interfaz (IDEA de la 6.6). Además, Dinero también muestra los nombres usados en `balance_history` (`getDistinctCategories`).
-7. **Fixtures saneados** para cerrar el grupo B de copias con contraseña (ver §4).
+7. ~~**Fixtures saneados** para cerrar el grupo B de copias con contraseña.~~ **[CERRADA 2026-11-16, 7.1, implementación `89a3514`]** (ver §5).
 8. Otras ideas anotadas:
    - **Pantalla de consentimiento de Google en Testing:** Google muestra "Google no verificó esta app". Valorar publicarla si llega a la Play Store.
    - **Sin verificar en un dispositivo:**
@@ -88,9 +94,20 @@ Estado al cerrar la Fase 6 (2026-11-11). Las fases 0–6 están cerradas; el det
 ## 4. [PENDIENTE] vigentes (DECISIONES.md)
 - **Restaurar un respaldo dentro de la app.**
 - **JWT signing keys** (backlog de la Fase 7; investigar primero las sesiones).
-- **Grupo B de copias con la contraseña antigua en `.local-data/` (16).**
-  - Son 7 fixtures que leen las suites: 2 del celular real y 5 del emulador.
-  - Las otras 9 son salidas que las pruebas regeneran.
-  - No se borran hasta que exista la alternativa propuesta: un script de copias saneadas con una contraseña sintética, las suites apuntando a ellas y todas en verde.
-  - Después, el usuario borra los originales.
-  - El grupo A (26) lo borra el usuario con los comandos preparados al cerrar la Fase 6.
+- ~~Grupo B de copias con la contraseña antigua en `.local-data/`~~: resuelto en la 7.1 (pasa a [OK]). El grupo A (26) lo borró el usuario.
+
+## 5. Fase 7.1 — fixtures saneados [CERRADA 2026-11-16]
+- **Implementación:** `89a3514`. Scripts nuevos:
+  - `scripts/lib/fixtures.mjs`;
+  - `scripts/sanear-fixtures.mjs`;
+  - `scripts/escanear-contrasenas.mjs`;
+  - `scripts/probar-fase7-1.mjs`.
+  Las suites leen las copias saneadas y nunca los originales. Sin cambios en `src/`, la app, versiones, migraciones ni `supabase/`.
+- **Composición real del grupo B:** 7 fixtures y sus 4 copias `dryrun-fase1/*/antes/` tenían la contraseña real. Las 5 salidas de `probar-fase0/1` tenían valores ficticios propios, ahora sintéticos.
+- **Verificación:** línea base en `f97227f` y tres corridas completas, con `probar-fase4` siempre sola: con `REGISTRO_FIXTURES_DIR`, con las copias definitivas del usuario y después de borrar los originales. Siempre los mismos conteos (`probar-fase3` 104, con +5 por la comprobación nueva; `probar-fase4` 88). `probar-fase7-1`: 26 OK con originales y 25 sin ellos (la rama "originales ya borrados" tiene una comprobación en vez de dos; 25 es el resultado normal desde el 2026-11-16).
+  - `escanear-contrasenas`: 0 "real" en `.local-data/`.
+  - `escanear-historial` y `verificar-secretos`: 0 hallazgos.
+- **Hallazgos para el usuario (sin acción de Claude Code):**
+  - `.local-data/emulador-credenciales.txt` (143 B): Claude Code no lo abrió. Puede tener credenciales del emulador en claro, y `escanear-contrasenas` no mira `.txt` ni `.log`. Lo revisa el usuario.
+  - `.local-data/pruebas-fase4-dbg/`: un solo archivo, `F/app_registro_v3.db` (446.464 B, 2026-11-01), sin contraseña. Ningún script actual lo genera: es un resto de la depuración de la Fase 4.
+  - **Respaldos `.db` anteriores a la migración 3** que se hayan compartido fuera de la PC (Google Drive, Descargas, chats o correo al usar la hoja de compartir de Android): la copia física conserva la contraseña antigua (DECISIONES.md, Seguridad); los `.json` la llevan como `[OCULTO]`. Revisarlos y borrarlos donde estén. El archivo permanente de Drive `RESPALDO/PROD` (`registro_respaldo_20261111-202909`, `user_version` 4) es posterior a la migración 3 y no la tiene.
