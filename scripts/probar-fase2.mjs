@@ -10,6 +10,7 @@ import { execSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import './lib/ts-esm-hook.mjs';
+import { fixtureOSalir } from './lib/fixtures.mjs';
 // src/ se carga después del hook (sin aviso MODULE_TYPELESS_PACKAGE_JSON, Fase 6.5).
 const { TABLES, toRemote, columnsOf, roundMoney, changesWhenRounded, MappingError } = await import('../src/sync/mapping.ts');
 
@@ -262,13 +263,13 @@ section('Criterio 8: compatibilidad con BD reales y de prueba (v2 o posterior)')
 // Regenera las 4 BD de prueba migradas a v2 (real 2026-10-20, A, B, C) con el dry-run de la Fase 1.
 execSync('node scripts/dryrun-fase1.mjs', { stdio: 'pipe' });
 const SOURCES = {
-    'real (celular, post-fix)': '.local-data/respaldo-post-fase1-fix/registro_respaldo_20261025-195442.db',
+    'real (celular, post-fix)': fixtureOSalir('real-20261025-fix'),
     'real 2026-10-20 (dry-run)': '.local-data/dryrun-fase1/real/despues/app_registro_v3.db',
     'A (dry-run)': '.local-data/dryrun-fase1/A/despues/app_registro_v3.db',
     'B (dry-run)': '.local-data/dryrun-fase1/B/despues/app_registro_v3.db',
     'C (dry-run)': '.local-data/dryrun-fase1/C/despues/app_registro_v3.db',
-    'emulador tras checklist': '.local-data/emulador-fase1/tras-checklist.db',
-    'emulador fase1 después': '.local-data/emulador-fase1/despues.db',
+    'emulador tras checklist': fixtureOSalir('emulador-fase1-tras-checklist'),
+    'emulador fase1 después': fixtureOSalir('emulador-fase1-despues'),
     'sintética (inconsistente)': '.local-data/pruebas-fase1/sintetica/app_registro_v3.db',
 };
 const MONEY_COLS = Object.fromEntries(TABLES.map((t) => [t, Object.entries(columnsOf(t)).filter(([, k]) => k === 'money').map(([c]) => c)]));

@@ -15,6 +15,7 @@ import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { DatabaseSync } from 'node:sqlite';
 import { hashRows } from './lib/sqlite-utils.mjs';
+import { fixtureOSalir, esSintetica } from './lib/fixtures.mjs';
 
 const require = createRequire(import.meta.url);
 const { __setDatabasePath, openDatabaseAsync } = await import('./lib/expo-sqlite-shim.mjs');
@@ -113,12 +114,13 @@ const bytesContain = (path, needles) => {
     return needles.filter((n) => buf.includes(Buffer.from(n, 'utf8'))).length;
 };
 
+// Copias saneadas (Fase 7.1): cada contraseña real distinta es un valor sintético distinto.
 const SOURCES = {
-    'real (celular, post-fix)': '.local-data/respaldo-post-fase1-fix/registro_respaldo_20261025-195442.db',
-    'emulador tras checklist': '.local-data/emulador-fase1/tras-checklist.db',
-    'A (emulador antes, v1)': '.local-data/emulador-antes.db',
-    'B (2 cuentas, v1)': '.local-data/emulador/checklist/app.db',
-    'C (emulador EAS, v1)': '.local-data/emulador-eas/antes.db',
+    'real (celular, post-fix)': fixtureOSalir('real-20261025-fix'),
+    'emulador tras checklist': fixtureOSalir('emulador-fase1-tras-checklist'),
+    'A (emulador antes, v1)': fixtureOSalir('emulador-antes'),
+    'B (2 cuentas, v1)': fixtureOSalir('emulador-checklist'),
+    'C (emulador EAS, v1)': fixtureOSalir('emulador-eas-antes'),
 };
 
 // ---------------------------------------------------------------------------
@@ -131,6 +133,10 @@ for (const [label, source] of Object.entries(SOURCES)) {
     await toV2(path);
     const before = snapshot(path);
     const passwords = passwordsOf(path);
+    // Fase 7.1: la prueba de secure_delete no puede pasar sin probar nada. Antes de la migración 3
+    // las contraseñas (sintéticas) tienen que estar en los bytes del .db.
+    check(`${label}: antes de la migración 3, ${passwords.length} contraseña(s) sintética(s) presentes en los bytes del .db`,
+        passwords.length > 0 && passwords.every(esSintetica) && bytesContain(path, passwords) === passwords.length);
     const d0 = raw(path);
     const usersBefore = JSON.stringify(d0.prepare('SELECT id, username FROM users ORDER BY id').all().map((r) => ({ ...r })));
     d0.close();

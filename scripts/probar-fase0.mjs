@@ -15,6 +15,7 @@ import { mkdirSync, rmSync, existsSync, readFileSync, readdirSync } from 'node:f
 import { resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { listTables, getUserVersion, getSchema, countAll, hashAll } from './lib/sqlite-utils.mjs';
+import { PASSWORD_SINTETICA } from './lib/fixtures.mjs';
 
 const PRE_PHASE0_COMMIT = '306987d';
 
@@ -96,7 +97,7 @@ const buildLegacyDb = (path) => {
     // Datos ficticios en las 16 tablas
     const db = new DatabaseSync(path);
     db.exec(`
-        INSERT INTO users (username, password, current_balance) VALUES ('prueba', 'clave-ficticia', 150.5);
+        INSERT INTO users (username, password, current_balance) VALUES ('prueba', '${PASSWORD_SINTETICA}', 150.5);
         INSERT INTO finance_categories (user_id, name) VALUES (1, 'Comida'), (1, 'Sueldo');
         INSERT INTO finance_contacts (user_id, name) VALUES (1, 'Contacto A');
         INSERT INTO finance_transactions (contact_id, type, amount, description) VALUES (1, 'loan', 20, 'préstamo'), (1, 'loan', -5, 'abono');

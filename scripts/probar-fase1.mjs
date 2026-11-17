@@ -10,6 +10,7 @@ import { resolve, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import { getSchema, countAll, hashAll } from './lib/sqlite-utils.mjs';
+import { fixtureOSalir, PASSWORD_SINTETICA } from './lib/fixtures.mjs';
 
 const { __setDatabasePath } = await import('./lib/expo-sqlite-shim.mjs');
 const { backupCalls, backupStub } = await import('./lib/backup-stub.mjs');
@@ -57,7 +58,7 @@ const same = (a, b) => a.uv === b.uv && a.schema === b.schema && JSON.stringify(
 
 // ---------------------------------------------------------------------------
 section('Criterio 6: idempotencia');
-const pB = prepare('B', '.local-data/emulador/checklist/app.db');
+const pB = prepare('B', fixtureOSalir('emulador-checklist'));
 const r1 = await open(pB);
 check(`primer arranque migra a v2 (y hasta v${LATEST_VERSION})`, r1.ok && r1.svc.lastMigration.applied.includes(2));
 await r1.svc.db.closeAsync();
@@ -69,7 +70,7 @@ check('segundo arranque: esquema, conteos y contenido idénticos', same(afterFir
 
 // ---------------------------------------------------------------------------
 section('Criterio 7: fallo simulado en la migración 2 (DEV_FAIL_MIGRATION)');
-const pF = prepare('fallo', '.local-data/emulador/checklist/app.db'); // v1: solo corre la migración 2
+const pF = prepare('fallo', fixtureOSalir('emulador-checklist')); // v1: solo corre la migración 2
 const beforeFail = snap(pF);
 backupCalls.length = 0;
 DEV_FLAGS.DEV_FAIL_MIGRATION = true;
@@ -88,7 +89,7 @@ await rr.svc.db.closeAsync();
 
 // ---------------------------------------------------------------------------
 section('Migración con datos inconsistentes (sintéticos)');
-const pS = prepare('sintetica', '.local-data/emulador-antes.db');
+const pS = prepare('sintetica', fixtureOSalir('emulador-antes'));
 {
     // Simula una BD vieja con saldo desfasado y una temporada duplicada (en datos reales no ocurre).
     const d = new DatabaseSync(pS);
@@ -110,7 +111,7 @@ if (rs.ok) {
 
 // ---------------------------------------------------------------------------
 section('Criterio 8: outbox — una entrada por registro afectado, en la misma transacción');
-const pO = prepare('outbox', '.local-data/emulador/checklist/app.db');
+const pO = prepare('outbox', fixtureOSalir('emulador-checklist'));
 const ro = await open(pO);
 const svc = ro.svc;
 const raw = new DatabaseSync(pO, { readOnly: true });
@@ -248,7 +249,7 @@ await svc.db.closeAsync();
 
 // ---------------------------------------------------------------------------
 section('Sesión: id entero anterior a la migración → UUID');
-const pSe = prepare('sesion', '.local-data/emulador-antes.db');
+const pSe = prepare('sesion', fixtureOSalir('emulador-antes'));
 const rse = await open(pSe);
 const mapped = await rse.svc.resolveSessionUser(1);
 check('resolveSessionUser(1) devuelve el UUID y username de la cuenta 1', mapped.success && /^[0-9a-f-]{36}$/.test(mapped.user.id) && typeof mapped.user.username === 'string' && !('password' in mapped.user));
@@ -276,8 +277,9 @@ const runValidator = (json, out) => {
 const valid = runValidator(bk.json.path, `${WORK}/validado-v2.sqlite`);
 check('validar-respaldo.mjs acepta el respaldo v2 y coincide con la copia .db', valid.ok, valid.ok ? '' : valid.out.split('\n').filter((l) => l.startsWith('FALLA')).join(' | '));
 // Respaldo alterado: una contraseña visible (aquí en users) debe hacer fallar al validador.
+// Fase 7.1: el valor visible es el sintético, para que la salida no cuente como contraseña "real".
 const tampered = JSON.parse(JSON.stringify(bkJson));
-tampered.data.users[0].password = 'visible';
+tampered.data.users[0].password = PASSWORD_SINTETICA;
 const tamperedPath = `${WORK}/respaldo-alterado.json`;
 writeFileSync(tamperedPath, JSON.stringify(tampered));
 const invalid = runValidator(tamperedPath, `${WORK}/alterado.sqlite`);

@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import { fixtureOSalir } from './lib/fixtures.mjs';
 
 const { createDevices, quiet } = await import('./lib/sync-devices.mjs');
 const { __setDatabasePath, __openLog } = await import('./lib/expo-sqlite-shim.mjs');
@@ -40,7 +41,7 @@ const mb = (b) => (b / 1048576).toFixed(2);
 const WORK = join(tmpdir(), 'registro-pruebas-fase6-7').replace(/\\/g, '/');
 try { rmSync(WORK, { recursive: true, force: true }); } catch { /* archivos abiertos de una ejecución anterior */ }
 mkdirSync(WORK, { recursive: true });
-const FIXTURE = '.local-data/emulador-antes.db';
+const FIXTURE = fixtureOSalir('emulador-antes'); // copia saneada (Fase 7.1)
 const REAL_AFTER = '.local-data/fase6-6/prod/registro_respaldo_20261110-211539'; // respaldo "después" de la 6.6 (v4)
 for (const f of [FIXTURE, `${REAL_AFTER}.db`, `${REAL_AFTER}.json`]) if (!existsSync(f)) { console.log(`FALLA falta ${f}`); process.exit(1); }
 const D = createDevices(WORK);

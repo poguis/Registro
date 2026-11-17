@@ -10,6 +10,7 @@ import { resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { createServer, createDevices, engine, TABLES, quiet, sumCounts } from './lib/sync-devices.mjs';
 import { snapshotDb, compareSnapshots } from './comparar-sync.mjs';
+import { fixtureOSalir } from './lib/fixtures.mjs';
 
 const require = createRequire(import.meta.url);
 const { GoTrueClient } = require('@supabase/auth-js');
@@ -31,7 +32,7 @@ const section = (t) => console.log(`\n== ${t} ==`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const CFG = { ...DEFAULT_SYNC_CONFIG, enabled: true, pageSize: 50, batchSize: 7 };
-const FIXTURE = '.local-data/emulador-antes.db'; // datos de PRUEBA (1 cuenta, sin vincular)
+const FIXTURE = fixtureOSalir('emulador-antes'); // datos de PRUEBA (1 cuenta, sin vincular), copia saneada
 const REAL = '.local-data/respaldo-post-fase3/registro_respaldo_20261101-124308.db'; // copia del celular (vinculada)
 if (!existsSync(FIXTURE)) { console.log(`FALLA falta ${FIXTURE}`); process.exit(1); }
 

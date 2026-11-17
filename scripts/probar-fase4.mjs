@@ -11,6 +11,7 @@ import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { DatabaseSync } from 'node:sqlite';
+import { fixtureOSalir } from './lib/fixtures.mjs';
 
 const require = createRequire(import.meta.url);
 const { __setDatabasePath } = await import('./lib/expo-sqlite-shim.mjs');
@@ -337,9 +338,11 @@ const svcServer = (await pg.query("select total_value::text v from public.servic
 check('11,988 → 11,99 en SQLite, en el servidor y en B', svcRow.total_value === 11.99 && svcServer === '11.99'
     && (await one(B, "SELECT total_value FROM services WHERE name = 'Streaming'")).total_value === 11.99);
 let moneyValues = 0, moneyChanged = 0;
-const REAL = ['.local-data/respaldo-post-fase3/registro_respaldo_20261101-124308.db', '.local-data/emulador-fase3/release/post-reinstalar.db',
-    '.local-data/emulador-antes.db', '.local-data/emulador/checklist/app.db', '.local-data/emulador-eas/antes.db', '.local-data/emulador-fase1/tras-checklist.db'];
-for (const p of REAL.filter(existsSync)) {
+// Las dos primeras no tienen contraseña (v3); las demás son copias saneadas (Fase 7.1), que no se
+// saltan en silencio: si faltan, fixtureOSalir termina con FALLA.
+const REAL = ['.local-data/respaldo-post-fase3/registro_respaldo_20261101-124308.db', '.local-data/emulador-fase3/release/post-reinstalar.db'].filter(existsSync)
+    .concat(['emulador-antes', 'emulador-checklist', 'emulador-eas-antes', 'emulador-fase1-tras-checklist'].map(fixtureOSalir));
+for (const p of REAL) {
     const d = new DatabaseSync(p, { readOnly: true });
     for (const [t, cols] of Object.entries(MONEY_COLUMNS)) {
         for (const c of cols) {
@@ -361,7 +364,7 @@ T.uid = await newAuthUser();
 const oa = await sync(A);
 check('sesión de otra cuenta: "skipped other-account"', oa.status === 'skipped' && oa.reason === 'other-account');
 T.uid = U;
-const NL = await newDevice('sin-vincular', '.local-data/emulador-antes.db');
+const NL = await newDevice('sin-vincular', fixtureOSalir('emulador-antes'));
 const nl = await sync(NL);
 check('datos sin vincular: "skipped not-linked"', nl.status === 'skipped' && nl.reason === 'not-linked');
 await sync(A);
@@ -395,11 +398,11 @@ check('ensureInitialUpload con la sync apagada → "disabled"', (await quiet(() 
 // =========================================================================== 14
 section('14. Primera subida completa (motor + enqueueAllForInitialUpload) y bajada a un dispositivo vacío');
 const SOURCES = [
-    ['A', '.local-data/emulador-antes.db'],
-    ['B', '.local-data/emulador/checklist/app.db'],
-    ['C', '.local-data/emulador-eas/antes.db'],
+    ['A', fixtureOSalir('emulador-antes')],
+    ['B', fixtureOSalir('emulador-checklist')],
+    ['C', fixtureOSalir('emulador-eas-antes')],
     ['sintética', '.local-data/pruebas-fase1/sintetica/app_registro_v3.db'],
-    ['emulador (con tombstones)', '.local-data/emulador-fase1/tras-checklist.db'],
+    ['emulador (con tombstones)', fixtureOSalir('emulador-fase1-tras-checklist')],
     ['real (celular, post-fase3)', '.local-data/respaldo-post-fase3/registro_respaldo_20261101-124308.db'],
 ];
 let k = 0;
@@ -444,7 +447,7 @@ T.uid = U;
 
 // =========================================================================== 15
 section('15. Hijo nuevo de un padre que nunca entró en la outbox (datos migrados) → el padre sube solo');
-const F = await newDevice('F', '.local-data/emulador-antes.db');
+const F = await newDevice('F', fixtureOSalir('emulador-antes'));
 const W = await newAuthUser();
 await run(F, (s) => s.linkAccount(W, 'prueba@ejemplo.test'));
 T.uid = W;

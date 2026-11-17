@@ -6,8 +6,9 @@
 // pull falla; e) cierre a mitad de la siembra; f) sync apagada; g) BD existente vinculada; h) el
 // escenario H2 original (antes revivía una borrada); i) marca con otro uid.
 // Los archivos de trabajo van a un directorio temporal del sistema; el fixture de PRUEBA
-// .local-data/emulador-antes.db solo se copia.
+// "emulador-antes" (copia saneada, scripts/lib/fixtures.mjs) solo se copia.
 import './lib/test-hooks.mjs';
+import { fixtureOSalir } from './lib/fixtures.mjs';
 import { mkdirSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -29,7 +30,7 @@ const section = (t) => console.log(`\n== ${t} ==`);
 const WORK = join(tmpdir(), 'registro-pruebas-fase6-6').replace(/\\/g, '/');
 try { rmSync(WORK, { recursive: true, force: true }); } catch { /* archivos abiertos de una ejecución anterior */ }
 mkdirSync(WORK, { recursive: true });
-const FIXTURE = '.local-data/emulador-antes.db';
+const FIXTURE = fixtureOSalir('emulador-antes'); // copia saneada
 if (!existsSync(FIXTURE)) { console.log(`FALLA falta ${FIXTURE}`); process.exit(1); }
 
 const CFG = { ...DEFAULT_SYNC_CONFIG, enabled: true, pageSize: 50 };

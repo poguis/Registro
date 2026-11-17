@@ -16,16 +16,18 @@ import { execSync } from 'node:child_process';
 import { mkdirSync, rmSync, copyFileSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { fixtureOSalir } from './lib/fixtures.mjs';
 
 const argv = process.argv.slice(2);
 const pairIndex = argv.indexOf('--par');
 const DATABASES = pairIndex >= 0
     ? [[argv[argv.indexOf('--etiqueta') + 1] && argv.includes('--etiqueta') ? argv[argv.indexOf('--etiqueta') + 1] : 'dispositivo', argv[pairIndex + 1], argv[pairIndex + 2]]]
     : [
-        ['real', '.local-data/respaldo-real/registro_respaldo_20261020-211827.db'],
-        ['A', '.local-data/emulador-antes.db'],
-        ['B', '.local-data/emulador/checklist/app.db'],
-        ['C', '.local-data/emulador-eas/antes.db'],
+        // Copias saneadas (Fase 7.1: contraseñas sintéticas), nunca los originales.
+        ['real', fixtureOSalir('real-20261020')],
+        ['A', fixtureOSalir('emulador-antes')],
+        ['B', fixtureOSalir('emulador-checklist')],
+        ['C', fixtureOSalir('emulador-eas-antes')],
     ];
 const OLD_COMMIT = '522161a';
 const WORK = resolve('.local-data/dryrun-fase1').replace(/\\/g, '/');

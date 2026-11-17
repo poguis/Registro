@@ -10,8 +10,9 @@
 //   4. getEntertainmentCategories: equivalencia con la versión anterior (N+1) y nº fijo de consultas.
 //   5. Pull: applyPullFilter, mismas páginas con empates de server_updated_at, plan con rango.
 // Los archivos de trabajo van a un directorio temporal del sistema (no a .local-data/); el
-// fixture de PRUEBA .local-data/emulador-antes.db solo se copia.
+// fixture de PRUEBA "emulador-antes" (copia saneada, scripts/lib/fixtures.mjs) solo se copia.
 import './lib/test-hooks.mjs';
+import { fixtureOSalir } from './lib/fixtures.mjs';
 import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -50,7 +51,7 @@ const hush = async (fn) => {
 const WORK = join(tmpdir(), 'registro-pruebas-fase6-5').replace(/\\/g, '/');
 rmSync(WORK, { recursive: true, force: true });
 mkdirSync(WORK, { recursive: true });
-const FIXTURE = '.local-data/emulador-antes.db'; // datos de PRUEBA (1 cuenta)
+const FIXTURE = fixtureOSalir('emulador-antes'); // datos de PRUEBA (1 cuenta), copia saneada
 if (!existsSync(FIXTURE)) { console.log(`FALLA falta ${FIXTURE}`); process.exit(1); }
 const D = createDevices(WORK);
 
