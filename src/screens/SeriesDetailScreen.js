@@ -6,6 +6,12 @@ import db from '../services/db';
 import { useSyncRefresh } from '../sync/useSyncRefresh';
 import { calculateBacklog, calculateBacklogV2, getLocalDateString, getAbsoluteEpisodeCount, getWatchedCountSinceStart } from '../services/backlogUtils';
 import { useTheme } from '../contexts/ThemeContext';
+// Fase 7.3: las decisiones (validación, límite, orden, pausa, grilla, reinicio) viven en el
+// motor puro (src/entertainment/); aquí quedan los textos, las alertas y las escrituras.
+import {
+    filterSeriesByTab, reorderActive, validateSeriesForm, isActiveLimitReached, buildSeriesSave, appendSeasonRow, removeSeasonRow,
+    decideChapterTap, resolveProgressStatus, restartWatchedCount, decideTogglePause, categoryPauseDates,
+} from '../entertainment/seriesDetail';
 
 export default function SeriesDetailScreen({ user, category, onBack, onNavigateRegistry }) {
     const { theme, isDarkMode } = useTheme();
@@ -114,12 +120,13 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
     }, [activeSeries]);
 
     const handleAddSeason = () => {
-        setSeasons([...seasons, { number: seasons.length + 1, episodes: '' }]);
+        setSeasons(appendSeasonRow(seasons));
     };
 
     const handleRemoveSeason = () => {
-        if (seasons.length > 1) {
-            setSeasons(seasons.slice(0, -1));
+        const remaining = removeSeasonRow(seasons);
+        if (remaining) {
+            setSeasons(remaining);
         } else {
             Alert.alert('Aviso', 'Debe haber al menos una temporada.');
         }
@@ -152,31 +159,20 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
     };
 
     const moveUp = async (index) => {
-        if (currentStatusTab !== 'Viendo' || index === 0) return;
-        const filteredData = getFilteredSeries();
-        const newList = [...filteredData];
-        const [movedItem] = newList.splice(index, 1);
-        newList.splice(index - 1, 0, movedItem);
+        const newList = reorderActive(getFilteredSeries(), index, 'up', currentStatusTab);
+        if (!newList) return;
         await Promise.all(newList.map((item, idx) => db.updateSeriesSortOrder(item.id, idx + 1)));
         fetchSeries();
     };
 
     const moveDown = async (index) => {
-        const filteredData = getFilteredSeries();
-        if (currentStatusTab !== 'Viendo' || index === filteredData.length - 1) return;
-        const newList = [...filteredData];
-        const [movedItem] = newList.splice(index, 1);
-        newList.splice(index + 1, 0, movedItem);
+        const newList = reorderActive(getFilteredSeries(), index, 'down', currentStatusTab);
+        if (!newList) return;
         await Promise.all(newList.map((item, idx) => db.updateSeriesSortOrder(item.id, idx + 1)));
         fetchSeries();
     };
 
-    const getFilteredSeries = () => {
-        if (currentStatusTab === 'Viendo') {
-            return originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando' || s.status === 'Pausado');
-        }
-        return originalList.filter(s => s.status === currentStatusTab);
-    };
+    const getFilteredSeries = () => filterSeriesByTab(originalList, currentStatusTab);
 
     const handleDelete = (seriesId) => {
         Alert.alert(
@@ -197,62 +193,30 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
     };
 
     const handleSave = async () => {
-        if (!name.trim()) return Alert.alert('Error', 'El nombre es obligatorio');
-        const validSeasons = seasons.filter(s => parseInt(s.episodes) > 0);
-        if (validSeasons.length === 0) return Alert.alert('Error', 'Capítulos inválidos');
-
-        if (status === 'Mirando') {
-            const seasonNum = parseInt(currentSeason);
-            const episodeNum = parseInt(currentEpisode);
-            if (isNaN(seasonNum) || isNaN(episodeNum)) return Alert.alert('Error', 'Números inválidos');
-            if (seasonNum < 1 || seasonNum > validSeasons.length) return Alert.alert('Error', 'Temporada fuera de rango');
-            const maxEpisodes = parseInt(validSeasons[seasonNum - 1].episodes);
-            if (episodeNum < 1 || episodeNum > maxEpisodes) return Alert.alert('Error', 'Capítulo fuera de rango');
-        }
-
-        const activeSeriesItems = originalList.filter(s => s.status === 'Nueva' || s.status === 'Mirando' || s.status === 'Pausado');
-        const activeCount = activeSeriesItems.length;
-        const isCurrentlyActive = isEditing && activeSeriesItems.some(s => s.id === editingSeriesId);
-        const willBeActive = status === 'Nueva' || status === 'Mirando' || status === 'Pausado';
-
-        if (willBeActive && (!isCurrentlyActive || !isEditing)) {
-            // Enforce limit strictly if not null
-            if (category.series_count !== null && category.series_count !== undefined) {
-                if (activeCount >= category.series_count) {
-                    return Alert.alert('Límite Alcanzado', `Máximo ${category.series_count} series activas.`);
-                }
-            }
-        }
-
-        const seriesDataObj = {
-            category_id: category.id,
-            name,
-            description,
-            status,
-            current_season: parseInt(currentSeason),
-            current_episode: parseInt(currentEpisode),
-            total_seasons: validSeasons.length
+        const formErrors = {
+            nombre: 'El nombre es obligatorio',
+            unidades: 'Capítulos inválidos',
+            numeros: 'Números inválidos',
+            temporadaRango: 'Temporada fuera de rango',
+            capituloRango: 'Capítulo fuera de rango',
         };
+        const validation = validateSeriesForm({ name, seasons, status, currentSeason, currentEpisode });
+        if (validation.error) return Alert.alert('Error', formErrors[validation.error]);
+        const { validSeasons } = validation;
 
-        const seasonsData = validSeasons.map(s => ({
-            season_number: s.number,
-            episode_count: parseInt(s.episodes)
-        }));
+        if (isActiveLimitReached({ originalList, status, isEditing, editingSeriesId, category })) {
+            return Alert.alert('Límite Alcanzado', `Máximo ${category.series_count} series activas.`);
+        }
+
+        const { seriesData, seasonsData } = buildSeriesSave({
+            category, name, description, status, currentSeason, currentEpisode, validSeasons, isEditing, originalList,
+        });
 
         let result;
         if (isEditing) {
-            result = await db.updateSeriesWithSeasons(editingSeriesId, seriesDataObj, seasonsData);
+            result = await db.updateSeriesWithSeasons(editingSeriesId, seriesData, seasonsData);
         } else {
-            const nextOrder = activeSeriesItems.length + 1;
-            seriesDataObj.sort_order = nextOrder;
-            // Interleave logic: next items should match current category pace
-            let maxInterleave = 0;
-            activeSeriesItems.forEach(s => {
-                const progress = getWatchedCountSinceStart(s) + (s.interleave_offset || 0);
-                if (progress > maxInterleave) maxInterleave = progress;
-            });
-            seriesDataObj.interleave_offset = maxInterleave;
-            result = await db.addSeriesWithSeasons(seriesDataObj, seasonsData);
+            result = await db.addSeriesWithSeasons(seriesData, seasonsData);
         }
 
         if (result.success) {
@@ -278,11 +242,10 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
     const updateToChapter = async (seriesId, sNum, eNum) => {
         const series = activeSeries || originalList.find(x => x.id === seriesId);
         if (!series) return;
-        const lastSeason = series.seasons.find(s => s.season_number === series.total_seasons);
-        const isLastPossible = (sNum === series.total_seasons && eNum === (lastSeason?.episode_count || 0));
+        const { isLastPossible, nonFinalStatus } = decideChapterTap(series, sNum, eNum);
 
         const performUpdate = async (newStatus = series.status) => {
-            const finalStatus = (series.status === 'Nueva' && (sNum > 1 || eNum > 1)) ? 'Mirando' : newStatus;
+            const finalStatus = resolveProgressStatus(series, sNum, eNum, newStatus);
             const result = await db.updateSeriesProgress(seriesId, sNum, eNum, finalStatus);
             if (result.success) {
                 fetchSeries();
@@ -299,18 +262,13 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 { text: 'Cancelar', style: 'cancel' }
             ]);
         } else {
-            let targetStatus = series.status;
-            if (series.status === 'En espera' || series.status === 'Terminado' || series.status === 'Pausado') targetStatus = 'Mirando';
-            performUpdate(targetStatus);
+            performUpdate(nonFinalStatus);
         }
     };
 
     const handleRestart = async () => {
         if (!activeSeries) return;
-        const currentAbsolute = getAbsoluteEpisodeCount(activeSeries, activeSeries.current_season, activeSeries.current_episode);
-        const initialAbsolute = getAbsoluteEpisodeCount(activeSeries, activeSeries.initial_season || 1, activeSeries.initial_episode || 1);
-        let watchedInThisCycle = Math.max(0, currentAbsolute - initialAbsolute);
-        if (activeSeries.status === 'Terminado') watchedInThisCycle += 1;
+        const watchedInThisCycle = restartWatchedCount(activeSeries);
 
         Alert.alert('Reiniciar', `¿Empezar de cero? (${watchedInThisCycle} vistos)`, [
             { text: 'Cancelar', style: 'cancel' },
@@ -328,54 +286,35 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
     };
 
     const handleTogglePauseSeries = async (series) => {
-        let newStatus;
+        const decision = decideTogglePause(series, originalList);
 
-        if (series.status === 'Pausado') {
-            newStatus = 'Mirando';
-            const activeItems = originalList.filter(
-                s => (s.status === 'Nueva' || s.status === 'Mirando' || s.status === 'Pausado') && s.id !== series.id
-            );
-
-            let maxInterleave = 0;
-            activeItems.forEach(s => {
-                const progress = getWatchedCountSinceStart(s) + (s.interleave_offset || 0);
-                if (progress > maxInterleave) maxInterleave = progress;
-            });
-
-            const myInterleave = getWatchedCountSinceStart(series) + (series.interleave_offset || 0);
-            const additionalInterleave = Math.max(0, maxInterleave - myInterleave);
-            const newInterleaveOffset = (series.interleave_offset || 0) + additionalInterleave;
-
+        if (decision.action === 'resume') {
             const result = await db.updateSeriesProgress(
                 series.id,
                 series.current_season,
                 series.current_episode,
-                newStatus,
+                decision.status,
                 null,
                 undefined,
                 undefined,
-                newInterleaveOffset
+                decision.interleaveOffset
             );
             if (result.success) fetchSeries();
             return;
         }
-        else if (series.status === 'Mirando' || series.status === 'Nueva') newStatus = 'Pausado';
-        else return;
+        if (decision.action === 'none') return;
 
-        const result = await db.updateSeriesProgress(series.id, series.current_season, series.current_episode, newStatus);
+        const result = await db.updateSeriesProgress(series.id, series.current_season, series.current_episode, decision.status);
         if (result.success) fetchSeries();
     };
 
     const handleTogglePauseCategory = async () => {
-        const todayStr = getLocalDateString();
+        const { pauseDate, resumeDate } = categoryPauseDates(new Date());
         let result;
         if (currentCategory.is_paused) {
-            const yesterday = new Date();
-            yesterday.setDate(yesterday.getDate() - 1);
-            const yesterdayStr = getLocalDateString(yesterday);
-            result = await db.resumeCategory(currentCategory.id, yesterdayStr);
+            result = await db.resumeCategory(currentCategory.id, resumeDate);
         } else {
-            result = await db.pauseCategory(currentCategory.id, todayStr);
+            result = await db.pauseCategory(currentCategory.id, pauseDate);
         }
 
         if (result.success) {

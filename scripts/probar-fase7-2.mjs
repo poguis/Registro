@@ -10,6 +10,10 @@
 //   inyectando sus dependencias (fachada real, funciones reales de backlogUtils y stubs del
 //   estado de React y de Alert). Si una función no se encuentra, no se puede evaluar o usa una
 //   dependencia no provista, FALLA con el archivo, el nombre y la línea.
+// - Fase 7.3: la extracción vive en scripts/lib/extraer-pantalla.mjs (la comparte probar-fase7-3).
+//   Las pantallas llaman ahora al motor puro (src/entertainment/queue.ts y seriesDetail.ts), que
+//   se inyecta como dependencia real, igual que backlogUtils. La cola ya no es una función de la
+//   pantalla: se obtiene con el loadData real de cada registro (que llama a buildQueue).
 // - Datos: SOLO sintéticos, en una BD nueva en un temporal del sistema (nunca .local-data/).
 // - Las tablas CASOS (entrada → resultado actual) están separadas del mecanismo para servir de
 //   oráculo cuando esta lógica se mueva a módulos puros.
@@ -18,22 +22,22 @@
 // Uso: node scripts/probar-fase7-2.mjs [--descubrir]
 //   --descubrir  imprime el resultado actual de cada caso en JSON (para regenerar el oráculo)
 //
-// @babel/* se importa ANTES que test-hooks.mjs: los hooks convierten los .json en módulos ESM y
-// @babel/traverse hace require() de JSON internos al cargarse.
-import { parse } from '@babel/parser';
-import traverseModule from '@babel/traverse';
+// extraer-pantalla.mjs (que carga @babel/*) se importa ANTES que test-hooks.mjs: los hooks
+// convierten los .json en módulos ESM y @babel/traverse hace require() de JSON internos.
+import { extraer as extraerPantalla, instanciar as instanciarPantalla, extraidas } from './lib/extraer-pantalla.mjs';
 import './lib/test-hooks.mjs';
-import { readFileSync, rmSync, mkdirSync } from 'node:fs';
+import { rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 process.env.TZ = 'America/Guayaquil'; // antes de cualquier Date (ningún import crea fechas al cargarse)
 
-const traverse = traverseModule.default || traverseModule;
 const DESCUBRIR = process.argv.includes('--descubrir');
 
 const { createDevices, quiet } = await import('./lib/sync-devices.mjs');
 const utils = await import('../src/services/backlogUtils.js');
+const motorCola = await import('../src/entertainment/queue.ts');
+const motorDetalle = await import('../src/entertainment/seriesDetail.ts');
 const { calculateBacklog, calculateBacklogV2, getQuotasForDate, getLocalDateString, getWatchedCountSinceStart, getAbsoluteEpisodeCount } = utils;
 
 // =============================================================================================
@@ -187,61 +191,18 @@ const CASOS = [
 ];
 
 // =============================================================================================
-// 2. MECANISMO: extracción del código real de las pantallas (@babel/parser + @babel/traverse)
+// 2. MECANISMO: extracción del código real de las pantallas del árbol actual
+//    (scripts/lib/extraer-pantalla.mjs: @babel/parser + @babel/traverse)
 // =============================================================================================
-const fuentes = new Map();
-const astDe = (archivo) => {
-    if (!fuentes.has(archivo)) {
-        const codigo = readFileSync(archivo, 'utf8');
-        fuentes.set(archivo, { codigo, ast: parse(codigo, { sourceType: 'module', plugins: ['jsx'] }) });
-    }
-    return fuentes.get(archivo);
-};
-const extraidas = []; // para el informe: archivo, nombre, línea, dependencias
-
-// Busca `const <nombre> = (…) => {…}` (o function expression) en el archivo y devuelve su texto
-// y su análisis de alcance: identificadores libres (closures/imports), globales y métodos de db.
-function extraer(archivo, nombre) {
-    const { codigo, ast } = astDe(archivo);
-    const hallados = [];
-    traverse(ast, {
-        VariableDeclarator(p) {
-            const init = p.node.init;
-            if (p.node.id.type === 'Identifier' && p.node.id.name === nombre && init && /FunctionExpression$/.test(init.type)) hallados.push(p.get('init'));
-        },
-    });
-    if (hallados.length !== 1) throw new Error(`extracción: ${archivo}: "${nombre}" ${hallados.length ? `aparece ${hallados.length} veces` : 'no se encontró'}`);
-    const fn = hallados[0];
-    const { start, end } = fn.node;
-    const linea = fn.node.loc.start.line;
-    const libres = new Set(), globales = new Set(), dbMetodos = new Set();
-    fn.traverse({
-        ReferencedIdentifier(p) {
-            const n = p.node.name;
-            const b = p.scope.getBinding(n);
-            if (!b) globales.add(n);
-            else if (b.path.node.start < start || b.path.node.start >= end) libres.add(n);
-        },
-        MemberExpression(p) {
-            if (p.node.object.type === 'Identifier' && p.node.object.name === 'db' && !p.node.computed) dbMetodos.add(p.node.property.name);
-        },
-    });
-    const ext = { archivo, nombre, linea, src: codigo.slice(start, end), libres: [...libres].sort(), globales: [...globales].sort(), dbMetodos: [...dbMetodos].sort() };
-    if (!extraidas.some((e) => e.archivo === archivo && e.nombre === nombre)) extraidas.push(ext);
-    return ext;
-}
+// Busca la función en el archivo y devuelve su texto y su análisis de alcance: identificadores
+// libres (closures/imports), globales y métodos de db.
+const extraer = (archivo, nombre) => extraerPantalla(archivo, nombre);
 
 // Evalúa la función extraída con sus dependencias. Exige que estén TODAS las libres. Los imports
-// de backlogUtils que use la pantalla se inyectan siempre con la versión REAL del módulo.
+// que use la pantalla se inyectan siempre con la versión REAL: backlogUtils y, desde la 7.3, el
+// motor puro (src/entertainment/queue.ts y seriesDetail.ts).
 function instanciar(ext, depsDelCaso) {
-    const deps = { ...utils, ...depsDelCaso };
-    const faltan = ext.libres.filter((n) => !Object.hasOwn(deps, n));
-    if (faltan.length) throw new Error(`extracción: ${ext.archivo}:${ext.linea} "${ext.nombre}": dependencia no provista: ${faltan.join(', ')}`);
-    try {
-        return new Function(...Object.keys(deps), `"use strict";\nreturn (${ext.src});`)(...Object.values(deps));
-    } catch (e) {
-        throw new Error(`extracción: ${ext.archivo}:${ext.linea} "${ext.nombre}" no se pudo evaluar (${e.name})`);
-    }
+    return instanciarPantalla(ext, { ...utils, ...motorCola, ...motorDetalle, ...depsDelCaso });
 }
 
 const PANTALLA = {
@@ -324,12 +285,24 @@ async function nuevoEntorno() {
     };
     const watchlist = async (cat) => (ok(await db.getFullWatchlist(UID, cat.id), 'getFullWatchlist')).data;
 
-    // Cola de la pantalla de registro (video o lectura).
+    // Cola de la pantalla de registro (video o lectura), con su loadData REAL en la pestaña de
+    // pendientes: lee la fachada, llama a buildQueue (motor) y guarda la cola con setItems.
+    // (Antes de la 7.3 eran las funciones generateInterleavedList/generateEpisodesForSeries de la
+    // pantalla; ahora son buildQueue/episodesForSeries de src/entertainment/queue.ts.)
     const cola = async (cat, archivo = PANTALLA.registro) => {
-        const raw = await watchlist(cat);
-        const generateEpisodesForSeries = instanciar(extraer(archivo, 'generateEpisodesForSeries'), {});
-        const generateInterleavedList = instanciar(extraer(archivo, 'generateInterleavedList'), { generateEpisodesForSeries, getWatchedCountSinceStart });
-        return { raw, items: generateInterleavedList(raw) };
+        let raw = null, items = null;
+        const noop = () => {};
+        const capturas = { setRawSeries: (v) => { raw = v; }, setItems: (v) => { items = v; }, setLoading: noop, setCurrentCategory: noop, setCounts: noop };
+        let loadData;
+        if (archivo === PANTALLA.registro) {
+            const calculateGlobalBacklog = instanciar(extraer(archivo, 'calculateGlobalBacklog'), { setHeaderBacklog: noop, currentCategory: cat });
+            loadData = instanciar(extraer(archivo, 'loadData'), { ...capturas, db, user, category: cat, tab: 'pending', calculateGlobalBacklog });
+        } else {
+            loadData = instanciar(extraer(archivo, 'loadData'), { ...capturas, db, user, category: cat, currentTab: 'pending', setBacklogInfo: noop, console });
+        }
+        await quiet(() => loadData());
+        if (!items) throw new Error(`${archivo}: loadData no produjo la cola`);
+        return { raw, items };
     };
 
     // "Agregar serie" del detalle (handleSave real) con el estado del formulario.
@@ -652,12 +625,16 @@ const ESCENARIOS = {
         const { items } = await E.cola(cat);
         const a = lista.find((s) => s.name === 'A'), b = lista.find((s) => s.name === 'B');
         const primero = (n) => { const it = items.find((i) => i.seriesName === n); return it ? etiqueta(it) : null; };
-        const src = extraer(PANTALLA.detalle, 'handleAddSeason').src;
+        // "+ Temporada" REAL del formulario sobre una lista vacía: ¿con qué número empieza?
+        // (Antes de la 7.3 se miraba el texto de handleAddSeason; ahora llama a appendSeasonRow.)
+        let filas = null;
+        const handleAddSeason = instanciar(extraer(PANTALLA.detalle, 'handleAddSeason'), { seasons: [], setSeasons: (v) => { filas = v; } });
+        handleAddSeason();
         return {
             nuevaT0C1: { guardado: guardado(a), colaPrimero: primero('A'), vistos: getWatchedCountSinceStart(a) },
             nuevaT1C0: { guardado: guardado(b), colaPrimero: primero('B'), vistos: getWatchedCountSinceStart(b) },
             mirandoT0C1: { alerta: r.mensajes[0] || null, guardada: lista.some((s) => s.name === 'C') },
-            temporadasDelFormulario: /number:\s*seasons\.length\s*\+\s*1/.test(src) ? 'numeradas desde 1' : 'otra',
+            temporadasDelFormulario: filas && filas.length === 1 && filas[0].number === 1 ? 'numeradas desde 1' : 'otra',
         };
     },
 

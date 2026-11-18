@@ -2,7 +2,7 @@
   "expo": {
     "name": "Registro",
     "slug": "Registro",
-    "version": "1.3.4",
+    "version": "1.3.5",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -22,7 +22,7 @@
       },
       "edgeToEdgeEnabled": false,
       "package": "com.poguis.Registro",
-      "versionCode": 8
+      "versionCode": 9
     },
     "web": {
       "favicon": "./assets/favicon.png"

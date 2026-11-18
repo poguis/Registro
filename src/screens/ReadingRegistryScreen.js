@@ -5,6 +5,8 @@ import { StatusBar } from 'expo-status-bar';
 import db from '../services/db';
 import { useSyncRefresh } from '../sync/useSyncRefresh';
 import { calculateBacklog, calculateBacklogV2, getAbsoluteEpisodeCount, getWatchedCountSinceStart } from '../services/backlogUtils';
+// Fase 7.3: la cola y la decisión de "marcar leído" viven en el motor puro (src/entertainment/).
+import { buildQueue, decideMarkWatched } from '../entertainment/queue';
 import { useTheme } from '../contexts/ThemeContext';
 
 export default function ReadingRegistryScreen({ user, category, onBack }) {
@@ -43,7 +45,7 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
                         adelantoDays: calc.adelantoDays 
                     });
                 }
-                const pendingList = generateInterleavedList(seriesResult.data);
+                const pendingList = buildQueue(seriesResult.data, 'reading');
                 let watchedList = historyResult.success ? historyResult.data.map(h => ({ uniqueId: `${h.series_id}-s${h.season_number}-e${h.episode_number}-rh${h.id}`, seriesId: h.series_id, seriesName: h.s_name, season: h.season_number, episode: h.episode_number, status: 'watched', readAt: h.read_at })) : [];
                 setCounts({ pending: pendingList.length, watched: watchedList.length });
                 setItems(currentTab === 'pending' ? pendingList : watchedList);
@@ -55,58 +57,15 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
     // Recarga si la sync trae cambios del servidor (sin tocar formularios, filtros ni scroll).
     useSyncRefresh(() => loadData({ silent: true }));
 
-    const generateInterleavedList = (list) => {
-        let episodes = [];
-        list.forEach((s, sIdx) => {
-            if (s.status === 'Terminado' || s.status === 'En espera' || s.status === 'Pausado') return;
-            const seriesEps = generateEpisodesForSeries(s);
-
-            // Use centralized progress calculation for consistency
-            // interleave_offset is used for sub-series ordering
-            const baseCount = getWatchedCountSinceStart(s) + (s.interleave_offset || 0);
-
-            seriesEps.forEach((ep, idx) => {
-                const BATCH_SIZE = 1000000;
-                // Use (baseCount + idx) to align with global cycle
-                ep.interleavedOrder = ((baseCount + idx) * BATCH_SIZE) + sIdx;
-                ep.sortOrder = s.sort_order || 0;
-                episodes.push(ep);
-            });
-        });
-        episodes.sort((a, b) => a.interleavedOrder !== b.interleavedOrder ? a.interleavedOrder - b.interleavedOrder : a.sortOrder - b.sortOrder);
-        return episodes;
-    };
-
-
-    const generateEpisodesForSeries = (s) => {
-        const eps = []; let { current_season: sn, current_episode: en, total_seasons: ts } = s;
-        let c = 0, currS = sn || 1, currE = en || 1;
-        const maxS = ts || (s.seasons?.length ? s.seasons[s.seasons.length - 1].season_number : 1);
-        while (currS <= maxS && c < 500) {
-            const maxE = s.seasons.find(sea => sea.season_number === currS)?.episode_count || 999;
-            eps.push({ uniqueId: `${s.s_id}-s${currS}-e${currE}`, seriesId: s.s_id, seriesName: s.s_name, season: currS, episode: currE, status: 'pending' });
-            c++; currE++;
-            if (currE > maxE) { currE = 1; currS++; }
-        }
-        return eps;
-    };
-
     const onMarkWatched = async (item) => {
-        const series = rawSeries.find(s => s.s_id === item.seriesId);
-        if (!series) return;
-        const first = items.find(i => i.seriesId === item.seriesId && i.status === 'pending');
-        if (first && first.uniqueId !== item.uniqueId) return Alert.alert('Orden incorrecto', `Lee primero el Tomo ${first.episode}.`);
-
-        const maxEpisodes = series.seasons.find(s => s.season_number === item.season)?.episode_count || 999;
-        let nextS = item.season, nextE = item.episode + 1, isFinal = false;
-        if (nextE > maxEpisodes) {
-            if (item.season >= series.total_seasons) { isFinal = true; nextE = item.episode; nextS = item.season; }
-            else { nextE = 1; nextS++; }
-        }
+        const decision = decideMarkWatched(item, items, rawSeries);
+        if (decision.kind === 'noSeries') return;
+        if (decision.kind === 'outOfOrder') return Alert.alert('Orden incorrecto', `Lee primero el Tomo ${decision.first.episode}.`);
+        const { next, isFinal } = decision;
 
         const performUpdate = async (newStatus = 'Mirando') => {
             await db.addReadingHistory(item.seriesId, item.season, item.episode);
-            const res = await db.updateSeriesProgress(item.seriesId, nextS, nextE, newStatus);
+            const res = await db.updateSeriesProgress(item.seriesId, next.season, next.episode, newStatus);
             if (res.success) loadData();
         };
 
