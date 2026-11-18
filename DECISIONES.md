@@ -216,6 +216,10 @@ Lista viva para la Fase 7: `claude/TRASPASO-FASE7.md`.
 ### Descartado
 - Cursor para las tablas vacías: sin filas no hay un `server_updated_at` del servidor para fijarlo, y usar el reloj del celular reabriría el riesgo de commits fuera de orden (docs/MAPEO-SYNC.md). Se mantiene pedir esas tablas completas (consulta vacía).
 
+## Fase 7 — rediseño de entretenimiento
+- [OK] Las decisiones del rediseño de Pendiente + Series/Anime + Lectura (subfases 7.3–7.10) viven en `claude/DISENO-ENTRETENIMIENTO.md`, que es la **fuente única**: no se duplican aquí. Se actualiza al cerrar cada subfase.
+- El comportamiento actual que el rediseño corrige o conserva está en `docs/ENTRETENIMIENTO-ACTUAL.md` (7.2, `d55b5e1`), con el oráculo `scripts/probar-fase7-2.mjs`.
+
 ## Datos existentes y cuentas
 - [OK] Los datos del celular se migran in-place en Fase 1, con respaldo previo verificado.
 - [OK] Al inicio de Fase 1, Claude Code cuenta las cuentas locales y se detiene a informar antes de migrar. Si hay una sola, se asocia a la primera cuenta Google (Fase 3).

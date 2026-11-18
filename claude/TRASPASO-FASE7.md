@@ -1,6 +1,6 @@
 # Traspaso a la Fase 7
 
-Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar la 7.1 (2026-11-16). Las fases 0–6 están cerradas; el detalle de cada una está en DECISIONES.md (Fases) y CLAUDE.md. El traspaso anterior (`claude/TRASPASO-FASE6.md`) queda como histórico.
+Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar la 7.1 (2026-11-16) y la 7.2 (2026-11-17). Las fases 0–6 están cerradas; el detalle de cada una está en DECISIONES.md (Fases) y CLAUDE.md. El traspaso anterior (`claude/TRASPASO-FASE6.md`) queda como histórico.
 
 ## 1. Estado actual
 
@@ -36,7 +36,7 @@ Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar
   - `378a164`, `6277242` (6.6)
   - `c01c283`, `9950d0d` (6.7)
   - `f97227f` (cierre de la Fase 6).
-- Commits de la Fase 7: `89a3514` (7.1, implementación) y el commit de cierre de la 7.1.
+- Commits de la Fase 7: `89a3514` (7.1, implementación), `d4bad14` (cierre de la 7.1) y `d55b5e1` (7.2).
 
 ### Credenciales (nombres y ubicación, nunca valores)
 - `.env` (fuera de git; plantilla `.env.example`): `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (Poguis) y `EXPO_PUBLIC_SUPABASE_DEV_URL` / `EXPO_PUBLIC_SUPABASE_DEV_PUBLISHABLE_KEY` (Registro Dev). Solo claves `sb_publishable_`; 0 secret keys en los dos proyectos.
@@ -90,6 +90,7 @@ Cerrado: el punto 7 (7.1, ver §5). Los demás siguen pendientes.
      - la reconexión dentro de los 60 s de enfriamiento de auth-js seguida del ciclo por `TOKEN_REFRESHED` (solo en `probar-fase5`);
      - una cuenta Google distinta bloqueada (solo en `probar-fase3`).
    - **Descartado:** el cursor para las tablas vacías (DECISIONES.md, Descartado).
+9. **Rediseño de entretenimiento (subfases 7.3–7.10):** ver `claude/DISENO-ENTRETENIMIENTO.md`. El análisis previo (7.2) está cerrado (ver §6).
 
 ## 4. [PENDIENTE] vigentes (DECISIONES.md)
 - **Restaurar un respaldo dentro de la app.**
@@ -111,3 +112,16 @@ Cerrado: el punto 7 (7.1, ver §5). Los demás siguen pendientes.
   - `.local-data/emulador-credenciales.txt` (143 B): Claude Code no lo abrió. Puede tener credenciales del emulador en claro, y `escanear-contrasenas` no mira `.txt` ni `.log`. Lo revisa el usuario.
   - `.local-data/pruebas-fase4-dbg/`: un solo archivo, `F/app_registro_v3.db` (446.464 B, 2026-11-01), sin contraseña. Ningún script actual lo genera: es un resto de la depuración de la Fase 4.
   - **Respaldos `.db` anteriores a la migración 3** que se hayan compartido fuera de la PC (Google Drive, Descargas, chats o correo al usar la hoja de compartir de Android): la copia física conserva la contraseña antigua (DECISIONES.md, Seguridad); los `.json` la llevan como `[OCULTO]`. Revisarlos y borrarlos donde estén. El archivo permanente de Drive `RESPALDO/PROD` (`registro_respaldo_20261111-202909`, `user_version` 4) es posterior a la migración 3 y no la tiene.
+
+## 6. Fase 7.2 — análisis [CERRADA 2026-11-17]
+- **Commit:** `d55b5e1`. Solo lectura: sin cambios en `src/`, la app, el esquema, `supabase/` ni versiones; sin APK.
+- **`docs/ENTRETENIMIENTO-ACTUAL.md`:** cómo funcionan hoy Pendiente, Series/Anime y Lectura, con referencias archivo:línea. Incluye el mapa de pantallas, el modelo de datos, estados, ciclo, cuotas, lectura, Pendiente, punto de inicio, la tabla de brechas, los riesgos R1–R14 y un anexo con el estado de React y los métodos de `db.js` de cada función de pantalla.
+- **`scripts/probar-fase7-2.mjs`: 17 OK.** Son 14 casos de caracterización (C1–C14) como tablas de entrada → resultado actual (el oráculo para la 7.3), más la extracción y 2 pruebas negativas.
+  - La suite ejecuta el código real de las pantallas: extrae las funciones con `@babel/parser` y `@babel/traverse`, dependencias transitivas que no están en `package.json`.
+  - Usa solo datos sintéticos.
+- **Hallazgos clave:**
+  - **La lógica de la cola y del orden vive en closures de las pantallas** (R14), y las de lectura son copias de las de video (R13).
+  - **C9 recalcula el pasado:** la frecuencia de lectura y la fecha de inicio (lectura y video) no tienen historial; solo las cuotas por día lo tienen (C4).
+  - **El historial no se usa para contar:** el progreso sale del puntero (puntero − inicial, +1 si está cerrada, + `cycle_offset`). Eso explica R5–R8, y la grilla mueve el puntero sin escribir historial (R7).
+  - **Datos de producción** (respaldo "segundo" de la 6.7): 1 categoría de video, 1 serie, 1 temporada y 11 filas en `watch_history`; nada de lectura; `backlog` solo con los 4 tombstones de prueba. El usuario los borra desde la app y el rediseño no los migra (`claude/DISENO-ENTRETENIMIENTO.md`, Alcance).
+- **Siguiente:** el rediseño, subfases 7.3–7.10, según `claude/DISENO-ENTRETENIMIENTO.md`.
