@@ -1,17 +1,20 @@
 # Traspaso a la Fase 7
 
-Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar la 7.1 (2026-11-16) y la 7.2 (2026-11-17). Las fases 0–6 están cerradas; el detalle de cada una está en DECISIONES.md (Fases) y CLAUDE.md. El traspaso anterior (`claude/TRASPASO-FASE6.md`) queda como histórico.
+Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar la 7.1 (2026-11-16), la 7.2 (2026-11-17) y la 7.3 (2026-11-18). Las fases 0–6 están cerradas; el detalle de cada una está en DECISIONES.md (Fases) y CLAUDE.md. El traspaso anterior (`claude/TRASPASO-FASE6.md`) queda como histórico.
 
 ## 1. Estado actual
 
 ### Celular del usuario
-- **Registro (producción)** `com.poguis.Registro`: **1.3.4 / versionCode 8**, firma EAS `31:32:DE:…:3E:52`, instalada siempre encima (`install -r`), mismo `firstInstallTime` desde 2026-09-21. Sync encendida contra **Poguis**. BD local `user_version` 5: sin `legacy_*` ni columna `password`.
+- **Registro (producción)** `com.poguis.Registro`: **1.3.5 / versionCode 9** (7.3, 2026-11-18), firma EAS `31:32:DE:…:3E:52`, instalada siempre encima (`install -r`), mismo `firstInstallTime` desde 2026-09-21. Sync encendida contra **Poguis**. BD local `user_version` 5: sin `legacy_*` ni columna `password`.
 - `respaldos/` del celular: los 10 respaldos manuales más recientes y la `pre-migracion-v5`; 0 copias con la contraseña antigua (retención de la 6.7).
-- **Registro Dev** `com.poguis.Registro.dev`: **1.3.4 / versionCode 8**, firma `debug.keystore` `fac61745…`, contra **Registro Dev**. Se instala al lado de la app real y tiene su propia BD.
+- **Registro Dev** `com.poguis.Registro.dev`: **1.3.5 / versionCode 9**, firma `debug.keystore` `fac61745…`, contra **Registro Dev**, instalada encima con el mismo `firstInstallTime`. Se instala al lado de la app real y tiene su propia BD.
 
 ### Poguis (producción)
-- Datos reales de un único usuario: 30 filas en las 15 tablas sincronizadas, 26 vivas y 4 borradas (`verificar-fase5` 16/16 = respaldo "después" de la 6.7).
-- Las 4 borradas son los tombstones de prueba de `backlog` (`[prueba RLS]` y 3 `[prueba F5]`). **Se quedan** (6.8, decisión del usuario).
+- Datos reales de un único usuario: **31 filas** en las 15 tablas sincronizadas, **12 vivas y 19 borradas** (`verificar-fase5` 16/16 = respaldo "después" de la 7.3, 2026-11-18).
+- **Diferencia con la 6.7** (30 / 26 / 4, que coincide con su `verificar-fase5-poguis.json`):
+  - +1 fila viva en `balance_history` (de 2 a 3), un movimiento del usuario;
+  - 15 tombstones de entretenimiento: 1 categoría, 1 cuota, 1 serie, 1 temporada y 11 filas de `watch_history`. El usuario los borró desde la app antes de la 7.3, como decidió el diseño (Alcance), y quedan para siempre igual que los de la 6.8.
+- Las otras 4 borradas son los tombstones de prueba de `backlog` (`[prueba RLS]` y 3 `[prueba F5]`). **Se quedan** (6.8, decisión del usuario).
 - Esquema: las 4 migraciones de `supabase/migrations/`, RLS en las 15 tablas, sin DELETE, sin `security definer`. Auditoría 6.1: 18/18 estrictos.
 - Auth:
   - registro de usuarios nuevos **cerrado**;
@@ -25,7 +28,7 @@ Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar
 - Datos de prueba que se quedan sin acción: el elemento `[prueba F6.3]` en `backlog` y el tombstone "Venta" en `finance_categories` (6.6). El usuario sintético de la 6.2 se borró (cascade verificado).
 
 ### Versiones y commits
-- `app.json`: `versionName` 1.3.4, `versionCode` 8. Para cada APK que se vaya a instalar, subir los dos (las versiones no pueden bajar).
+- `app.json`: `versionName` 1.3.5, `versionCode` 9. Para cada APK que se vaya a instalar, subir los dos (las versiones no pueden bajar).
 - Expo SDK 54 (`expo` 54.0.38), React Native 0.81.5, `expo-sqlite` 16.0.10 (SQLite 3.50.3, sin modo de solo lectura), auth-js 2.118.
 - Commits de la Fase 6:
   - `97fb9b6` / `ceed19b` (6.1)
@@ -36,7 +39,10 @@ Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar
   - `378a164`, `6277242` (6.6)
   - `c01c283`, `9950d0d` (6.7)
   - `f97227f` (cierre de la Fase 6).
-- Commits de la Fase 7: `89a3514` (7.1, implementación), `d4bad14` (cierre de la 7.1) y `d55b5e1` (7.2).
+- Commits de la Fase 7:
+  - `89a3514` (7.1, implementación) y `d4bad14` (cierre de la 7.1);
+  - `d55b5e1` (7.2) y `758e7de` (diseño y cierre de la 7.2);
+  - `241c26e` (7.3, implementación) y el commit de cierre de la 7.3.
 
 ### Credenciales (nombres y ubicación, nunca valores)
 - `.env` (fuera de git; plantilla `.env.example`): `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (Poguis) y `EXPO_PUBLIC_SUPABASE_DEV_URL` / `EXPO_PUBLIC_SUPABASE_DEV_PUBLISHABLE_KEY` (Registro Dev). Solo claves `sb_publishable_`; 0 secret keys en los dos proyectos.
@@ -90,7 +96,7 @@ Cerrado: el punto 7 (7.1, ver §5). Los demás siguen pendientes.
      - la reconexión dentro de los 60 s de enfriamiento de auth-js seguida del ciclo por `TOKEN_REFRESHED` (solo en `probar-fase5`);
      - una cuenta Google distinta bloqueada (solo en `probar-fase3`).
    - **Descartado:** el cursor para las tablas vacías (DECISIONES.md, Descartado).
-9. **Rediseño de entretenimiento (subfases 7.3–7.10):** ver `claude/DISENO-ENTRETENIMIENTO.md`. El análisis previo (7.2) está cerrado (ver §6).
+9. **Rediseño de entretenimiento (subfases 7.3–7.10):** ver `claude/DISENO-ENTRETENIMIENTO.md`. El análisis previo (7.2, §6) y el motor puro (7.3, §7) están cerrados; sigue la 7.4.
 
 ## 4. [PENDIENTE] vigentes (DECISIONES.md)
 - **Restaurar un respaldo dentro de la app.**
@@ -125,3 +131,30 @@ Cerrado: el punto 7 (7.1, ver §5). Los demás siguen pendientes.
   - **El historial no se usa para contar:** el progreso sale del puntero (puntero − inicial, +1 si está cerrada, + `cycle_offset`). Eso explica R5–R8, y la grilla mueve el puntero sin escribir historial (R7).
   - **Datos de producción** (respaldo "segundo" de la 6.7): 1 categoría de video, 1 serie, 1 temporada y 11 filas en `watch_history`; nada de lectura; `backlog` solo con los 4 tombstones de prueba. El usuario los borra desde la app y el rediseño no los migra (`claude/DISENO-ENTRETENIMIENTO.md`, Alcance).
 - **Siguiente:** el rediseño, subfases 7.3–7.10, según `claude/DISENO-ENTRETENIMIENTO.md`.
+
+## 7. Fase 7.3 — motor puro [CERRADA 2026-11-18]
+- **Commit:** `241c26e`; APK **1.3.5 / versionCode 9**. Sin cambios en `src/data/`, `src/sync/`, `backlogUtils.js`, migraciones ni `supabase/`.
+- **Módulos puros en `src/entertainment/`**, compartidos por video y lectura. No usan React, SQLite, `Alert` ni `db`, y la fecha entra como parámetro. Devuelven datos y decisiones; las pantallas ejecutan los efectos (alertas con sus textos y escrituras en `db`, en el mismo orden).
+  - `queue.ts`: `buildQueue`, `episodesForSeries`, `decideMarkWatched`. Antes eran `generateInterleavedList`, `generateEpisodesForSeries` y el cálculo de `onMarkWatched` en los dos registros.
+  - `seriesDetail.ts`: `filterSeriesByTab`, `reorderActive`, `validateSeriesForm`, `isActiveLimitReached`, `buildSeriesSave`, `appendSeasonRow`/`removeSeasonRow`, `decideChapterTap`, `resolveProgressStatus`, `restartWatchedCount`, `decideTogglePause`, `categoryPauseDates`. Antes estaban dentro de los dos detalles.
+  - Las 4 pantallas (`ChapterRegistryScreen`, `ReadingRegistryScreen`, `SeriesDetailScreen`, `ReadingDetailScreen`) llaman al motor. `SeriesAnimeScreen` y `BacklogScreen` no cambian.
+  - **Comportamiento idéntico**, incluidos los bugs R1–R14 y R15 (temporada de 0 capítulos: `QueueVariant`). Se corrigen en la 7.4.
+- **Pruebas en la PC:**
+  - `scripts/probar-fase7-3.mjs` (**19 OK, 0 diferencias**): equivalencia con el código de `d55b5e1`, extraído con `git show`, en tres niveles:
+    - los 14 casos;
+    - la cola (nivel puro);
+    - 13 familias de funciones de pantalla (nivel efectos): llamadas a `db` con sus argumentos y en orden, alertas, setters y cada botón, sobre 600 entradas por variante con semilla fija. Las excepciones se comparan por tipo y mensaje.
+    - Incluye 2 controles negativos.
+  - `scripts/probar-fase7-2.mjs`: **17 OK con `CASOS` intacto** (idéntico a `d55b5e1`). Inyecta el motor y obtiene la cola con el `loadData` real de cada registro.
+  - Extractor compartido: `scripts/lib/extraer-pantalla.mjs`.
+  - El resto de suites en verde, en serie, con `probar-fase4` sola (88 OK). `probar-fase3`: la versión fija pasa a 1.3.5 / 9.
+  - `expo-doctor` 18/18 y `expo export` sin errores. `escanear-historial` y `verificar-secretos` en 0.
+- **Registro Dev:** 1.3.5 instalada encima con el mismo `firstInstallTime`. La lista de verificación dio todo OK, y los pasos 1–3 (C1: cola, atraso, orden incorrecto) dieron igual que en la 1.3.4.
+- **Producción, con el protocolo completo:**
+  - respaldo "antes" (app 1.3.4) con "Sincronizado" y sin pendientes;
+  - `install -r` de la 1.3.5 con la firma EAS `3132ded2…3e52` comprobada, de versionCode 8 a 9 y con el mismo `firstInstallTime`;
+  - respaldo "después" (app 1.3.5);
+  - los dos válidos (formato 2, `user_version` 5, outbox vacía) y `comparar-sync` idénticos en las 15 tablas, con el mismo saldo;
+  - `verificar-fase5` en Poguis: 16/16 = "después" (31 / 12 / 19, un `user_id`).
+- **Observaciones del celular:** O1, el aviso de límite debería salir antes de abrir el formulario (→ 7.4). Lista viva en `claude/DISENO-ENTRETENIMIENTO.md`.
+- **Siguiente:** la 7.4 (correcciones del motor y fuente de verdad), según el diseño.

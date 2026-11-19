@@ -105,12 +105,19 @@ Origen: respuestas del usuario del 2026-11-17 y resultados de la 7.2 (commit `d5
 ## Estadísticas de entretenimiento (7.10, idea)
 - [OK] Ver la tendencia de lo que se ve y se lee (por ejemplo capítulos por semana o mes por categoría, rachas, atraso y adelanto en el tiempo), a partir del historial. Se diseña al llegar a esa subfase.
 
+## Observaciones del usuario en las pruebas del celular
+Lista viva. Cada observación se asigna a una subfase cuando se planifica; las de UX sin subfase obvia van a la 7.4 o a una subfase de pulido.
+- O1 (prueba 7.3): el límite de series activas es obligatorio al crear o editar una categoría, de video y de lectura (no puede quedar vacío; mínimo 1). Dentro de la categoría no se puede superar, y el aviso "Límite Alcanzado" sale al tocar "Agregar", antes de abrir el formulario. Reemplaza R2 (el 0 que bloquea todo). → 7.4.
+- O2 (prueba 7.3): en el Registro de lectura, las etiquetas o los contadores "Pendiente" y "Visto" se muestran mal. Revisar con la captura del usuario y el código. → 7.4.
+- O3 (prueba 7.3): En espera y Terminado ofrecen las mismas dos acciones: "Continuar" (reanudar donde quedó, tras agregar capítulos o una temporada) y "Volver a ver" con el selector de punto de inicio (también desde la mitad, no solo desde T1C1). → 7.6.
+- R15 (7.3): con una temporada de 0 capítulos, video genera 1 capítulo y pasa a la siguiente, y lectura genera hasta 999. Conservado en la 7.3 (`QueueVariant`); se decide en la 7.4.
+
 ## Orden de trabajo [OK]
 Cada subfase con su plan, su aprobación y su ciclo completo. Si surge algo nuevo, se agrega.
 
 1. 7.2 Análisis: cerrada (`d55b5e1`).
-2. Este documento en el repo (commit de documentación).
-3. 7.3 Motor puro: mover la lógica de las pantallas a módulos, con comportamiento idéntico según el oráculo. Con APK.
+2. Este documento en el repo: cerrado (`758e7de`).
+3. 7.3 Motor puro: cerrada (`241c26e`).
 4. 7.4 Correcciones del motor y fuente de verdad: historial como conteo; C2 al final del ciclo actual; R1; cuotas desde mañana sin períodos vacíos; R2; R8; historial de todo el ritmo; fecha de inicio fija con registros. Con migración si hace falta.
 5. 7.5 Vínculo Pendiente↔Series/Lectura y subtipo de lectura (migración en Supabase y migración local 6).
 6. 7.6 Punto de inicio (T0/C0), "Reanudar" y volver a ver.

@@ -8,6 +8,8 @@ Cada afirmación lleva una referencia `archivo:línea` o el caso de `scripts/pro
 
 Las referencias de línea corresponden al commit `d4bad14`.
 
+> **Nota (Fase 7.3, `241c26e`):** la lógica de las funciones del anexo A vive ahora en `src/entertainment/` (`queue.ts` y `seriesDetail.ts`), con el mismo comportamiento (`scripts/probar-fase7-3.mjs`: 0 diferencias). Las pantallas solo ejecutan los efectos. Las referencias `archivo:línea` de este documento siguen correspondiendo a `d4bad14`. Desde la 7.3 se agrega R15.
+
 ---
 
 ## 1. Mapa de pantallas y archivos
@@ -229,6 +231,7 @@ El orden manual (↑↓) solo cambia `sort_order`, que desempata dentro de una v
 | R12 | Pausar y reanudar una categoría el mismo día deja una pausa con fin anterior al inicio | `SeriesAnimeScreen.js:262-269`; **C14** | No excluye nada (correcto en la práctica), pero queda una fila sin efecto |
 | R13 | Las pantallas de lectura son copias de las de video | punto 6 | Cada arreglo hay que hacerlo dos veces; ya divergen en detalles (texto de alertas, límite solo en el formulario de video) |
 | R14 | La lógica de la cola y de orden vive en closures de pantallas | anexo A | Solo se puede probar extrayendo el código (como hace esta suite); conviene moverla a módulos puros, usando las tablas de **C1–C14** como oráculo |
+| R15 | Con una temporada de `episode_count` 0, la cola de video genera 1 capítulo y pasa a la siguiente temporada (`seasonObj ? episode_count : 999`), y la de lectura genera hasta 999 (`episode_count \|\| 999`) | `ChapterRegistryScreen.js:114` frente a `ReadingRegistryScreen.js:86` (en `d4bad14`); desde la 7.3, `QueueVariant` en `src/entertainment/queue.ts` | Video y lectura dan colas distintas con los mismos datos. Se conserva en la 7.3 y se decide en la 7.4 |
 
 ---
 
