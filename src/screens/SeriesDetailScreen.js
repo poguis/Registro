@@ -8,10 +8,13 @@ import { calculateBacklog, calculateBacklogV2, getLocalDateString, getAbsoluteEp
 import { useTheme } from '../contexts/ThemeContext';
 // Fase 7.3: las decisiones (validación, límite, orden, pausa, grilla, reinicio) viven en el
 // motor puro (src/entertainment/); aquí quedan los textos, las alertas y las escrituras.
+// Fase 7.4a: la grilla marca/desmarca vistos con filas de historial, el límite se avisa al tocar
+// "Agregar" y una serie nueva o reanudada entra al final del ciclo actual.
 import {
-    filterSeriesByTab, reorderActive, validateSeriesForm, isActiveLimitReached, buildSeriesSave, appendSeasonRow, removeSeasonRow,
-    decideChapterTap, resolveProgressStatus, restartWatchedCount, decideTogglePause, categoryPauseDates,
+    filterSeriesByTab, reorderActive, validateSeriesForm, isActiveLimitReached, canAddSeries, buildSeriesSave, appendSeasonRow, removeSeasonRow,
+    planChapterTap, restartWatchedCount, decideTogglePause, categoryPauseDates, seriesWatchedTotal, activeLimit,
 } from '../entertainment/seriesDetail';
+import { watchedCount } from '../entertainment/queue';
 
 export default function SeriesDetailScreen({ user, category, onBack, onNavigateRegistry }) {
     const { theme, isDarkMode } = useTheme();
@@ -85,12 +88,14 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         setCurrentCategory(category);
     }, [category]);
 
+    // Vistos = filas de historial de TODAS las series de la categoría (watched_count, recién leído
+    // por fetchSeries tras cada cambio).
     const calculateHeaderBacklog = (currentSeriesList = originalList, targetCategory = currentCategory) => {
-        const calc = calculateBacklogV2(targetCategory, currentSeriesList);
+        const calc = targetCategory ? calculateBacklog(targetCategory, seriesWatchedTotal(currentSeriesList)) : null;
         if (calc) {
-            setBacklogInfo({ 
-                items: calc.items, 
-                days: calc.days, 
+            setBacklogInfo({
+                items: calc.backlogItems,
+                days: calc.diffDays,
                 adelantoItems: calc.adelantoItems, 
                 adelantoDays: calc.adelantoDays 
             });
@@ -204,8 +209,8 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         if (validation.error) return Alert.alert('Error', formErrors[validation.error]);
         const { validSeasons } = validation;
 
-        if (isActiveLimitReached({ originalList, status, isEditing, editingSeriesId, category })) {
-            return Alert.alert('Límite Alcanzado', `Máximo ${category.series_count} series activas.`);
+        if (isActiveLimitReached({ originalList, status, isEditing, editingSeriesId, category: currentCategory || category })) {
+            return Alert.alert('Límite Alcanzado', `Máximo ${activeLimit(currentCategory || category)} series activas.`);
         }
 
         const { seriesData, seasonsData } = buildSeriesSave({
@@ -242,35 +247,63 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
     const updateToChapter = async (seriesId, sNum, eNum) => {
         const series = activeSeries || originalList.find(x => x.id === seriesId);
         if (!series) return;
-        const { isLastPossible, nonFinalStatus } = decideChapterTap(series, sNum, eNum);
-
-        const performUpdate = async (newStatus = series.status) => {
-            const finalStatus = resolveProgressStatus(series, sNum, eNum, newStatus);
-            const result = await db.updateSeriesProgress(seriesId, sNum, eNum, finalStatus);
-            if (result.success) {
-                fetchSeries();
-                if (activeSeries && activeSeries.id === seriesId) {
-                    setActiveSeries(prev => ({ ...prev, current_season: sNum, current_episode: eNum, status: finalStatus }));
-                }
+        const plan = planChapterTap(series, sNum, eNum);
+        if (plan.kind === 'none') return;
+        const label = (ep) => `T${ep.season}C${ep.episode}`;
+        const refresh = (pointer, status) => {
+            fetchSeries();
+            if (activeSeries && activeSeries.id === seriesId) {
+                setActiveSeries(prev => ({ ...prev, current_season: pointer.season, current_episode: pointer.episode, status }));
             }
         };
 
-        if (isLastPossible) {
-            Alert.alert('¡Serie Completada!', 'Elige destino:', [
-                { text: 'En espera', onPress: () => performUpdate('En espera') },
-                { text: 'Terminado', onPress: () => performUpdate('Terminado') },
-                { text: 'Cancelar', style: 'cancel' }
+        // Hacia atrás: desmarca desde el tocado (borrado lógico de las filas de historial).
+        if (plan.kind === 'backward') {
+            Alert.alert('Desmarcar', `¿Desmarcar desde ${label(plan.pointer)}?`, [
+                { text: 'Cancelar', style: 'cancel' },
+                {
+                    text: 'Desmarcar',
+                    style: 'destructive',
+                    onPress: async () => {
+                        const result = await db.unmarkEpisodes(seriesId, category.type, plan.episodes, { ...plan.pointer, status: plan.status });
+                        if (result.success) refresh(plan.pointer, plan.status);
+                    }
+                }
             ]);
+            return;
+        }
+
+        // Hacia adelante: marca vistos hasta el tocado (una fila de historial por capítulo).
+        const mark = async (status) => {
+            const result = await db.markEpisodesWatched(seriesId, category.type, plan.episodes, { ...plan.pointer, status }, Date.now());
+            if (result.success) refresh(plan.pointer, status);
+        };
+        const confirmMany = (then) => {
+            if (plan.episodes.length <= 1) return then();
+            const first = plan.episodes[0], last = plan.episodes[plan.episodes.length - 1];
+            Alert.alert('Marcar vistos', `¿Marcar ${plan.episodes.length} capítulos como vistos (${label(first)} → ${label(last)})?`, [
+                { text: 'Cancelar', style: 'cancel' },
+                { text: 'Marcar', onPress: then }
+            ]);
+        };
+
+        if (plan.isFinal) {
+            confirmMany(() => Alert.alert('¡Serie Completada!', 'Elige destino:', [
+                { text: 'En espera', onPress: () => mark('En espera') },
+                { text: 'Terminado', onPress: () => mark('Terminado') },
+                { text: 'Cancelar', style: 'cancel' }
+            ]));
         } else {
-            performUpdate(nonFinalStatus);
+            confirmMany(() => mark(plan.status));
         }
     };
 
     const handleRestart = async () => {
         if (!activeSeries) return;
+        // cycle_offset se sigue escribiendo, pero ya no cuenta: los vistos salen del historial.
         const watchedInThisCycle = restartWatchedCount(activeSeries);
 
-        Alert.alert('Reiniciar', `¿Empezar de cero? (${watchedInThisCycle} vistos)`, [
+        Alert.alert('Reiniciar', `¿Empezar de cero? (${watchedCount(activeSeries)} vistos)`, [
             { text: 'Cancelar', style: 'cancel' },
             {
                 text: 'Reiniciar',
@@ -285,6 +318,14 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         ]);
     };
 
+    // "+ Nueva Serie": con el límite alcanzado, el aviso sale antes de abrir el formulario (O1).
+    const handleAddPress = () => {
+        const check = canAddSeries(originalList, currentCategory || category);
+        if (!check.ok) return Alert.alert('Límite Alcanzado', `Máximo ${check.limit} series activas.`);
+        resetForm();
+        setModalVisible(true);
+    };
+
     const handleTogglePauseSeries = async (series) => {
         const decision = decideTogglePause(series, originalList);
 
@@ -294,7 +335,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 series.current_season,
                 series.current_episode,
                 decision.status,
-                null,
+                decision.sortOrder,
                 undefined,
                 undefined,
                 decision.interleaveOffset
@@ -467,7 +508,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 contentContainerStyle={styles.listContent}
                 ListHeaderComponent={() => (
                     currentStatusTab === 'Viendo' && (
-                        <TouchableOpacity style={[styles.addButton, { backgroundColor: theme.accent }]} onPress={() => { resetForm(); setModalVisible(true); }}>
+                        <TouchableOpacity style={[styles.addButton, { backgroundColor: theme.accent }]} onPress={handleAddPress}>
                             <Text style={styles.addButtonText}>+ Nueva Serie</Text>
                         </TouchableOpacity>
                     )

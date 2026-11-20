@@ -1,9 +1,20 @@
 import { getConnection, type Row } from '../db/connection';
 import { insertRow, updateRow, reviveRow, softDelete, softDeleteWhere, ownerOf } from './rows';
+import { addHistoryRows, removeLatestHistoryRows, type HistoryKind } from './history';
 
 // Series (video y lectura) y sus temporadas.
 
 const db = () => getConnection();
+
+// Fase 7.4a: el historial es la fuente de verdad del progreso. `watched_count` = filas vivas de
+// watch_history + reading_history de la serie; va como subconsulta dentro de la misma consulta
+// (cantidad fija de consultas, sin N+1).
+const WATCHED_COUNT = (alias: string) => `(
+            (SELECT COUNT(*) FROM watch_history wh WHERE wh.series_id = ${alias}.id AND wh.deleted_at IS NULL)
+          + (SELECT COUNT(*) FROM reading_history rh WHERE rh.series_id = ${alias}.id AND rh.deleted_at IS NULL)
+        )`;
+const WATCHED_COUNT_S = WATCHED_COUNT('s');
+const WATCHED_COUNT_SERIES = WATCHED_COUNT('series');
 
 // Estados canónicos (DECISIONES.md). 'Terminada'/'Pausada' se mapean por si aparecieran.
 export const SERIES_STATUSES = ['Nueva', 'Mirando', 'Pausado', 'En espera', 'Terminado'];
@@ -18,7 +29,8 @@ type SeasonInput = { season_number: number; episode_count: number };
 
 export async function getSeriesByCategory(categoryId: string): Promise<Row[]> {
     return db().getAllAsync<Row>(
-        'SELECT * FROM series WHERE category_id = ? AND deleted_at IS NULL ORDER BY sort_order ASC, created_at DESC',
+        `SELECT s.*, ${WATCHED_COUNT_S} AS watched_count
+         FROM series s WHERE s.category_id = ? AND s.deleted_at IS NULL ORDER BY s.sort_order ASC, s.created_at DESC`,
         [categoryId]
     );
 }
@@ -116,7 +128,28 @@ export async function updateSeriesProgress(
     await updateRow('series', seriesId, values);
 }
 
+// Grilla, hacia adelante (Fase 7.4a, R7): una fila de historial por capítulo y el puntero/estado,
+// en la transacción del llamador (la fachada lo envuelve en UNA mutate).
+export async function markEpisodesWatched(
+    seriesId: string, kind: HistoryKind, episodes: { season: number; episode: number }[], timestamp: number,
+    progress: { season: number; episode: number; status: string }
+): Promise<void> {
+    await addHistoryRows(kind, seriesId, episodes, timestamp);
+    await updateSeriesProgress(seriesId, progress.season, progress.episode, progress.status, null, timestamp);
+}
+
+// Grilla, hacia atrás: borra lógicamente la fila más reciente de cada capítulo y fija el
+// puntero/estado (last_watched_at = 0, como al desmarcar en el Registro).
+export async function unmarkEpisodes(
+    seriesId: string, kind: HistoryKind, episodes: { season: number; episode: number }[],
+    progress: { season: number; episode: number; status: string }
+): Promise<void> {
+    await removeLatestHistoryRows(kind, seriesId, episodes);
+    await updateSeriesProgress(seriesId, progress.season, progress.episode, progress.status, null, 0);
+}
+
 // Reinicia la serie: cycle_offset se escribe como valor ABSOLUTO (idempotente ante reintentos).
+// Desde la 7.4a cycle_offset ya no cuenta (los vistos salen del historial).
 export async function restartSeries(seriesId: string, totalEpisodes: number): Promise<void> {
     const current = await db().getFirstAsync<Row>(
         'SELECT cycle_offset FROM series WHERE id = ? AND deleted_at IS NULL',
@@ -145,6 +178,7 @@ export async function getFullWatchlist(userId: string, categoryId: string | null
             series.id AS s_id, series.name AS s_name, series.status,
             series.current_season, series.current_episode, series.initial_season, series.initial_episode,
             series.total_seasons, series.sort_order, series.cycle_offset, series.interleave_offset, series.last_watched_at,
+            ${WATCHED_COUNT_SERIES} AS watched_count,
             entertainment_categories.id AS c_id, entertainment_categories.start_date,
             entertainment_categories.frequency, entertainment_categories.days_of_week, entertainment_categories.type
         FROM series

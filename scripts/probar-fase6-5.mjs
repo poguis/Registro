@@ -8,6 +8,8 @@
 //      renovación en curso, y los datos locales quedan intactos.
 //   3. Respaldo: meta.backupDirFiles (nombre, tamaño, fecha) y validar-respaldo con v2 y v1.
 //   4. getEntertainmentCategories: equivalencia con la versión anterior (N+1) y nº fijo de consultas.
+//      Fase 7.4a: totalWatched sale del historial (filas vivas de watch_history + reading_history de
+//      las series vivas); se compara con un conteo independiente y el resto con f3772d9.
 //   5. Pull: applyPullFilter, mismas páginas con empates de server_updated_at, plan con rango.
 // Los archivos de trabajo van a un directorio temporal del sistema (no a .local-data/); el
 // fixture de PRUEBA "emulador-antes" (copia saneada, scripts/lib/fixtures.mjs) solo se copia.
@@ -344,7 +346,7 @@ section('3. Respaldo: listado de respaldos/ (formato 2) y validar-respaldo con v
 }
 
 // =========================================================================== 4. entretenimiento
-section('4. getEntertainmentCategories: mismo resultado que la versión anterior y nº fijo de consultas');
+section('4. getEntertainmentCategories: mismo resultado que la versión anterior (salvo totalWatched, 7.4a) y nº fijo de consultas');
 {
     const dev = await D.newDevice('entretenimiento', FIXTURE);
     D.use(dev);
@@ -360,6 +362,15 @@ section('4. getEntertainmentCategories: mismo resultado que la versión anterior
         return r.id;
     };
     const days = JSON.stringify({ Monday: 1, Tuesday: 2, Wednesday: 0, Thursday: 1, Friday: 1, Saturday: 0, Sunday: 0 });
+    // Historial sintético de una serie: `vivas` filas vivas (repartidas entre watch_history y
+    // reading_history) y `borradas` filas borradas.
+    const sembrarHistorial = async (userId, seriesId, vivas, borradas) => {
+        for (let k = 0; k < vivas + borradas; k++) {
+            const tabla = k % 2 ? 'reading_history' : 'watch_history';
+            const tsCol = tabla === 'watch_history' ? 'watched_at' : 'read_at';
+            await ins(tabla, { user_id: userId, series_id: seriesId, season_number: 1, episode_number: k + 1, [tsCol]: 1000 + k, deleted_at: k >= vivas ? ts() : null });
+        }
+    };
     // 3 categorías del usuario (una borrada), 1 de otro usuario; series con y sin temporadas,
     // borradas, estados cerrados, cycle_offset; cuotas con empates de start_date; pausas abiertas.
     const cats = [];
@@ -377,11 +388,15 @@ section('4. getEntertainmentCategories: mismo resultado que la versión anterior
             const ser = await ins('series', { user_id: user, category_id: cat, name: `[F6.5] serie ${ci}-${s}`, status: statuses[s], current_season: 2 + (s % 2), current_episode: 3 + s,
                 initial_season: s === 3 ? 2 : 1, initial_episode: 1 + (s % 3), cycle_offset: s === 2 ? 7 : 0 });
             if (s !== 1) for (let n = 1; n <= 3; n++) await ins('seasons', { user_id: user, series_id: ser, season_number: n, episode_count: 10 + n + s, deleted_at: n === 3 && s === 2 ? ts() : null });
+            // 7.4a: historial en las dos tablas, filas vivas y borradas (también en la pausada).
+            await sembrarHistorial(user, ser, 1 + s + ci, 2);
         }
-        await ins('series', { user_id: user, category_id: cat, name: '[F6.5] serie borrada', status: 'Mirando', current_season: 5, current_episode: 5, deleted_at: ts() });
+        const borrada = await ins('series', { user_id: user, category_id: cat, name: '[F6.5] serie borrada', status: 'Mirando', current_season: 5, current_episode: 5, deleted_at: ts() });
+        await sembrarHistorial(user, borrada, 4, 1); // serie borrada: no cuenta
     }
     await ins('entertainment_quotas_history', { user_id: other, category_id: otherCat, quotas: days, start_date: '2026-01-01' });
-    await ins('series', { user_id: other, category_id: otherCat, name: '[F6.5] ajena', status: 'Mirando', current_season: 2, current_episode: 2 });
+    const ajena = await ins('series', { user_id: other, category_id: otherCat, name: '[F6.5] ajena', status: 'Mirando', current_season: 2, current_episode: 2 });
+    await sembrarHistorial(other, ajena, 3, 1);
 
     // Copia de referencia de getEntertainmentCategories en f3772d9. Verificada idéntica (JSON byte a
     // byte) contra el original de git show f3772d9 el 2026-11-08 en 3 casos: usuario con 5
@@ -413,6 +428,22 @@ section('4. getEntertainmentCategories: mismo resultado que la versión anterior
                 quotas_history: quotasHistory.map((qh) => ({ ...qh, quotas: parseJson(qh.quotas, {}) })), is_paused: pauses.some((p) => !p.pause_end) };
         }));
     };
+    // Conteo independiente (7.4a): por categoría, sus series vivas una por una y, por cada serie,
+    // sus filas vivas de cada tabla de historial (consultas separadas, sin JOIN ni GROUP BY).
+    const conteoIndependiente = async (userId) => {
+        const db = getConnection();
+        const out = {};
+        for (const cat of await db.getAllAsync('SELECT id FROM entertainment_categories WHERE user_id = ? AND deleted_at IS NULL', [userId])) {
+            let n = 0;
+            for (const s of await db.getAllAsync('SELECT id FROM series WHERE category_id = ? AND deleted_at IS NULL', [cat.id])) {
+                for (const t of ['watch_history', 'reading_history']) n += (await db.getAllAsync(`SELECT id FROM ${t} WHERE series_id = ? AND deleted_at IS NULL`, [s.id])).length;
+            }
+            out[cat.id] = n;
+        }
+        return Object.fromEntries(Object.entries(out).sort());
+    };
+    const sinTotal = (lista) => lista.map(({ totalWatched, ...c }) => c);
+    const totales = (lista) => Object.fromEntries(lista.map((c) => [c.id, c.totalWatched]).sort());
     const { getEntertainmentCategories } = await import('../src/data/repositories/entertainment.ts');
     const conn = getConnection();
     const realGetAll = conn.getAllAsync.bind(conn);
@@ -437,15 +468,24 @@ section('4. getEntertainmentCategories: mismo resultado que la versión anterior
     // Igualdad del resultado COMPLETO de cada caso (todas las categorías, incluidas las del fixture).
     const same = (x, y) => JSON.stringify(x) === JSON.stringify(y);
     const diffNote = (x, y) => (firstDiff(x, y) ? `; difiere: ${firstDiff(x, y)}` : '');
-    check('usuario: resultado completo idéntico a la referencia f3772d9 (todas sus categorías)',
-        same(after, before), `${after.length} categorías; totalWatched ${after.map((c) => c.totalWatched).join('/')}${diffNote(after, before)}`);
-    check('otro usuario: resultado completo idéntico a la referencia f3772d9', same(otherRes, otherRef), `${otherRes.length} categoría(s)${diffNote(otherRes, otherRef)}`);
+    check('usuario: resultado completo idéntico a la referencia f3772d9 salvo totalWatched (todas sus categorías)',
+        same(sinTotal(after), sinTotal(before)), `${after.length} categorías${diffNote(sinTotal(after), sinTotal(before))}`);
+    check('otro usuario: resultado idéntico a la referencia f3772d9 salvo totalWatched', same(sinTotal(otherRes), sinTotal(otherRef)), `${otherRes.length} categoría(s)${diffNote(sinTotal(otherRes), sinTotal(otherRef))}`);
     check('usuario sin datos: resultado completo idéntico a la referencia f3772d9 (lista vacía)', same(nobody, nobodyRef) && nobody.length === 0);
+    // totalWatched (7.4a) = conteo independiente del historial; en las sembradas, el valor esperado
+    // a mano: series vivas 0..3 con 1+s+ci filas vivas cada una (la borrada y las filas borradas no cuentan).
+    const indep = await conteoIndependiente(user);
+    const esperadoSembradas = cats.map((_, ci) => [0, 1, 2, 3].reduce((a, s) => a + 1 + s + ci, 0));
+    check('totalWatched = conteo independiente del historial (usuario y otro usuario)',
+        same(totales(after), indep) && same(totales(otherRes), await conteoIndependiente(other)) && totales(otherRes)[otherCat] === 3,
+        `sembradas ${cats.map((c) => totales(after)[c]).join('/')}`);
+    check('totalWatched de las 3 sembradas = filas vivas de sus series vivas (10/14/18), también la pausada y las cerradas',
+        same(cats.map((c) => totales(after)[c]), esperadoSembradas) && same(esperadoSembradas, [10, 14, 18]));
     // Suposiciones de conteo sobre los datos sembrados (el fixture trae sus propias categorías).
     const mine = after.filter((c) => cats.includes(c.id));
     check('las 3 categorías sembradas están, con empates de start_date (4 cuotas) y una pausa abierta (is_paused)',
         mine.length === 3 && mine.some((c) => c.is_paused) && mine.every((c) => c.quotas_history.length === 4));
-    check(`número fijo de consultas: 5 (antes ${oldQueries} con ${before.length} categorías)`, newQueries === 5 && otherQueries === 5 && oldQueries > 5, `nueva ${newQueries}, otro usuario ${otherQueries}`);
+    check(`número fijo de consultas: 4 (antes ${oldQueries} con ${before.length} categorías)`, newQueries === 4 && otherQueries === 4 && oldQueries > 4, `nueva ${newQueries}, otro usuario ${otherQueries}`);
     check('sin categorías: 1 consulta y lista vacía', nobody.length === 0 && nobodyQueries === 1);
 }
 

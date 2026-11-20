@@ -1,26 +1,34 @@
 // Fase 7.3 — Equivalencia del motor puro de entretenimiento (src/entertainment/) con el código
-// de las pantallas tal como estaba en d55b5e1 (referencia congelada: `git show d55b5e1:<pantalla>`,
-// extraída con scripts/lib/extraer-pantalla.mjs). Resultado esperado: 0 diferencias.
+// de referencia, extraído con scripts/lib/extraer-pantalla.mjs. Resultado esperado: 0 diferencias.
 //
-// 1. Los 14 casos de probar-fase7-2: se ejecuta como subproceso (17 OK) y su bloque CASOS tiene
-//    que ser idéntico al de d55b5e1 (el oráculo se generó con el código viejo).
-// 2. Nivel puro: cola de video y de lectura (generateInterleavedList/generateEpisodesForSeries de
-//    d55b5e1 frente a buildQueue/episodesForSeries) sobre entradas generadas con semilla fija.
-// 3. Nivel pantalla (efectos): cada función de las 4 pantallas, VIEJA (d55b5e1) y NUEVA (árbol
-//    actual, con el motor inyectado), con un db que registra cada llamada (método y argumentos,
-//    en orden), stubs de Alert (título, mensaje, botones) y de cada setter/recarga; para cada
-//    alerta con botones se prueba cada botón. Se comparan los registros completos.
+// Fase 7.4a: la referencia pasa de d55b5e1 a 241c26e (cierre de la 7.3: pantallas + motor puro).
+// La 7.4a cambia A PROPÓSITO el conteo de vistos (historial), el ciclo (serie nueva y reanudar),
+// la grilla, R8, R15 y O1; esas funciones se retiran de aquí y las cubre probar-fase7-4a. Lo que
+// NO debía cambiar se sigue comparando con 241c26e:
+// 1. probar-fase7-2: 17 OK y su bloque CASOS idéntico al de 241c26e salvo EXACTAMENTE C2, C3, C7,
+//    C11 y C12 (los cambios aprobados de la 7.4a).
+// 2. Nivel puro: la cola (buildQueue/episodesForSeries del motor de 241c26e, cargado con
+//    `git show` en un temporal, frente al actual) sobre entradas sin temporadas de 0 capítulos
+//    (R15) ni huecos, con total_seasons = nº de temporadas y watched_count = el conteo por puntero
+//    que usaba 241c26e: la regla de orden no cambió.
+// 3. Nivel pantalla (efectos): las funciones no afectadas de las 4 pantallas, VIEJA (241c26e, con
+//    el motor de 241c26e) y NUEVA (árbol actual), con un db que registra cada llamada (método y
+//    argumentos, en orden), stubs de Alert (título, mensaje, botones) y de cada setter/recarga;
+//    para cada alerta con botones se prueba cada botón. Se comparan los registros completos.
 // Ante una diferencia imprime la semilla, la familia, el índice y un caso mínimo (datos
 // sintéticos). No usa la BD ni .local-data/.
 //
 // Uso: node scripts/probar-fase7-3.mjs [--semilla N] [--casos N]
 import { extraer, instanciar } from './lib/extraer-pantalla.mjs'; // antes que test-hooks (ver el módulo)
 import './lib/test-hooks.mjs';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 process.env.TZ = 'America/Guayaquil';
-const REF = 'd55b5e1';
+const REF = '241c26e';
 const argv = process.argv.slice(2);
 const flag = (n, d) => { const i = argv.indexOf(n); return i >= 0 ? Number(argv[i + 1]) : d; };
 const SEMILLA = flag('--semilla', 0x7a3);
@@ -30,6 +38,23 @@ const utils = await import('../src/services/backlogUtils.js');
 const motorCola = await import('../src/entertainment/queue.ts');
 const motorDetalle = await import('../src/entertainment/seriesDetail.ts');
 const BASE = { ...utils, ...motorCola, ...motorDetalle };
+
+// Motor de la referencia (241c26e): `git show` a un temporal (.mts: Node 24 quita los tipos), con
+// el import de backlogUtils apuntando al archivo actual (backlogUtils no cambia en la 7.4a).
+const REFDIR = join(tmpdir(), 'registro-pruebas-fase7-3', `ref-${REF}`);
+mkdirSync(REFDIR, { recursive: true });
+const backlogUrl = pathToFileURL(resolve('src/services/backlogUtils.js')).href;
+async function cargarRef(ruta, nombre) {
+    const codigo = execFileSync('git', ['show', `${REF}:${ruta}`], { encoding: 'utf8' });
+    const reescrito = codigo.replaceAll("from '../services/backlogUtils'", `from '${backlogUrl}'`);
+    if (/from '\.{1,2}\//.test(reescrito)) throw new Error(`${REF}:${ruta}: import relativo no previsto`);
+    const f = join(REFDIR, nombre);
+    writeFileSync(f, reescrito);
+    return import(pathToFileURL(f).href);
+}
+const motorColaRef = await cargarRef('src/entertainment/queue.ts', 'queue.mts');
+const motorDetalleRef = await cargarRef('src/entertainment/seriesDetail.ts', 'seriesDetail.mts');
+const BASE_REF = { ...utils, ...motorColaRef, ...motorDetalleRef };
 
 let failures = 0;
 const check = (name, ok, detail = '') => {
@@ -46,12 +71,22 @@ const P = {
 // =============================================================================================
 // 1. Los 14 casos de probar-fase7-2
 // =============================================================================================
-section('1. Los 14 casos de probar-fase7-2 (oráculo generado con el código de d55b5e1)');
+section(`1. Los 14 casos de probar-fase7-2 (oráculo de ${REF}; la 7.4a cambia solo C2, C3, C7, C11 y C12)`);
 {
+    const CAMBIAN = ['C2', 'C3', 'C7', 'C11', 'C12'];
     const bloque = (t) => t.slice(t.indexOf('const CASOS = ['), t.indexOf('// 2. MECANISMO'));
-    const viejo = bloque(execFileSync('git', ['show', `${REF}:scripts/probar-fase7-2.mjs`], { encoding: 'utf8' }));
-    const nuevo = bloque(readFileSync('scripts/probar-fase7-2.mjs', 'utf8'));
-    check(`bloque CASOS de probar-fase7-2 idéntico al de ${REF}`, viejo.length > 0 && viejo === nuevo, `${nuevo.length} caracteres`);
+    // Texto de cada caso por id (y el resto del bloque, que tiene que quedar igual).
+    const casosDe = (t) => {
+        const partes = bloque(t).split(/\n    \{\n        id: '/);
+        return { resto: partes[0], casos: Object.fromEntries(partes.slice(1).map((x) => [x.slice(0, x.indexOf("'")), x])) };
+    };
+    const viejo = casosDe(execFileSync('git', ['show', `${REF}:scripts/probar-fase7-2.mjs`], { encoding: 'utf8' }));
+    const nuevo = casosDe(readFileSync('scripts/probar-fase7-2.mjs', 'utf8'));
+    const ids = Object.keys(viejo.casos);
+    const cambiados = ids.filter((id) => viejo.casos[id] !== nuevo.casos[id]);
+    check(`bloque CASOS: los mismos 14 casos y solo cambian ${CAMBIAN.join(', ')} respecto de ${REF}`,
+        ids.length === 14 && JSON.stringify(Object.keys(nuevo.casos)) === JSON.stringify(ids) && viejo.resto === nuevo.resto && JSON.stringify(cambiados) === JSON.stringify(CAMBIAN),
+        `cambian: ${cambiados.join(', ') || 'ninguno'}`);
     const r = spawnSync(process.execPath, ['scripts/probar-fase7-2.mjs'], { encoding: 'utf8', timeout: 600000 });
     const oks = (r.stdout.match(/^OK/gm) || []).length;
     const fallas = (r.stdout.match(/^FALLA/gm) || []).length;
@@ -182,7 +217,7 @@ function crearMundo(caso, eleccion) {
 const RECARGAS = ['fetchSeries', 'loadData', 'refreshCategory', 'resetForm', 'loadItems'];
 function construir(archivo, nombre, commit, mundo, valores, pila = []) {
     const ext = extraer(archivo, nombre, { commit });
-    const deps = { ...BASE, db: mundo.db, Alert: mundo.Alert, console: mundo.consola, ...valores };
+    const deps = { ...(commit === REF ? BASE_REF : BASE), db: mundo.db, Alert: mundo.Alert, console: mundo.consola, ...valores };
     for (const libre of ext.libres) {
         if (Object.hasOwn(deps, libre)) continue;
         if (/^set[A-Z]/.test(libre)) { deps[libre] = (v) => mundo.reg.push(['set', libre, normalizar(v)]); continue; }
@@ -241,21 +276,46 @@ async function comparar(archivo, nombre, caso, valores, args) {
 // =============================================================================================
 // Familias: qué función y con qué estado/argumentos
 // =============================================================================================
+// Entradas sin temporadas de 0 capítulos (R15) ni huecos, con total_seasons = nº de temporadas:
+// la 7.4a cambia a propósito esos casos (se saltan y la serie termina en la de número más alto).
+// 0 → 1 capítulo; las temporadas se renumeran 1..k (sin huecos) y total_seasons = k.
+const sinVacias = (caso) => {
+    const c = clonar(caso);
+    const arreglar = (lista) => lista.forEach((s) => {
+        s.seasons.forEach((t, k) => { if (!t.episode_count) t.episode_count = 1; t.season_number = k + 1; });
+        s.total_seasons = s.seasons.length;
+    });
+    arreglar(c.series);
+    arreglar(c.watchlist);
+    return c;
+};
+// watched_count = el conteo por puntero que usaba 241c26e para ordenar (la 7.4a cuenta historial).
+const conConteoViejo = (wl) => wl.map((s) => ({ ...s, watched_count: utils.getWatchedCountSinceStart(s) }));
+
+// Familias retiradas de la comparación: cambian a propósito en la 7.4a (las cubre probar-fase7-4a).
+const RETIRADAS = [
+    ['registro: loadData', 'la cabecera relee el total de la categoría de la BD (R1, ajuste b) y la cola ya no tiene variante'],
+    ['registro: onUnmarkWatched', 'R8: una serie cerrada vuelve a Mirando'],
+    ['detalle: handleSave', 'serie nueva al final de la vuelta actual (C2) y límite NULL/0 = sin límite (O1)'],
+    ['detalle: updateToChapter', 'la grilla marca/desmarca historial (decisión 2, ajuste c)'],
+    ['detalle: handleRestart', 'el aviso muestra los vistos del historial (decisión 4)'],
+    ['detalle: handleTogglePauseSeries', 'reanudar al final del ciclo actual (E3, opción A)'],
+    ['atraso: calculateHeaderBacklog / calculateGlobalBacklog', 'el total sale del historial (R1)'],
+];
+
 const FAMILIAS = [
     {
-        id: 'cola (nivel puro)', puro: true,
-        async correr(caso) {
-            const v = caso.variante, archivo = P[v].registro;
-            const mundo = crearMundo(caso, null);
-            const viejaEps = construir(archivo, 'generateEpisodesForSeries', REF, mundo, {});
-            const viejaCola = construir(archivo, 'generateInterleavedList', REF, mundo, { generateEpisodesForSeries: viejaEps });
-            const a = JSON.stringify(viejaCola(clonar(caso.watchlist)));
-            const b = JSON.stringify(motorCola.buildQueue(clonar(caso.watchlist), v));
+        id: 'cola (nivel puro, sin temporadas de 0 capítulos ni huecos)', puro: true,
+        async correr(casoOriginal) {
+            const caso = sinVacias(casoOriginal);
+            const v = caso.variante;
+            const a = JSON.stringify(motorColaRef.buildQueue(clonar(caso.watchlist), v));
+            const b = JSON.stringify(motorCola.buildQueue(conConteoViejo(clonar(caso.watchlist))));
             if (a !== b) return { igual: false, n: 1, viejo: a, nuevo: b };
             // episodesForSeries directamente: solo video (en lectura, la serie cerrada se filtra en la cola).
             if (v === 'video') {
                 for (const s of caso.watchlist) {
-                    const x = JSON.stringify(viejaEps(clonar(s))), y = JSON.stringify(motorCola.episodesForSeries(clonar(s), 'video'));
+                    const x = JSON.stringify(motorColaRef.episodesForSeries(clonar(s), 'video')), y = JSON.stringify(motorCola.episodesForSeries(clonar(s)));
                     if (x !== y) return { igual: false, n: 2, viejo: x, nuevo: y };
                 }
             }
@@ -263,18 +323,10 @@ const FAMILIAS = [
         },
     },
     {
-        id: 'registro: loadData', async correr(caso) {
+        id: 'registro: onMarkWatched (sin temporadas de 0 capítulos ni huecos)', async correr(casoOriginal) {
+            const caso = sinVacias(casoOriginal);
             const v = caso.variante;
-            const val = v === 'video'
-                ? { user: { id: 'u' }, category: caso.categoria, tab: caso.tabRegistro, currentCategory: caso.categoria }
-                : { user: { id: 'u' }, category: caso.categoria, currentTab: caso.tabRegistro };
-            return comparar(P[v].registro, 'loadData', caso, val, []);
-        },
-    },
-    {
-        id: 'registro: onMarkWatched', async correr(caso) {
-            const v = caso.variante;
-            const items = motorCola.buildQueue(clonar(caso.watchlist), v);
+            const items = motorCola.buildQueue(conConteoViejo(clonar(caso.watchlist)));
             let item;
             if (caso.marcar.modo === 'fantasma' || items.length === 0) item = { uniqueId: 'fx', seriesId: 'sx', seriesName: 'X', season: 1, episode: 1, status: 'pending' };
             else if (caso.marcar.modo === 'primero') { const idsS = [...new Set(items.map((i) => i.seriesId))]; const sid = idsS[caso.marcar.indice % idsS.length]; item = items.find((i) => i.seriesId === sid); }
@@ -283,24 +335,8 @@ const FAMILIAS = [
         },
     },
     {
-        id: 'registro: onUnmarkWatched', async correr(caso) {
-            const v = caso.variante;
-            const item = { uniqueId: 'u1', seriesId: caso.series[0]?.id || 'sx', season: caso.toque.sNum, episode: caso.toque.eNum, status: 'watched' };
-            return comparar(P[v].registro, 'onUnmarkWatched', caso, {}, [item]);
-        },
-    },
-    {
         id: 'detalle: fetchSeries', async correr(caso) {
             return comparar(P[caso.variante].detalle, 'fetchSeries', caso, { category: caso.categoria }, []);
-        },
-    },
-    {
-        id: 'detalle: handleSave', async correr(caso) {
-            const f = caso.form;
-            return comparar(P[caso.variante].detalle, 'handleSave', caso, {
-                name: f.name, description: 'd', status: f.status, seasons: f.seasons, currentSeason: f.currentSeason, currentEpisode: f.currentEpisode,
-                isEditing: f.isEditing, editingSeriesId: f.editingSeriesId, originalList: caso.series, category: caso.categoria,
-            }, []);
         },
     },
     {
@@ -309,29 +345,6 @@ const FAMILIAS = [
             if (!a.igual) return a;
             const b = await comparar(P[caso.variante].detalle, 'handleRemoveSeason', caso, { seasons: caso.filasQuitar }, []);
             return b.igual ? { igual: true, n: a.n + b.n } : b;
-        },
-    },
-    {
-        id: 'detalle: updateToChapter', async correr(caso) {
-            const t = caso.toque;
-            const objetivo = caso.series.find((s) => s.id === t.seriesId);
-            let sNum = t.sNum, eNum = t.eNum;
-            if (t.ultimo && objetivo) { sNum = objetivo.total_seasons; eNum = objetivo.seasons.find((s) => s.season_number === objetivo.total_seasons)?.episode_count || 0; }
-            const activeSeries = t.activa === 'ninguna' ? null : t.activa === 'misma' ? (objetivo || null) : (caso.series.find((s) => s.id !== t.seriesId) || null);
-            return comparar(P[caso.variante].detalle, 'updateToChapter', caso, { activeSeries, originalList: caso.series }, [t.seriesId, sNum, eNum]);
-        },
-    },
-    {
-        id: 'detalle: handleRestart', async correr(caso) {
-            const activeSeries = caso.reinicio ? caso.series.find((s) => s.id === caso.reinicio) : null;
-            return comparar(P[caso.variante].detalle, 'handleRestart', caso, { activeSeries }, []);
-        },
-    },
-    {
-        id: 'detalle: handleTogglePauseSeries', async correr(caso) {
-            if (!caso.pausa) return { igual: true, n: 0 };
-            const s = caso.series.find((x) => x.id === caso.pausa);
-            return comparar(P[caso.variante].detalle, 'handleTogglePauseSeries', caso, { originalList: caso.series }, [s]);
         },
     },
     {
@@ -350,15 +363,6 @@ const FAMILIAS = [
             }
             const r = await comparar(P[caso.variante].detalle, 'getFilteredSeries', caso, val, []);
             return r.igual ? { igual: true, n: n + r.n } : r;
-        },
-    },
-    {
-        id: 'atraso: calculateHeaderBacklog / calculateGlobalBacklog', async correr(caso) {
-            const v = caso.variante;
-            const a = await comparar(P[v].detalle, 'calculateHeaderBacklog', caso, { originalList: caso.series, currentCategory: caso.categoria }, []);
-            if (!a.igual || v !== 'video') return a;
-            const b = await comparar(P[v].registro, 'calculateGlobalBacklog', caso, { currentCategory: caso.categoria }, [caso.watchlist, caso.categoria]);
-            return b.igual ? { igual: true, n: a.n + b.n } : b;
         },
     },
 ];
@@ -385,6 +389,7 @@ async function reducir(familia, caso) {
 // 2 y 3. Equivalencia sobre entradas generadas
 // =============================================================================================
 section(`2-3. Equivalencia con ${REF} sobre ${CASOS} entradas generadas por variante (semilla ${SEMILLA})`);
+for (const [id, motivo] of RETIRADAS) console.log(`     retirada (cambio a propósito de la 7.4a, cubierta por probar-fase7-4a): ${id} — ${motivo}`);
 for (const familia of FAMILIAS) {
     let ejecuciones = 0, casosOk = 0, diferencia = null;
     cobertura = { escrituras: 0, alertas: 0, lanza: 0 };
@@ -420,18 +425,15 @@ cobertura = null;
 // Controles negativos: el comparador detecta un cambio deliberado (no pasa sin probar nada).
 section('Controles negativos del comparador');
 {
-    // a) Cola: la variante equivocada (lectura en vez de video) tiene que dar alguna diferencia.
+    // a) Cola: sin watched_count (todo 0) el orden tiene que diferir a veces del de 241c26e.
     const rng = mulberry32(SEMILLA);
     let detectadas = 0;
     for (let i = 0; i < CASOS; i++) {
-        const caso = generarCaso(rng, 'video');
-        const mundo = crearMundo(caso, null);
-        const eps = construir(P.video.registro, 'generateEpisodesForSeries', REF, mundo, {});
-        const vieja = construir(P.video.registro, 'generateInterleavedList', REF, mundo, { generateEpisodesForSeries: eps });
-        if (JSON.stringify(vieja(clonar(caso.watchlist))) !== JSON.stringify(motorCola.buildQueue(clonar(caso.watchlist), 'reading'))) detectadas++;
+        const caso = sinVacias(generarCaso(rng, 'video'));
+        if (JSON.stringify(motorColaRef.buildQueue(clonar(caso.watchlist), 'video')) !== JSON.stringify(motorCola.buildQueue(clonar(caso.watchlist)))) detectadas++;
     }
-    check(`cola: usar la variante de lectura en video se detecta (${detectadas} de ${CASOS} casos)`, detectadas > 0);
-    // b) Efectos: moveUp frente a moveDown (de d55b5e1) con la misma entrada tienen que diferir a veces.
+    check(`cola: ordenar sin el conteo de vistos se detecta (${detectadas} de ${CASOS} casos)`, detectadas > 0);
+    // b) Efectos: moveUp frente a moveDown (de 241c26e) con la misma entrada tienen que diferir a veces.
     const rng2 = mulberry32(SEMILLA + 1);
     let difieren = 0;
     for (let i = 0; i < CASOS; i++) {
@@ -456,5 +458,5 @@ section('4. La lógica movida ya no está en las pantallas');
     check('los registros llaman a buildQueue y los detalles importan seriesDetail', usan);
 }
 
-console.log(failures === 0 ? '\nTODAS LAS PRUEBAS DE LA FASE 7.3 PASARON (0 diferencias).' : `\n${failures} prueba(s) fallaron.`);
+console.log(failures === 0 ? `\nTODAS LAS PRUEBAS DE LA FASE 7.3 PASARON (0 diferencias con ${REF} en lo no afectado por la 7.4a).` : `\n${failures} prueba(s) fallaron.`);
 process.exit(failures === 0 ? 0 : 1);

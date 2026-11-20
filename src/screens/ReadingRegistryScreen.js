@@ -6,7 +6,8 @@ import db from '../services/db';
 import { useSyncRefresh } from '../sync/useSyncRefresh';
 import { calculateBacklog, calculateBacklogV2, getAbsoluteEpisodeCount, getWatchedCountSinceStart } from '../services/backlogUtils';
 // Fase 7.3: la cola y la decisión de "marcar leído" viven en el motor puro (src/entertainment/).
-import { buildQueue, decideMarkWatched } from '../entertainment/queue';
+// Fase 7.4a: los vistos salen del historial; la cabecera relee el total de la categoría de la BD.
+import { buildQueue, decideMarkWatched, statusAfterUnmark, watchedCount } from '../entertainment/queue';
 import { useTheme } from '../contexts/ThemeContext';
 
 export default function ReadingRegistryScreen({ user, category, onBack }) {
@@ -23,10 +24,11 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
     const loadData = useCallback(async ({ silent = false } = {}) => {
         if (!silent) setLoading(true);
         try {
-            const [seriesResult, historyResult, categoriesResult] = await Promise.all([
+            const [seriesResult, historyResult, categoriesResult, totalResult] = await Promise.all([
                 db.getFullWatchlist(user.id, category ? category.id : null),
                 db.getReadingHistory(user.id, category ? category.id : null),
-                db.getEntertainmentCategories(user.id)
+                db.getEntertainmentCategories(user.id),
+                category ? db.getCategoryWatchedTotal(category.id) : Promise.resolve(null)
             ]);
             if (seriesResult.success) {
                 setRawSeries(seriesResult.data);
@@ -36,16 +38,20 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
                 const effectiveCategory = refreshedCategory || category || null;
                 setCurrentCategory(effectiveCategory);
 
-                const calc = effectiveCategory ? calculateBacklogV2(effectiveCategory, seriesResult.data) : null;
+                // Vistos de la categoría recién leídos de la BD (historial, todas las obras: R1).
+                const total = totalResult && totalResult.success
+                    ? totalResult.total
+                    : seriesResult.data.reduce((a, s) => a + watchedCount(s), 0);
+                const calc = effectiveCategory ? calculateBacklog(effectiveCategory, total) : null;
                 if (calc) {
-                    setBacklogInfo({ 
-                        items: calc.items, 
-                        days: calc.days, 
-                        adelantoItems: calc.adelantoItems, 
-                        adelantoDays: calc.adelantoDays 
+                    setBacklogInfo({
+                        items: calc.backlogItems,
+                        days: calc.diffDays,
+                        adelantoItems: calc.adelantoItems,
+                        adelantoDays: calc.adelantoDays
                     });
                 }
-                const pendingList = buildQueue(seriesResult.data, 'reading');
+                const pendingList = buildQueue(seriesResult.data);
                 let watchedList = historyResult.success ? historyResult.data.map(h => ({ uniqueId: `${h.series_id}-s${h.season_number}-e${h.episode_number}-rh${h.id}`, seriesId: h.series_id, seriesName: h.s_name, season: h.season_number, episode: h.episode_number, status: 'watched', readAt: h.read_at })) : [];
                 setCounts({ pending: pendingList.length, watched: watchedList.length });
                 setItems(currentTab === 'pending' ? pendingList : watchedList);
@@ -79,8 +85,11 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
     };
 
     const onUnmarkWatched = async (item) => {
+        // R8: si la obra estaba En espera o Terminado, vuelve a Mirando.
+        const series = rawSeries.find(s => s.s_id === item.seriesId);
+        const status = series ? statusAfterUnmark(series.status) : null;
         await db.removeReadingHistory(item.seriesId, item.season, item.episode);
-        const res = await db.updateSeriesProgress(item.seriesId, item.season, item.episode, null, null, 0);
+        const res = await db.updateSeriesProgress(item.seriesId, item.season, item.episode, status, null, 0);
         if (res.success) loadData();
     };
 
@@ -141,12 +150,14 @@ export default function ReadingRegistryScreen({ user, category, onBack }) {
                 </View>
             </View>
 
-            <View style={styles.tabContainer}>
-                <TouchableOpacity style={[styles.tab, currentTab === 'pending' && { borderBottomColor: theme.accent, borderBottomWidth: 3 }]} onPress={() => setCurrentTab('pending')}>
-                    <Text style={[styles.tabText, { color: currentTab === 'pending' ? theme.accent : theme.subText }]}>Pendientes ({counts.pending})</Text>
+            {/* O2 (7.4a): la barra usa el tema (antes fondo blanco fijo, ilegible en modo oscuro),
+                con el mismo estilo de pestañas que el Registro de capítulos. */}
+            <View style={[styles.tabContainer, { backgroundColor: theme.card }]}>
+                <TouchableOpacity style={[styles.tab, currentTab === 'pending' && { backgroundColor: theme.accent + '22' }]} onPress={() => setCurrentTab('pending')}>
+                    <Text style={[styles.tabText, { color: theme.subText }, currentTab === 'pending' && { color: theme.accent, fontWeight: 'bold' }]}>Pendientes ({counts.pending})</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.tab, currentTab === 'watched' && { borderBottomColor: theme.accent, borderBottomWidth: 3 }]} onPress={() => setCurrentTab('watched')}>
-                    <Text style={[styles.tabText, { color: currentTab === 'watched' ? theme.accent : theme.subText }]}>Leídos ({counts.watched})</Text>
+                <TouchableOpacity style={[styles.tab, currentTab === 'watched' && { backgroundColor: theme.accent + '22' }]} onPress={() => setCurrentTab('watched')}>
+                    <Text style={[styles.tabText, { color: theme.subText }, currentTab === 'watched' && { color: theme.accent, fontWeight: 'bold' }]}>Leídos ({counts.watched})</Text>
                 </TouchableOpacity>
             </View>
 
@@ -170,9 +181,9 @@ const styles = StyleSheet.create({
     backButtonText: { fontSize: 24, fontWeight: 'bold' },
     headerTitle: { fontSize: 18, fontWeight: 'bold' },
     headerSubtitle: { fontSize: 13, color: '#EF6C00', fontWeight: 'bold' },
-    tabContainer: { flexDirection: 'row', backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
-    tab: { flex: 1, padding: 15, alignItems: 'center' },
-    tabText: { fontWeight: 'bold' },
+    tabContainer: { flexDirection: 'row', padding: 5, margin: 15, borderRadius: 10 },
+    tab: { flex: 1, padding: 10, alignItems: 'center', borderRadius: 8 },
+    tabText: { fontWeight: '600' },
     card: { padding: 15, borderRadius: 12, marginBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', elevation: 2, borderLeftWidth: 5 },
     cardContent: { flex: 1 },
     seriesName: { fontSize: 16, fontWeight: 'bold' },

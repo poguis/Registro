@@ -43,6 +43,38 @@ async function list(kind: Kind, userId: string, categoryId: string | null): Prom
     return db().getAllAsync<Row>(`${query} ORDER BY h.${kind.tsColumn} DESC`, params);
 }
 
+// Fase 7.4a: lotes para la grilla ("marcar vistos hasta aquí" / desmarcar). Corren dentro de la
+// transacción del llamador (series.markEpisodesWatched / unmarkEpisodes): cada fila con su
+// entrada en la outbox (rows.ts).
+export type HistoryKind = 'watch' | 'read';
+type Ep = { season: number; episode: number };
+const kindOf = (kind: HistoryKind): Kind => (kind === 'read' ? READ : WATCH);
+
+export async function addHistoryRows(kind: HistoryKind, seriesId: string, episodes: Ep[], timestamp: number): Promise<number> {
+    const k = kindOf(kind);
+    const userId = await ownerOf('series', seriesId);
+    for (const ep of episodes) {
+        await insertRow(k.table, userId, { series_id: seriesId, season_number: ep.season, episode_number: ep.episode, [k.tsColumn]: timestamp });
+    }
+    return episodes.length;
+}
+
+// Borrado lógico de la fila más reciente de cada capítulo (si no hay ninguna, se salta).
+export async function removeLatestHistoryRows(kind: HistoryKind, seriesId: string, episodes: Ep[]): Promise<number> {
+    const k = kindOf(kind);
+    let removed = 0;
+    for (const ep of episodes) {
+        const row = await db().getFirstAsync<Row>(
+            `SELECT id FROM ${k.table}
+             WHERE series_id = ? AND season_number = ? AND episode_number = ? AND deleted_at IS NULL
+             ORDER BY ${k.tsColumn} DESC LIMIT 1`,
+            [seriesId, ep.season, ep.episode]
+        );
+        if (row) { await softDelete(k.table, row.id); removed++; }
+    }
+    return removed;
+}
+
 export const addHistory = (seriesId: string, season: number, episode: number, timestamp = Date.now()) =>
     add(WATCH, seriesId, season, episode, timestamp);
 export const removeHistory = (seriesId: string, season: number, episode: number) =>

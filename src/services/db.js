@@ -529,6 +529,39 @@ class DatabaseService {
         }
     }
 
+    // Fase 7.4a — grilla: marca vistos (filas de historial + puntero/estado) en UNA transacción.
+    // type = tipo de la categoría ('video' → watch_history, 'reading' → reading_history).
+    async markEpisodesWatched(seriesId, type, episodes, progress, timestamp = Date.now()) {
+        if (!this.db) await this.init();
+        try {
+            await mutate(() => series.markEpisodesWatched(seriesId, type === 'reading' ? 'read' : 'watch', episodes, timestamp, progress));
+            return ok();
+        } catch (error) {
+            return failed('Error marking episodes:', error);
+        }
+    }
+
+    // Fase 7.4a — grilla hacia atrás: desmarca (borrado lógico) y fija puntero/estado, en UNA transacción.
+    async unmarkEpisodes(seriesId, type, episodes, progress) {
+        if (!this.db) await this.init();
+        try {
+            await mutate(() => series.unmarkEpisodes(seriesId, type === 'reading' ? 'read' : 'watch', episodes, progress));
+            return ok();
+        } catch (error) {
+            return failed('Error unmarking episodes:', error);
+        }
+    }
+
+    // Fase 7.4a — vistos de una categoría desde el historial (una consulta).
+    async getCategoryWatchedTotal(categoryId) {
+        if (!this.db) await this.init();
+        try {
+            return ok({ total: await entertainment.getCategoryWatchedTotal(categoryId) });
+        } catch (error) {
+            return failed('Error reading category total:', error);
+        }
+    }
+
     // cycle_offset se escribe como valor absoluto (lee el actual dentro de la transacción).
     async restartSeries(seriesId, totalEpisodes) {
         if (!this.db) await this.init();
@@ -782,6 +815,7 @@ export const QUEUED_MUTATIONS = [
     'addService', 'updateService', 'deleteService', 'toggleServiceStatus',
     'addEntertainmentCategory', 'pauseCategory', 'resumeCategory', 'updateEntertainmentCategory', 'deleteEntertainmentCategory',
     'addSeriesWithSeasons', 'updateSeriesWithSeasons', 'updateSeriesSortOrder', 'updateSeriesProgress', 'restartSeries', 'deleteSeries',
+    'markEpisodesWatched', 'unmarkEpisodes',
     'addHistory', 'removeHistory', 'addReadingHistory', 'removeReadingHistory',
     'addBacklogItem', 'updateBacklogStatus', 'updateBacklogItem', 'deleteBacklogItem',
     'addWorkPerson', 'updateWorkPersonOrder', 'updateWorkPerson', 'deleteWorkPerson',

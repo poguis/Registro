@@ -54,12 +54,27 @@ const groupBy = (rows: Row[], key: string): Map<string, Row[]> => {
     return map;
 };
 
-// Categorías con su progreso agregado. Fase 6.5: 5 consultas fijas (antes 1 + 3 por categoría
+// Categorías con su progreso agregado. Fase 6.5: consultas fijas (antes 1 + 3 por categoría
 // + 1 por serie) con el mismo resultado. Mismos filtros que antes (los hijos por category_id /
 // series_id y deleted_at IS NULL) y el mismo orden dentro de cada categoría: las cuotas por
 // start_date (empates por rowid) y las pausas por rowid, el orden en que SQLite las devolvía.
 // La columna de agrupación (category_id / series_id) se lee aparte y no se devuelve.
+// Fase 7.4a: totalWatched = filas vivas de historial (watch_history + reading_history) de las
+// series vivas de la categoría, TODAS (incluidas pausadas y cerradas, R1): 4 consultas fijas.
 const CATEGORY_IDS = 'SELECT id FROM entertainment_categories WHERE user_id = ? AND deleted_at IS NULL';
+const HISTORY_ROWS = `SELECT series_id FROM watch_history WHERE deleted_at IS NULL
+                      UNION ALL SELECT series_id FROM reading_history WHERE deleted_at IS NULL`;
+
+// Vistos de UNA categoría, leídos de la BD (una consulta). Lo usa el Registro para que la
+// cabecera no dependa de una categoría vieja del estado de App.js.
+export async function getCategoryWatchedTotal(categoryId: string): Promise<number> {
+    const row = await db().getFirstAsync<Row>(
+        `SELECT COUNT(*) AS n FROM (${HISTORY_ROWS}) h JOIN series s ON s.id = h.series_id
+         WHERE s.category_id = ? AND s.deleted_at IS NULL`,
+        [categoryId]
+    );
+    return row ? row.n : 0;
+}
 
 export async function getEntertainmentCategories(userId: string): Promise<Row[]> {
     const categories = await db().getAllAsync<Row>(
@@ -72,17 +87,12 @@ export async function getEntertainmentCategories(userId: string): Promise<Row[]>
          WHERE category_id IN (${CATEGORY_IDS}) AND deleted_at IS NULL ORDER BY category_id, start_date ASC, rowid ASC`,
         [userId]
     ), '_group');
-    const seriesByCategory = groupBy(await db().getAllAsync<Row>(
-        `SELECT category_id AS _group, id, current_season, current_episode, initial_season, initial_episode, status, cycle_offset FROM series
-         WHERE category_id IN (${CATEGORY_IDS}) AND deleted_at IS NULL ORDER BY category_id, rowid ASC`,
+    const watchedByCategory = new Map<string, number>();
+    for (const r of await db().getAllAsync<Row>(
+        `SELECT s.category_id AS _group, COUNT(*) AS n FROM (${HISTORY_ROWS}) h JOIN series s ON s.id = h.series_id
+         WHERE s.category_id IN (${CATEGORY_IDS}) AND s.deleted_at IS NULL GROUP BY s.category_id`,
         [userId]
-    ), '_group');
-    const seasonsBySeries = groupBy(await db().getAllAsync<Row>(
-        `SELECT series_id AS _group, season_number, episode_count FROM seasons
-         WHERE series_id IN (SELECT id FROM series WHERE category_id IN (${CATEGORY_IDS}) AND deleted_at IS NULL)
-           AND deleted_at IS NULL ORDER BY series_id, rowid ASC`,
-        [userId]
-    ), '_group');
+    )) watchedByCategory.set(r._group, r.n);
     const pausesByCategory = groupBy(await db().getAllAsync<Row>(
         `SELECT category_id AS _group, pause_start, pause_end FROM entertainment_pauses
          WHERE category_id IN (${CATEGORY_IDS}) AND deleted_at IS NULL ORDER BY category_id, rowid ASC`,
@@ -92,29 +102,7 @@ export async function getEntertainmentCategories(userId: string): Promise<Row[]>
 
     return categories.map((cat) => {
         const quotasHistory = (quotasByCategory.get(cat.id) || []).map(strip);
-        const seriesList = seriesByCategory.get(cat.id) || [];
-
-        let totalWatched = 0;
-        for (const s of seriesList) {
-            const seasons = seasonsBySeries.get(s.id) || [];
-            const getAbs = (seasonNum: number, episodeNum: number) => {
-                let count = 0;
-                for (let i = 1; i < seasonNum; i++) {
-                    const sea = seasons.find((se) => se.season_number === i);
-                    count += sea ? sea.episode_count : 0;
-                }
-                // Restamos 1 porque el puntero indica el SIGUIENTE a ver (T1E1 = 0 vistos)
-                return count + (episodeNum - 1);
-            };
-            const currentAbs = getAbs(s.current_season, s.current_episode);
-            const initialAbs = getAbs(s.initial_season || 1, s.initial_episode || 1);
-            let diff = currentAbs - initialAbs;
-            // Ajuste para el último capítulo solo si está CERRADA (Terminado/En espera).
-            if (s.status === 'Terminado' || s.status === 'En espera') diff += 1;
-            // cycle_offset: historial de ciclos anteriores (series reiniciadas).
-            totalWatched += (diff > 0 ? diff : 0) + (s.cycle_offset || 0);
-        }
-
+        const totalWatched = watchedByCategory.get(cat.id) || 0;
         const pauses = (pausesByCategory.get(cat.id) || []).map(strip);
         return {
             ...cat,

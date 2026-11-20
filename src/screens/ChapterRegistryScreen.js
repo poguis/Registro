@@ -15,7 +15,8 @@ import { useSyncRefresh } from '../sync/useSyncRefresh';
 import { useTheme } from '../contexts/ThemeContext';
 import { calculateBacklog, calculateBacklogV2, getLocalDateString, isDatePaused, getAbsoluteEpisodeCount, getWatchedCountSinceStart } from '../services/backlogUtils';
 // Fase 7.3: la cola y la decisión de "marcar visto" viven en el motor puro (src/entertainment/).
-import { buildQueue, decideMarkWatched } from '../entertainment/queue';
+// Fase 7.4a: los vistos salen del historial; la cabecera relee el total de la categoría de la BD.
+import { buildQueue, decideMarkWatched, statusAfterUnmark, watchedCount } from '../entertainment/queue';
 
 export default function ChapterRegistryScreen({ user, category, onBack }) {
     const { theme, isDarkMode } = useTheme();
@@ -36,10 +37,11 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
     // silent: recarga sin indicador de carga (no desmonta la lista ni pierde el scroll).
     const loadData = async ({ silent = false } = {}) => {
         if (!silent) setLoading(true);
-        const [watchlistResult, historyResult, categoriesResult] = await Promise.all([
+        const [watchlistResult, historyResult, categoriesResult, totalResult] = await Promise.all([
             db.getFullWatchlist(user.id, category ? category.id : null),
             db.getHistory(user.id, category ? category.id : null),
-            db.getEntertainmentCategories(user.id)
+            db.getEntertainmentCategories(user.id),
+            category ? db.getCategoryWatchedTotal(category.id) : Promise.resolve(null)
         ]);
         if (watchlistResult.success) {
             setRawSeries(watchlistResult.data);
@@ -48,8 +50,12 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
                 : null;
             const effectiveCategory = refreshedCategory || category || null;
             setCurrentCategory(effectiveCategory);
-            calculateGlobalBacklog(watchlistResult.data, effectiveCategory);
-            const pendingList = buildQueue(watchlistResult.data, 'video');
+            // Vistos de la categoría recién leídos de la BD (historial, todas las series: R1).
+            const total = totalResult && totalResult.success
+                ? totalResult.total
+                : watchlistResult.data.reduce((a, s) => a + watchedCount(s), 0);
+            calculateGlobalBacklog(total, effectiveCategory);
+            const pendingList = buildQueue(watchlistResult.data);
             let watchedList = [];
             if (historyResult.success) {
                 watchedList = historyResult.data.map(h => ({
@@ -68,18 +74,18 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
         setLoading(false);
     };
 
-    const calculateGlobalBacklog = (seriesList, categoryData = currentCategory) => {
+    const calculateGlobalBacklog = (totalWatched, categoryData = currentCategory) => {
         if (!categoryData) {
             setHeaderBacklog(null);
             return;
         }
-        const calc = calculateBacklogV2(categoryData, seriesList);
+        const calc = calculateBacklog(categoryData, totalWatched);
         if (calc) {
-            setHeaderBacklog({ 
-                days: calc.days, 
-                items: calc.items, 
-                adelantoDays: calc.adelantoDays, 
-                adelantoItems: calc.adelantoItems 
+            setHeaderBacklog({
+                days: calc.diffDays,
+                items: calc.backlogItems,
+                adelantoDays: calc.adelantoDays,
+                adelantoItems: calc.adelantoItems
             });
         }
     };
@@ -106,8 +112,11 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
     };
 
     const onUnmarkWatched = async (item) => {
+        // R8: si la serie estaba En espera o Terminado, vuelve a Mirando.
+        const series = rawSeries.find(s => s.s_id === item.seriesId);
+        const status = series ? statusAfterUnmark(series.status) : null;
         await db.removeHistory(item.seriesId, item.season, item.episode);
-        const res = await db.updateSeriesProgress(item.seriesId, item.season, item.episode, null, null, 0);
+        const res = await db.updateSeriesProgress(item.seriesId, item.season, item.episode, status, null, 0);
         if (res.success) loadData();
     };
 

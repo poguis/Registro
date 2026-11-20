@@ -38,7 +38,10 @@ const { createDevices, quiet } = await import('./lib/sync-devices.mjs');
 const utils = await import('../src/services/backlogUtils.js');
 const motorCola = await import('../src/entertainment/queue.ts');
 const motorDetalle = await import('../src/entertainment/seriesDetail.ts');
-const { calculateBacklog, calculateBacklogV2, getQuotasForDate, getLocalDateString, getWatchedCountSinceStart, getAbsoluteEpisodeCount } = utils;
+const motorCategoria = await import('../src/entertainment/category.ts'); // 7.4a
+const { calculateBacklog, getQuotasForDate, getLocalDateString } = utils;
+// Fase 7.4a: los vistos se cuentan como la app (filas de historial: watched_count / totalWatched).
+const vistosDe = (s) => motorCola.watchedCount(s);
 
 // =============================================================================================
 // 1. ORÁCULO: casos (entrada → resultado actual). "comportamiento" es la frase que se imprime.
@@ -60,22 +63,22 @@ const CASOS = [
         entrada: { vistosAntes: 7, nueva: 'S6' },
         actual: {
             progresoAntes: { S1: 2, S2: 2, S3: 1, S4: 1, S5: 1 },
-            S6: { sortOrder: 6, interleaveOffset: 2, sortOrderPedidoPorPantalla: 6 },
-            cola12: ['S3·T1E2', 'S4·T1E2', 'S5·T1E2', 'S1·T1E3', 'S2·T1E3', 'S3·T1E3', 'S4·T1E3', 'S5·T1E3', 'S6·T1E1', 'S1·T1E4', 'S2·T1E4', 'S3·T1E4'],
+            S6: { sortOrder: 6, interleaveOffset: 1, sortOrderPedidoPorPantalla: 6 },
+            cola12: ['S3·T1E2', 'S4·T1E2', 'S5·T1E2', 'S6·T1E1', 'S1·T1E3', 'S2·T1E3', 'S3·T1E3', 'S4·T1E3', 'S5·T1E3', 'S6·T1E2', 'S1·T1E4', 'S2·T1E4'],
             atrasoAntes: 3, atrasoDespues: 3,
         },
-        comportamiento: 'la serie nueva recibe interleave_offset = máximo progreso de las activas: entra al final de la vuelta SIGUIENTE (tras S5·T1E3), no al final de la vuelta actual; el atraso de la categoría no cambia',
+        comportamiento: 'la serie nueva recibe interleave_offset = vuelta actual (mínimo progreso de las series en la cola): entra al final de la vuelta ACTUAL (tras S5·T1E2) y sigue el ciclo con las demás; el atraso de la categoría no cambia',
     },
     {
         id: 'C3', titulo: 'Pausar y reanudar una serie (S2) a mitad de ciclo',
         entrada: { pausar: 'S2', vistosDuranteLaPausa: 5 },
         actual: {
             colaEnPausa5: ['S3·T1E2', 'S4·T1E2', 'S5·T1E2', 'S1·T1E3', 'S3·T1E3'],
-            totalVistoSegunPantalla: { registroCapitulos: 10, detalleSerie: 12, listaCategorias: 12 },
-            interleaveS2: { antes: 0, despues: 1 },
-            colaTrasReanudar6: ['S4·T1E3', 'S5·T1E3', 'S1·T1E4', 'S2·T1E3', 'S3·T1E4', 'S4·T1E4'],
+            totalVistoSegunPantalla: { registroCapitulos: 12, detalleSerie: 12, listaCategorias: 12 },
+            interleaveS2: { antes: 0, despues: 0 },
+            colaTrasReanudar6: ['S4·T1E3', 'S5·T1E3', 'S2·T1E3', 'S1·T1E4', 'S3·T1E4', 'S4·T1E4'],
         },
-        comportamiento: 'la serie pausada sale de la cola; al reanudar, interleave_offset sube hasta igualar al más avanzado y vuelve detrás de él; mientras está pausada, el Registro de capítulos (getFullWatchlist excluye "Pausado") deja de contar su progreso y muestra más atraso que el detalle y la lista de categorías',
+        comportamiento: 'la serie pausada sale de la cola; al reanudar, interleave_offset la pone en la vuelta actual y sort_order = MAX + 1: sale al final de esa vuelta con su propio progreso; las tres pantallas cuentan igual el total visto (historial de todas las series, también la pausada)',
     },
     {
         id: 'C4', titulo: 'Cambiar la cuota de dos días de la semana (hoy y ayer) en una categoría de video',
@@ -114,9 +117,9 @@ const CASOS = [
             tocarCap21: { botones: ['En espera', 'Terminado', 'Cancelar'], conTerminado: { status: 'Terminado', T: 6, E: 21, vistos: 121 } },
             tocarCap20: { status: 'Mirando', T: 6, E: 20, vistos: 119, colaPrimero: 'Serie·T6E20' },
             conT7: { status: 'Terminado', T: 6, E: 20, total: 7, vistos: 120, enCola: false },
-            tocarT7C1: { status: 'Mirando', T: 7, E: 1, vistos: 120, colaPrimero: 'Serie·T7E1' },
+            tocarT7C1: { status: 'Mirando', T: 7, E: 2, vistos: 121, colaPrimero: 'Serie·T7E2' },
         },
-        comportamiento: 'editar una serie terminada no la reanuda (sigue Terminado y fuera de la cola); para el cap. 21 la única vía (tocarlo en la grilla) lo da por VISTO al cerrarla otra vez, y tocar el 20 lo vuelve a "no visto" (−1); una temporada nueva sí se reanuda bien tocando su C1',
+        comportamiento: 'editar una serie terminada no la reanuda (sigue Terminado y fuera de la cola); tocar un capítulo en la grilla marca vistos hasta él (el 21 cierra la serie otra vez y suma 1; el C1 de una T7 nueva suma 1 y deja la serie en T7E2) y tocar uno ya visto pide confirmación y lo desmarca (−1, vuelve a Mirando)',
     },
     {
         id: 'C8', titulo: 'Lectura: obra de 2 partes × 2 tomos, frecuencia 2 por día; y "1 cada 3 días"',
@@ -157,21 +160,21 @@ const CASOS = [
         entrada: { casos: ['Terminado 1×3', 'empezada en T2E1 (2×2)', 'En espera 1×3'] },
         actual: {
             desdeTerminado: { cycleOffset: 3, T: 1, E: 1, status: 'Mirando', vistosAntes: 3, vistosDespues: 3, inicial: 'T1E1' },
-            empezadaEnT2: { vistosAntes: 2, cycleOffset: 2, inicial: 'T2E1', vistosTrasVerT1Completa: 2 },
-            desdeEnEspera: { vistosAntes: 3, cycleOffset: 2, vistosDespues: 2 },
+            empezadaEnT2: { vistosAntes: 2, cycleOffset: 2, inicial: 'T2E1', vistosTrasVerT1Completa: 4 },
+            desdeEnEspera: { vistosAntes: 3, cycleOffset: 2, vistosDespues: 3 },
         },
-        comportamiento: 'Reiniciar suma lo visto a cycle_offset y vuelve a T1E1 en "Mirando" sin tocar initial_season/episode: si la serie empezó a mitad, ver de nuevo la parte anterior al inicio no cuenta; desde "En espera" pierde 1 (no suma el último capítulo, que sí contaba)',
+        comportamiento: 'Reiniciar vuelve a T1E1 en "Mirando" sin tocar initial_season/episode y sin ganar ni perder vistos (el conteo sale del historial; cycle_offset se sigue escribiendo pero no cuenta): ver de nuevo la parte anterior al inicio sí cuenta y desde "En espera" no se pierde nada',
     },
     {
         id: 'C12', titulo: 'Límite de series activas (series_count)',
         entrada: { limites: [null, 0, 2] },
         actual: {
             sinLimite: { guardadas: 3, alertas: [] },
-            limiteCero: { guardadas: 0, alertas: ['Límite Alcanzado'] },
+            limiteCero: { guardadas: 3, alertas: [] },
             limiteDos: { guardadas: 2, alertas: ['Límite Alcanzado'] },
-            formularioCategoria: { ceroSeGuardaComo: 0, vacioSeGuardaComo: null, ceroAlReabrirSeMuestra: '' },
+            formularioCategoria: { cero: 'El límite de series activas es obligatorio (mínimo 1).', vacio: 'El límite de series activas es obligatorio (mínimo 1).', unoSeGuardaComo: 1, ceroExistenteAlReabrirSeMuestra: '' },
         },
-        comportamiento: 'series_count NULL = sin límite; 0 bloquea TODA serie nueva (el esquema dice "0 = sin límite"); al reabrir el formulario un 0 se muestra vacío y al guardar pasa a NULL',
+        comportamiento: 'series_count NULL o 0 (de antes) = sin límite hasta editar la categoría; el formulario exige un entero ≥ 1 (0 o vacío se rechazan sin guardar) y un 0 existente se reabre vacío para que se complete',
     },
     {
         id: 'C13', titulo: 'Pendiente (backlog) frente a series',
@@ -202,7 +205,7 @@ const extraer = (archivo, nombre) => extraerPantalla(archivo, nombre);
 // que use la pantalla se inyectan siempre con la versión REAL: backlogUtils y, desde la 7.3, el
 // motor puro (src/entertainment/queue.ts y seriesDetail.ts).
 function instanciar(ext, depsDelCaso) {
-    return instanciarPantalla(ext, { ...utils, ...motorCola, ...motorDetalle, ...depsDelCaso });
+    return instanciarPantalla(ext, { ...utils, ...motorCola, ...motorDetalle, ...motorCategoria, ...depsDelCaso });
 }
 
 const PANTALLA = {
@@ -223,8 +226,11 @@ function crearAlert() {
             alert: (titulo, mensaje, botones) => {
                 registro.push({ titulo, botones: botones ? botones.map((b) => b.text) : [], mensaje });
                 if (botones && eleccion) {
-                    const b = botones.find((x) => x.text === eleccion);
-                    if (b && b.onPress) pendiente = b.onPress();
+                    // 7.4a: alertas encadenadas (p. ej. "Marcar vistos" y después "¡Serie Completada!"):
+                    // `eleccion` puede ser una lista; en cada alerta se pulsa el primer botón que esté en ella.
+                    const lista = Array.isArray(eleccion) ? eleccion : [eleccion];
+                    const b = botones.find((x) => lista.includes(x.text));
+                    if (b && b.onPress) { const r = b.onPress(); if (r && typeof r.then === 'function') pendiente = r; }
                 }
             },
         },
@@ -313,7 +319,7 @@ async function nuevoEntorno() {
         const handleSave = instanciar(extraer(archivo, 'handleSave'), {
             name, description: '', status, seasons: temporadas.map((n, i) => ({ number: i + 1, episodes: String(n) })),
             currentSeason: T, currentEpisode: E, isEditing: !!editar, editingSeriesId: editar,
-            originalList, category: cat, db, Alert: A.Alert, setModalVisible: () => {}, fetchSeries: recarga.fn, resetForm: () => {},
+            originalList, category: cat, currentCategory: cat, db, Alert: A.Alert, setModalVisible: () => {}, fetchSeries: recarga.fn, resetForm: () => {},
         });
         await quiet(() => handleSave());
         return { alertas: A.registro.map((a) => a.titulo), mensajes: A.registro.map((a) => a.mensaje) };
@@ -352,10 +358,11 @@ async function nuevoEntorno() {
     const resumen = async (cat, nombreSerie, extra = {}) => {
         const s = await serie(cat, nombreSerie);
         const { items } = await cola(cat);
-        return { status: s.status, T: s.current_season, E: s.current_episode, ...extra, vistos: getWatchedCountSinceStart(s), enCola: items.some((i) => i.seriesName === nombreSerie) };
+        return { status: s.status, T: s.current_season, E: s.current_episode, ...extra, vistos: vistosDe(s), enCola: items.some((i) => i.seriesName === nombreSerie) };
     };
 
-    // Grilla de progreso del detalle (updateToChapter real).
+    // Grilla de progreso del detalle (updateToChapter real). 7.4a: marca/desmarca con historial y
+    // puede encadenar alertas; `eleccion` acepta una lista (p. ej. ['Marcar', 'Terminado']).
     const tocarCapitulo = async (cat, nombreSerie, sNum, eNum, eleccion = null) => {
         const originalList = await cargarLista(cat);
         const s = originalList.find((x) => x.name === nombreSerie);
@@ -364,7 +371,7 @@ async function nuevoEntorno() {
         const recarga = crearRecarga();
         const espera = recarga.esperar();
         const updateToChapter = instanciar(extraer(PANTALLA.detalle, 'updateToChapter'), {
-            activeSeries: s, originalList, db, Alert: A.Alert, fetchSeries: recarga.fn, setActiveSeries: () => {},
+            activeSeries: s, originalList, category: cat, db, Alert: A.Alert, fetchSeries: recarga.fn, setActiveSeries: () => {},
         });
         await quiet(() => updateToChapter(s.id, sNum, eNum));
         const alerta = A.registro.find((a) => a.botones.length);
@@ -392,10 +399,14 @@ async function nuevoEntorno() {
         await A.esperar();
     };
 
-    return { db, user, crearCategoria, categoria, cargarLista, watchlist, cola, agregarSerie, marcar, verEnOrden, serie, resumen, tocarCapitulo, pausarSerie, reiniciar, ok };
+    // Atraso que muestra el Registro (7.4a): meta de la categoría − vistos leídos de la BD.
+    const totalCategoria = async (cat) => (ok(await db.getCategoryWatchedTotal(cat.id), 'getCategoryWatchedTotal')).total;
+    const atrasoRegistro = async (cat) => calculateBacklog(await categoria(cat.id), await totalCategoria(cat)).backlogItems;
+
+    return { db, user, crearCategoria, categoria, cargarLista, watchlist, cola, agregarSerie, marcar, verEnOrden, serie, resumen, tocarCapitulo, pausarSerie, reiniciar, ok, totalCategoria, atrasoRegistro };
 }
 
-const progreso = (lista) => Object.fromEntries(lista.map((s) => [s.name, getWatchedCountSinceStart(s) + (s.interleave_offset || 0)]));
+const progreso = (lista) => Object.fromEntries(lista.map((s) => [s.name, vistosDe(s) + (s.interleave_offset || 0)]));
 
 // =============================================================================================
 // 4. ESCENARIOS: producen el resultado actual de cada caso (misma forma que CASOS[i].actual)
@@ -409,8 +420,7 @@ const ESCENARIOS = {
             for (const nombre of entrada.series) await E.agregarSerie(cat, { name: nombre, temporadas: [entrada.capitulos] });
             const { items } = await E.cola(cat);
             const lista = await E.cargarLista(cat);
-            const calc = calculateBacklogV2(await E.categoria(cat.id), await E.watchlist(cat));
-            r[q] = { cola10: items.slice(0, 10).map(etiqueta), atraso: calc.items, sortOrder: lista.map((s) => s.sort_order), interleaveOffset: lista.map((s) => s.interleave_offset) };
+            r[q] = { cola10: items.slice(0, 10).map(etiqueta), atraso: await E.atrasoRegistro(cat), sortOrder: lista.map((s) => s.sort_order), interleaveOffset: lista.map((s) => s.interleave_offset) };
         }
         return {
             cola10: r[1].cola10, colaIgualConN2: JSON.stringify(r[1].cola10) === JSON.stringify(r[2].cola10),
@@ -424,7 +434,7 @@ const ESCENARIOS = {
         for (const n of ['S1', 'S2', 'S3', 'S4', 'S5']) await E.agregarSerie(cat, { name: n, temporadas: [4] });
         await E.verEnOrden(cat, entrada.vistosAntes);
         const antes = await E.cargarLista(cat);
-        const atrasoAntes = calculateBacklogV2(await E.categoria(cat.id), await E.watchlist(cat)).items;
+        const atrasoAntes = await E.atrasoRegistro(cat);
         const activas = antes.filter((s) => ['Nueva', 'Mirando', 'Pausado'].includes(s.status));
         await E.agregarSerie(cat, { name: entrada.nueva, temporadas: [4] });
         const despues = await E.cargarLista(cat);
@@ -434,7 +444,7 @@ const ESCENARIOS = {
             progresoAntes: progreso(antes),
             S6: { sortOrder: s6.sort_order, interleaveOffset: s6.interleave_offset, sortOrderPedidoPorPantalla: activas.length + 1 },
             cola12: items.slice(0, 12).map(etiqueta),
-            atrasoAntes, atrasoDespues: calculateBacklogV2(await E.categoria(cat.id), await E.watchlist(cat)).items,
+            atrasoAntes, atrasoDespues: await E.atrasoRegistro(cat),
         };
     },
 
@@ -446,9 +456,10 @@ const ESCENARIOS = {
         const s2Antes = await E.serie(cat, entrada.pausar);
         await E.pausarSerie(cat, entrada.pausar);
         const vistos = await E.verEnOrden(cat, entrada.vistosDuranteLaPausa);
-        // Total visto de la categoría según cada pantalla, con S2 pausada.
-        const registro = (await E.watchlist(cat)).reduce((a, s) => a + getWatchedCountSinceStart(s), 0);
-        const detalle = (await E.cargarLista(cat)).reduce((a, s) => a + getWatchedCountSinceStart(s), 0);
+        // Total visto de la categoría según cada pantalla, con S2 pausada (7.4a: lo que usa cada una:
+        // el Registro relee el total de la BD, el detalle suma watched_count, la lista totalWatched).
+        const registro = await E.totalCategoria(cat);
+        const detalle = motorDetalle.seriesWatchedTotal(await E.cargarLista(cat));
         const listaCategorias = (await E.categoria(cat.id)).totalWatched;
         await E.pausarSerie(cat, entrada.pausar); // reanudar (mismo botón)
         const s2Despues = await E.serie(cat, entrada.pausar);
@@ -468,11 +479,12 @@ const ESCENARIOS = {
         const cuotasPasado = (c) => Array.from({ length: 9 }, (_, i) => getQuotasForDate(hoyMas(i - 9), c)[nombreDia(i - 9)]);
         const c0 = await E.categoria(cat.id);
         const antes = { pasado: cuotasPasado(c0), hoy: getQuotasForDate(hoyMas(0), c0)[nombreDia(0)], ayer: getQuotasForDate(hoyMas(0), c0)[nombreDia(-1)], meta: calculateBacklog(c0, 0).targetItems };
-        // Edición con el handleSave REAL de la lista de categorías.
+        // Edición con el handleSave REAL de la lista de categorías. 7.4a (O1): el formulario exige
+        // un límite ≥ 1, así que la edición lo lleva (no influye en cuotas ni en la meta).
         const editar = async (quotas) => {
             const A = crearAlert();
             const handleSave = instanciar(extraer(PANTALLA.categorias, 'handleSave'), {
-                name: c0.name, type: 'video', startDate: c0.start_date, selectedDays: quotas, frequency: '0', seriesCount: '',
+                name: c0.name, type: 'video', startDate: c0.start_date, selectedDays: quotas, frequency: '0', seriesCount: '3',
                 description: '', isEditing: true, editingId: cat.id, db: E.db, user: E.user, Alert: A.Alert, setModalVisible: () => {}, fetchCategories: () => {},
             });
             await quiet(() => handleSave());
@@ -522,7 +534,9 @@ const ESCENARIOS = {
             const cat = await E.crearCategoria({});
             await E.agregarSerie(cat, { name: 'Serie', temporadas: [20, 20, 20, 20, 20, 20] });
             const s = await E.serie(cat, 'Serie');
-            await E.db.updateSeriesProgress(s.id, 6, 20, 'Terminado');
+            // 7.4a: el historial se arma con la grilla (marcar vistos hasta 6×20 y elegir Terminado),
+            // ya no con updateSeriesProgress suelto, que no escribe historial.
+            await E.tocarCapitulo(cat, 'Serie', 6, 20, ['Marcar', 'Terminado']);
             return { E, cat, s };
         };
         const corto = (x) => ({ status: x.status, T: x.T, E: x.E, vistos: x.vistos });
@@ -539,7 +553,7 @@ const ESCENARIOS = {
         // tocar el 20 (desde el estado "Terminado en 6×20 con 21 caps")
         ({ E, cat, s } = await preparar());
         await E.agregarSerie(cat, { name: 'Serie', temporadas: [20, 20, 20, 20, 20, 21], status: 'Terminado', T: 6, E: 20, editar: s.id });
-        await E.tocarCapitulo(cat, 'Serie', 6, 20);
+        await E.tocarCapitulo(cat, 'Serie', 6, 20, 'Desmarcar');
         const tras20 = corto(await E.resumen(cat, 'Serie'));
         const cola20 = (await E.cola(cat)).items[0];
         // b) temporada 7 nueva
@@ -580,7 +594,7 @@ const ESCENARIOS = {
         return {
             cola,
             alertaFinal,
-            final: { status: s.status, T: s.current_season, E: s.current_episode, vistos: getWatchedCountSinceStart(s), historialLectura: hl, historialVideo: hv },
+            final: { status: s.status, T: s.current_season, E: s.current_episode, vistos: vistosDe(s), historialLectura: hl, historialVideo: hv },
             metaFrecuencia2: { meta: calc.targetItems, atraso: calc.backlogItems, unidad: calc.unit },
             metaUnoCada3: { meta: calcN.targetItems, diasValidos: calcN.validDaysPassed },
         };
@@ -631,8 +645,8 @@ const ESCENARIOS = {
         const handleAddSeason = instanciar(extraer(PANTALLA.detalle, 'handleAddSeason'), { seasons: [], setSeasons: (v) => { filas = v; } });
         handleAddSeason();
         return {
-            nuevaT0C1: { guardado: guardado(a), colaPrimero: primero('A'), vistos: getWatchedCountSinceStart(a) },
-            nuevaT1C0: { guardado: guardado(b), colaPrimero: primero('B'), vistos: getWatchedCountSinceStart(b) },
+            nuevaT0C1: { guardado: guardado(a), colaPrimero: primero('A'), vistos: vistosDe(a) },
+            nuevaT1C0: { guardado: guardado(b), colaPrimero: primero('B'), vistos: vistosDe(b) },
             mirandoT0C1: { alerta: r.mensajes[0] || null, guardada: lista.some((s) => s.name === 'C') },
             temporadasDelFormulario: filas && filas.length === 1 && filas[0].number === 1 ? 'numeradas desde 1' : 'otra',
         };
@@ -643,34 +657,33 @@ const ESCENARIOS = {
         let E = await nuevoEntorno();
         let cat = await E.crearCategoria({});
         await E.agregarSerie(cat, { name: 'R', temporadas: [3] });
-        let s = await E.serie(cat, 'R');
-        await E.db.updateSeriesProgress(s.id, 1, 3, 'Terminado');
-        const vA = getWatchedCountSinceStart(await E.serie(cat, 'R'));
+        let s;
+        await E.tocarCapitulo(cat, 'R', 1, 3, ['Marcar', 'Terminado']); // 7.4a: con historial
+        const vA = vistosDe(await E.serie(cat, 'R'));
         await E.reiniciar(cat, 'R');
         s = await E.serie(cat, 'R');
-        const desdeTerminado = { cycleOffset: s.cycle_offset, T: s.current_season, E: s.current_episode, status: s.status, vistosAntes: vA, vistosDespues: getWatchedCountSinceStart(s), inicial: `T${s.initial_season}E${s.initial_episode}` };
+        const desdeTerminado = { cycleOffset: s.cycle_offset, T: s.current_season, E: s.current_episode, status: s.status, vistosAntes: vA, vistosDespues: vistosDe(s), inicial: `T${s.initial_season}E${s.initial_episode}` };
         // b) empezada en T2E1 (2×2), vista hasta el final de la T2 (Mirando en T2E2 + marcar)
         E = await nuevoEntorno();
         cat = await E.crearCategoria({});
         await E.agregarSerie(cat, { name: 'M', temporadas: [2, 2], status: 'Mirando', T: '2', E: '1' });
         await E.marcar(cat, 'M');
         await E.marcar(cat, 'M', 'Terminado');
-        const vB = getWatchedCountSinceStart(await E.serie(cat, 'M'));
+        const vB = vistosDe(await E.serie(cat, 'M'));
         await E.reiniciar(cat, 'M');
         s = await E.serie(cat, 'M');
         const cyc = s.cycle_offset;
         await E.marcar(cat, 'M'); await E.marcar(cat, 'M'); // T1 completa (2 caps) de nuevo
-        const empezadaEnT2 = { vistosAntes: vB, cycleOffset: cyc, inicial: `T${s.initial_season}E${s.initial_episode}`, vistosTrasVerT1Completa: getWatchedCountSinceStart(await E.serie(cat, 'M')) };
+        const empezadaEnT2 = { vistosAntes: vB, cycleOffset: cyc, inicial: `T${s.initial_season}E${s.initial_episode}`, vistosTrasVerT1Completa: vistosDe(await E.serie(cat, 'M')) };
         // c) desde En espera
         E = await nuevoEntorno();
         cat = await E.crearCategoria({});
         await E.agregarSerie(cat, { name: 'W', temporadas: [3] });
-        s = await E.serie(cat, 'W');
-        await E.db.updateSeriesProgress(s.id, 1, 3, 'En espera');
-        const vC = getWatchedCountSinceStart(await E.serie(cat, 'W'));
+        await E.tocarCapitulo(cat, 'W', 1, 3, ['Marcar', 'En espera']); // 7.4a: con historial
+        const vC = vistosDe(await E.serie(cat, 'W'));
         await E.reiniciar(cat, 'W');
         s = await E.serie(cat, 'W');
-        const desdeEnEspera = { vistosAntes: vC, cycleOffset: s.cycle_offset, vistosDespues: getWatchedCountSinceStart(s) };
+        const desdeEnEspera = { vistosAntes: vC, cycleOffset: s.cycle_offset, vistosDespues: vistosDe(s) };
         return { desdeTerminado, empezadaEnT2, desdeEnEspera };
     },
 
@@ -696,18 +709,23 @@ const ESCENARIOS = {
                 description: '', isEditing: false, editingId: null, db, user: E.user, Alert: A.Alert, setModalVisible: () => {}, fetchCategories: () => {},
             });
             await quiet(() => handleSave());
-            return E.categoria(id);
+            // 7.4a (O1): un límite inválido no guarda nada y avisa; se devuelve la alerta en su lugar.
+            const error = A.registro.find((x) => x.titulo === 'Error');
+            return id ? E.categoria(id) : { rechazado: error ? error.mensaje : 'sin alerta' };
         };
         const cCero = await guardarCon('0');
         const cVacio = await guardarCon('');
+        const cUno = await guardarCon('1');
+        // Una categoría existente con 0 (de antes de la 7.4a): cómo se reabre en el formulario.
+        const cCeroExistente = await E.crearCategoria({ seriesCount: 0 });
         let mostrado = null;
         const noop = () => {};
         const openModal = instanciar(extraer(PANTALLA.categorias, 'openModal'), {
             setIsEditing: noop, setEditingId: noop, setName: noop, setType: noop, setStartDate: noop, getLocalDateString, console,
             setSelectedDays: noop, setFrequency: noop, setSeriesCount: (v) => { mostrado = v; }, setDescription: noop, setModalVisible: noop,
         });
-        openModal(cCero);
-        return { ...r, formularioCategoria: { ceroSeGuardaComo: cCero.series_count, vacioSeGuardaComo: cVacio.series_count, ceroAlReabrirSeMuestra: mostrado } };
+        openModal(cCeroExistente);
+        return { ...r, formularioCategoria: { cero: cCero.rechazado ?? 'guardado', vacio: cVacio.rechazado ?? 'guardado', unoSeGuardaComo: cUno.series_count, ceroExistenteAlReabrirSeMuestra: mostrado } };
     },
 
     async C13() {

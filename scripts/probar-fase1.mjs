@@ -222,6 +222,20 @@ check('removeHistory dejó viva la más antigua',
     && firstOf('SELECT COUNT(*) n FROM watch_history WHERE series_id = ? AND watched_at = ? AND deleted_at IS NOT NULL', ser.id, T_NEW).n === 1);
 await op('addReadingHistory', () => svc.addReadingHistory(ser.id, 1, 4, 3000));
 await op('removeReadingHistory', () => svc.removeReadingHistory(ser.id, 1, 4));
+// Fase 7.4a: grilla = varias filas de historial + puntero/estado en UNA transacción.
+const T_GRID = T_NEW + 1000;
+const dosCaps = [{ season: 1, episode: 5 }, { season: 1, episode: 6 }];
+await opFails('markEpisodesWatched', () => svc.markEpisodesWatched(ser.id, 'video', dosCaps, { season: 1, episode: 7, status: 'Mirando' }, T_GRID));
+await op('markEpisodesWatched (2 filas de historial + puntero)', () => svc.markEpisodesWatched(ser.id, 'video', dosCaps, { season: 1, episode: 7, status: 'Mirando' }, T_GRID));
+check('markEpisodesWatched: 2 filas vivas con el mismo instante y puntero en T1E7',
+    firstOf('SELECT COUNT(*) n FROM watch_history WHERE series_id = ? AND watched_at = ? AND deleted_at IS NULL', ser.id, T_GRID).n === 2
+    && firstOf('SELECT current_season s, current_episode e FROM series WHERE id = ?', ser.id).e === 7);
+await opFails('unmarkEpisodes', () => svc.unmarkEpisodes(ser.id, 'video', dosCaps, { season: 1, episode: 5, status: 'Mirando' }));
+await op('unmarkEpisodes (borra lógicamente la más reciente de cada una + puntero)', () => svc.unmarkEpisodes(ser.id, 'video', dosCaps, { season: 1, episode: 5, status: 'Mirando' }));
+check('unmarkEpisodes: las 2 filas de la grilla quedan borradas y el puntero en T1E5',
+    firstOf('SELECT COUNT(*) n FROM watch_history WHERE series_id = ? AND watched_at = ? AND deleted_at IS NOT NULL', ser.id, T_GRID).n === 2
+    && firstOf('SELECT current_episode e FROM series WHERE id = ?', ser.id).e === 5);
+await op('markEpisodesWatched (lectura → reading_history)', () => svc.markEpisodesWatched(ser.id, 'reading', [{ season: 1, episode: 8 }], { season: 1, episode: 9, status: 'Mirando' }, 4000));
 await op('addSeriesWithSeasons', () => svc.addSeriesWithSeasons({ category_id: cat.id, name: 'Nueva', description: null, status: 'Nueva', current_season: 1, current_episode: 1, total_seasons: 2 }, [{ season_number: 1, episode_count: 4 }, { season_number: 2, episode_count: 4 }]));
 const newCat = await op('addEntertainmentCategory', () => svc.addEntertainmentCategory(user, { name: 'Cat', type: 'reading', startDate: '2026-01-01', daysOfWeek: { Friday: 1 }, frequency: 0, seriesCount: 0, description: null }));
 await op('deleteSeries (cascada a temporadas e historial)', () => svc.deleteSeries(ser.id));

@@ -18,6 +18,8 @@ import { useTheme } from '../contexts/ThemeContext';
 import db from '../services/db';
 import { useSyncRefresh } from '../sync/useSyncRefresh';
 import { calculateBacklog, getLocalDateString } from '../services/backlogUtils';
+// Fase 7.4a (O1): el límite de activas es obligatorio (entero ≥ 1), en video y en lectura.
+import { validateCategoryForm } from '../entertainment/category';
 
 const DAYS = [
     { key: 'Monday', label: 'L' },
@@ -225,8 +227,13 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
     };
 
     const handleSave = async () => {
-        if (!name.trim()) {
+        const validation = validateCategoryForm({ name, seriesCount });
+        if (validation.error === 'nombre') {
             Alert.alert('Error', 'Por favor ingresa un nombre para la categoría.');
+            return;
+        }
+        if (validation.error === 'limite') {
+            Alert.alert('Error', 'El límite de series activas es obligatorio (mínimo 1).');
             return;
         }
 
@@ -236,7 +243,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
             startDate,
             daysOfWeek: selectedDays,
             frequency: parseInt(frequency) || 0,
-            seriesCount: seriesCount === '' ? null : (parseInt(seriesCount) || 0),
+            seriesCount: validation.seriesCount,
             description
         };
 
@@ -618,21 +625,20 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                                 </View>
                             )}
 
-                            {type === 'video' && (
-                                <View style={styles.row}>
-                                    <View style={styles.fullWidth}>
-                                        <Text style={[styles.label, { color: theme.text }]}>Límite Simultáneo (Viendo)</Text>
-                                        <TextInput
-                                            style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
-                                            placeholder="Cuántas series puedes ver a la vez (0 = sin límite)"
-                                            placeholderTextColor={theme.subText}
-                                            keyboardType="numeric"
-                                            value={seriesCount}
-                                            onChangeText={setSeriesCount}
-                                        />
-                                    </View>
+                            {/* O1 (7.4a): obligatorio en video y en lectura, mínimo 1. */}
+                            <View style={styles.row}>
+                                <View style={styles.fullWidth}>
+                                    <Text style={[styles.label, { color: theme.text }]}>Límite Simultáneo (Viendo)</Text>
+                                    <TextInput
+                                        style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                        placeholder={type === 'video' ? 'Cuántas series puedes ver a la vez (mínimo 1)' : 'Cuántas obras puedes leer a la vez (mínimo 1)'}
+                                        placeholderTextColor={theme.subText}
+                                        keyboardType="numeric"
+                                        value={seriesCount}
+                                        onChangeText={setSeriesCount}
+                                    />
                                 </View>
-                            )}
+                            </View>
 
                             {/* Description */}
                             <Text style={[styles.label, { color: theme.text }]}>Descripción</Text>

@@ -1,29 +1,21 @@
-import { getAbsoluteEpisodeCount, getLocalDateString, getWatchedCountSinceStart } from '../services/backlogUtils';
+import { getAbsoluteEpisodeCount, getLocalDateString } from '../services/backlogUtils';
+import { currentRound, episodesInRange, isBefore, nextEpisode, statusAfterUnmark, watchedCount, type EpisodeRef } from './queue';
 
-// Decisiones puras del detalle de una categoría (Fase 7.3), compartidas por SeriesDetailScreen
-// (video) y ReadingDetailScreen (lectura). Sin React, SQLite, Alert ni db; la fecha entra como
-// parámetro. Los textos de las alertas siguen en cada pantalla.
+// Decisiones puras del detalle de una categoría, compartidas por SeriesDetailScreen (video) y
+// ReadingDetailScreen (lectura). Sin React, SQLite, Alert ni db; la fecha entra como parámetro.
+// Los textos de las alertas siguen en cada pantalla.
 //
-// Comportamiento IDÉNTICO al de d55b5e1 (SeriesDetailScreen.js:116-386 y su copia de lectura),
-// incluidos los defectos R1–R14 de docs/ENTRETENIMIENTO-ACTUAL.md (se corrigen en la 7.4).
-// Equivalencia: scripts/probar-fase7-3.mjs.
+// Fase 7.3: comportamiento idéntico a d55b5e1. Fase 7.4a (cambios a propósito):
+// - ciclo (C2): una serie nueva o una pausada que se reanuda entra al final del ciclo actual;
+// - la grilla "marca vistos hasta aquí" (adelante) o desmarca (atrás) con filas de historial (R7);
+// - el límite de series activas: NULL/0 = sin límite, y editar nunca se bloquea (O1, R2).
 
 type Row = Record<string, any>;
 
 // Estados que ocupan un lugar en "Viendo" y cuentan para el límite (series_count).
 export const ACTIVE_STATUSES = ['Nueva', 'Mirando', 'Pausado'];
 const isActive = (s: Row) => s.status === 'Nueva' || s.status === 'Mirando' || s.status === 'Pausado';
-
-// Progreso usado para intercalar: vistos desde el inicio + interleave_offset.
-const interleaveProgress = (s: Row) => getWatchedCountSinceStart(s) + (s.interleave_offset || 0);
-const maxInterleaveOf = (list: Row[]) => {
-    let maxInterleave = 0;
-    list.forEach((s) => {
-        const progress = interleaveProgress(s);
-        if (progress > maxInterleave) maxInterleave = progress;
-    });
-    return maxInterleave;
-};
+const isClosed = (status: string) => status === 'En espera' || status === 'Terminado';
 
 // Pestañas: "Viendo" = activas; el resto, por estado exacto.
 export function filterSeriesByTab(list: Row[], tab: string): Row[] {
@@ -63,24 +55,33 @@ export function validateSeriesForm(form: { name: string; seasons: Row[]; status:
     return { validSeasons };
 }
 
-// Límite de series activas (series_count de la categoría). NULL/undefined = sin límite.
-// Hoy un 0 bloquea toda serie nueva (R2), igual que antes.
-export function isActiveLimitReached(args: { originalList: Row[]; status: string; isEditing: boolean; editingSeriesId: any; category: Row }): boolean {
-    const { originalList, status, isEditing, editingSeriesId, category } = args;
-    const activeSeriesItems = originalList.filter(isActive);
-    const activeCount = activeSeriesItems.length;
-    const isCurrentlyActive = isEditing && activeSeriesItems.some((s) => s.id === editingSeriesId);
-    const willBeActive = status === 'Nueva' || status === 'Mirando' || status === 'Pausado';
-    if (willBeActive && (!isCurrentlyActive || !isEditing)) {
-        if (category.series_count !== null && category.series_count !== undefined) {
-            if (activeCount >= category.series_count) return true;
-        }
-    }
-    return false;
+// Límite de series activas de la categoría (O1): un entero ≥ 1. NULL, 0 o un valor no válido
+// (categorías viejas) = sin límite hasta que se edite la categoría.
+export function activeLimit(category: Row): number | null {
+    const limit = category ? category.series_count : null;
+    return Number.isInteger(limit) && limit >= 1 ? limit : null;
 }
 
-// Datos a guardar. Al crear (no al editar) agrega sort_order (activas + 1; el repositorio lo
-// ignora y usa MAX + 1, R9) e interleave_offset (máximo progreso de las activas).
+// ¿Guardar la serie supera el límite? Editar una serie existente nunca se bloquea.
+export function isActiveLimitReached(args: { originalList: Row[]; status: string; isEditing: boolean; editingSeriesId?: any; category: Row }): boolean {
+    const { originalList, status, isEditing, category } = args;
+    if (isEditing) return false;
+    const limit = activeLimit(category);
+    if (limit === null) return false;
+    const willBeActive = status === 'Nueva' || status === 'Mirando' || status === 'Pausado';
+    return willBeActive && originalList.filter(isActive).length >= limit;
+}
+
+// Botón "Agregar": con el límite alcanzado, el aviso sale ANTES de abrir el formulario (O1).
+export function canAddSeries(originalList: Row[], category: Row): { ok: true } | { ok: false; limit: number } {
+    const limit = activeLimit(category);
+    if (limit !== null && originalList.filter(isActive).length >= limit) return { ok: false, limit };
+    return { ok: true };
+}
+
+// Datos a guardar. Al crear (no al editar) agrega sort_order (activas + 1; el repositorio usa
+// MAX + 1, R9) e interleave_offset = ciclo actual: la serie nueva (0 vistos) entra al final de
+// la vuelta en curso (C2).
 export function buildSeriesSave(args: {
     category: Row; name: string; description: string; status: string; currentSeason: any; currentEpisode: any;
     validSeasons: Row[]; isEditing: boolean; originalList: Row[];
@@ -100,9 +101,8 @@ export function buildSeriesSave(args: {
         episode_count: parseInt(s.episodes),
     }));
     if (!isEditing) {
-        const activeSeriesItems = originalList.filter(isActive);
-        seriesData.sort_order = activeSeriesItems.length + 1;
-        seriesData.interleave_offset = maxInterleaveOf(activeSeriesItems);
+        seriesData.sort_order = originalList.filter(isActive).length + 1;
+        seriesData.interleave_offset = currentRound(originalList) ?? 0;
     }
     return { seriesData, seasonsData };
 }
@@ -112,23 +112,38 @@ export const appendSeasonRow = (seasons: Row[]): Row[] => [...seasons, { number:
 // null = no se puede quitar (debe quedar al menos una).
 export const removeSeasonRow = (seasons: Row[]): Row[] | null => (seasons.length > 1 ? seasons.slice(0, -1) : null);
 
-// Toque en la grilla de progreso: si es el último capítulo posible (la pantalla pregunta En
-// espera/Terminado) y qué estado usar si no lo es.
-export function decideChapterTap(series: Row, sNum: number, eNum: number): { isLastPossible: boolean; nonFinalStatus: string } {
-    const lastSeason = series.seasons.find((s: Row) => s.season_number === series.total_seasons);
-    const isLastPossible = (sNum === series.total_seasons && eNum === (lastSeason?.episode_count || 0));
-    let nonFinalStatus = series.status;
-    if (series.status === 'En espera' || series.status === 'Terminado' || series.status === 'Pausado') nonFinalStatus = 'Mirando';
-    return { isLastPossible, nonFinalStatus };
+export type ChapterTapPlan =
+    | { kind: 'forward'; episodes: EpisodeRef[]; pointer: EpisodeRef; isFinal: boolean; status: string }
+    | { kind: 'backward'; episodes: EpisodeRef[]; pointer: EpisodeRef; status: string }
+    | { kind: 'none' };
+
+// Toque en la grilla de progreso (R7). "Siguiente" = el primer capítulo NO visto: el puntero en
+// estado abierto; en En espera/Terminado, el capítulo después del puntero (el puntero es el
+// último visto). Tocar el siguiente o uno posterior marca vistos desde el siguiente hasta el
+// tocado (ambos incluidos); si el tocado es el último, la pantalla pregunta En espera /
+// Terminado y el puntero queda en él. Tocar uno anterior desmarca desde el tocado hasta el
+// anterior al siguiente; el puntero queda en el tocado y una serie cerrada vuelve a Mirando.
+export function planChapterTap(series: Row, sNum: number, eNum: number): ChapterTapPlan {
+    const pointer: EpisodeRef = { season: series.current_season || 1, episode: series.current_episode || 1 };
+    const closed = isClosed(series.status);
+    const next: EpisodeRef | null = closed ? nextEpisode(series, pointer.season, pointer.episode) : pointer;
+    const tapped: EpisodeRef = { season: sNum, episode: eNum };
+    if (next && !isBefore(tapped, next)) {
+        const episodes = episodesInRange(series, next, tapped);
+        if (episodes.length === 0) return { kind: 'none' };
+        const after = nextEpisode(series, sNum, eNum);
+        return after
+            ? { kind: 'forward', episodes, pointer: after, isFinal: false, status: 'Mirando' }
+            : { kind: 'forward', episodes, pointer: tapped, isFinal: true, status: 'Mirando' };
+    }
+    // Hacia atrás: hasta el anterior al siguiente (si no hay siguiente, hasta el puntero incluido).
+    let episodes = episodesInRange(series, tapped, next || pointer);
+    if (next && episodes.length && !isBefore(episodes[episodes.length - 1], next)) episodes = episodes.slice(0, -1);
+    if (episodes.length === 0) return { kind: 'none' };
+    return { kind: 'backward', episodes, pointer: tapped, status: statusAfterUnmark(series.status) || series.status };
 }
 
-// Estado que se guarda al mover el puntero: una serie Nueva pasa a Mirando si el puntero
-// queda más allá de T1E1.
-export const resolveProgressStatus = (series: Row, sNum: number, eNum: number, newStatus: string): string =>
-    ((series.status === 'Nueva' && (sNum > 1 || eNum > 1)) ? 'Mirando' : newStatus);
-
-// Capítulos de la vuelta actual que "Reiniciar" suma a cycle_offset (+1 solo si está Terminado;
-// desde En espera pierde 1, R6).
+// Valor que "Reiniciar" sigue escribiendo en cycle_offset (columna que ya no cuenta, 7.4a).
 export function restartWatchedCount(series: Row): number {
     const currentAbsolute = getAbsoluteEpisodeCount(series, series.current_season, series.current_episode);
     const initialAbsolute = getAbsoluteEpisodeCount(series, series.initial_season || 1, series.initial_episode || 1);
@@ -137,19 +152,24 @@ export function restartWatchedCount(series: Row): number {
     return watchedInThisCycle;
 }
 
+// Vistos de la lista (historial): la suma de todas las series, incluidas pausadas y cerradas (R1).
+export const seriesWatchedTotal = (list: Row[]): number => list.reduce((a, s) => a + watchedCount(s), 0);
+
 export type TogglePauseDecision =
-    | { action: 'resume'; status: 'Mirando'; interleaveOffset: number }
+    | { action: 'resume'; status: 'Mirando'; interleaveOffset: number; sortOrder: number }
     | { action: 'pause'; status: 'Pausado' }
     | { action: 'none' };
 
-// ⏸/▶ de una serie. Al reanudar, interleave_offset sube hasta igualar a la activa más avanzada.
+// ⏸/▶ de una serie. Al reanudar (E3) entra al final del ciclo actual con su propio progreso:
+// interleave_offset = r0 − vistos (puede ser negativo) y sort_order = máximo + 1. Si no hay otras
+// series en la cola, el offset no cambia.
 export function decideTogglePause(series: Row, originalList: Row[]): TogglePauseDecision {
     if (series.status === 'Pausado') {
-        const activeItems = originalList.filter((s) => isActive(s) && s.id !== series.id);
-        const maxInterleave = maxInterleaveOf(activeItems);
-        const myInterleave = interleaveProgress(series);
-        const additionalInterleave = Math.max(0, maxInterleave - myInterleave);
-        return { action: 'resume', status: 'Mirando', interleaveOffset: (series.interleave_offset || 0) + additionalInterleave };
+        const others = originalList.filter((s) => s.id !== series.id);
+        const r0 = currentRound(others);
+        const interleaveOffset = r0 === null ? (series.interleave_offset || 0) : r0 - watchedCount(series);
+        const sortOrder = originalList.reduce((m, s) => Math.max(m, s.sort_order || 0), 0) + 1;
+        return { action: 'resume', status: 'Mirando', interleaveOffset, sortOrder };
     }
     if (series.status === 'Mirando' || series.status === 'Nueva') return { action: 'pause', status: 'Pausado' };
     return { action: 'none' };
