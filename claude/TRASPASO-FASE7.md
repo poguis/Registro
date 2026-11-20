@@ -156,5 +156,5 @@ Cerrado: el punto 7 (7.1, ver §5). Los demás siguen pendientes.
   - respaldo "después" (app 1.3.5);
   - los dos válidos (formato 2, `user_version` 5, outbox vacía) y `comparar-sync` idénticos en las 15 tablas, con el mismo saldo;
   - `verificar-fase5` en Poguis: 16/16 = "después" (31 / 12 / 19, un `user_id`).
-- **Observaciones del celular:** O1, el aviso de límite debería salir antes de abrir el formulario (→ 7.4). Lista viva en `claude/DISENO-ENTRETENIMIENTO.md`.
+- Observaciones del celular: O1 (límite obligatorio, mínimo 1, avisado al tocar Agregar; reemplaza R2) y O2 (Pendiente/Visto en el Registro de lectura) → 7.4a; O3 (Continuar y Volver a ver desde En espera y Terminado) → 7.6. Lista viva e ideas I1–I6 en claude/DISENO-ENTRETENIMIENTO.md.
 - **Siguiente:** la 7.4 (correcciones del motor y fuente de verdad), según el diseño.

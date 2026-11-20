@@ -4,7 +4,7 @@ Estados: [OK] decidido por el usuario · [PROPUESTA] sugerido, se confirma en la
 
 Origen: respuestas del usuario del 2026-11-17 y resultados de la 7.2 (commit `d55b5e1`: `docs/ENTRETENIMIENTO-ACTUAL.md` y `scripts/probar-fase7-2.mjs`, 17 OK). R1–R14 y C1–C14 remiten a ese documento y a esa suite.
 
-**Estado: cerrado para empezar la 7.3.** Se actualiza al cerrar cada subfase, y cualquier cambio de criterio se marca aquí.
+**Estado: vigente.** 7.3 cerrada; sigue la 7.4a. Se actualiza al cerrar cada subfase, y cualquier cambio de criterio se marca aquí.
 
 ## Alcance y datos
 - [OK] Datos existentes de entretenimiento en producción (1 categoría de video, 1 serie, 1 temporada y 11 filas en `watch_history`): el usuario los borra desde la app (borrado lógico) y el rediseño no los migra. Sus tombstones quedan en el celular y en Poguis, igual que los de la 6.8. Las migraciones nuevas tienen que tolerar tombstones.
@@ -107,21 +107,35 @@ Origen: respuestas del usuario del 2026-11-17 y resultados de la 7.2 (commit `d5
 
 ## Observaciones del usuario en las pruebas del celular
 Lista viva. Cada observación se asigna a una subfase cuando se planifica; las de UX sin subfase obvia van a la 7.4 o a una subfase de pulido.
-- O1 (prueba 7.3): el límite de series activas es obligatorio al crear o editar una categoría, de video y de lectura (no puede quedar vacío; mínimo 1). Dentro de la categoría no se puede superar, y el aviso "Límite Alcanzado" sale al tocar "Agregar", antes de abrir el formulario. Reemplaza R2 (el 0 que bloquea todo). → 7.4.
-- O2 (prueba 7.3): en el Registro de lectura, las etiquetas o los contadores "Pendiente" y "Visto" se muestran mal. Revisar con la captura del usuario y el código. → 7.4.
+- O1 (prueba 7.3): el límite de series activas es obligatorio al crear o editar una categoría, de video y de lectura (no puede quedar vacío; mínimo 1). Dentro de la categoría no se puede superar, y el aviso "Límite Alcanzado" sale al tocar "Agregar", antes de abrir el formulario. Reemplaza R2 (el 0 que bloquea todo). → 7.4a.
+- O2 (prueba 7.3): en el Registro de lectura, las etiquetas o los contadores "Pendiente" y "Visto" se muestran mal. Revisar con la captura del usuario y el código. → 7.4a.
 - O3 (prueba 7.3): En espera y Terminado ofrecen las mismas dos acciones: "Continuar" (reanudar donde quedó, tras agregar capítulos o una temporada) y "Volver a ver" con el selector de punto de inicio (también desde la mitad, no solo desde T1C1). → 7.6.
-- R15 (7.3): con una temporada de 0 capítulos, video genera 1 capítulo y pasa a la siguiente, y lectura genera hasta 999. Conservado en la 7.3 (`QueueVariant`); se decide en la 7.4.
+- R15 (7.3): con una temporada de 0 capítulos, video genera 1 capítulo y pasa a la siguiente, y lectura genera hasta 999. Conservado en la 7.3 (`QueueVariant`); se decide en la 7.4a.
+
+## Ideas nuevas [OK] (aceptadas por el usuario el 2026-11-18, todas con un diseño visual mejorado)
+- I1 "Hoy te toca" en el inicio: lo que toca ver y leer hoy en todas las categorías, para marcar con un toque. → 7.9.
+- I2 Fecha estimada de fin por serie y por categoría según el ritmo actual. → 7.9.
+- I3 Progreso con portada: barra de % visto y "T3 · C5 de 22". → 7.8.
+- I4 Rachas y mapa de calor del historial. → 7.10.
+- I5 Recordatorio diario local (notificación) si no se cumplió la cuota; funciona sin internet; suma un módulo nativo. → subfase propia (7.11).
+- I6 Deslizar para marcar visto en el Registro, con "Deshacer". → 7.6.
+- [PROPUESTA] Dirección visual: antes de las subfases con mucha interfaz (7.5 en adelante), maquetas de las pantallas clave (inicio con "Hoy te toca", categoría con "Ritmo", Registro, detalle de serie con portada) para elegir el estilo; después se aplica como tema común.
 
 ## Orden de trabajo [OK]
 Cada subfase con su plan, su aprobación y su ciclo completo. Si surge algo nuevo, se agrega.
 
 1. 7.2 Análisis: cerrada (`d55b5e1`).
 2. Este documento en el repo: cerrado (`758e7de`).
-3. 7.3 Motor puro: cerrada (`241c26e`).
-4. 7.4 Correcciones del motor y fuente de verdad: historial como conteo; C2 al final del ciclo actual; R1; cuotas desde mañana sin períodos vacíos; R2; R8; historial de todo el ritmo; fecha de inicio fija con registros. Con migración si hace falta.
-5. 7.5 Vínculo Pendiente↔Series/Lectura y subtipo de lectura (migración en Supabase y migración local 6).
-6. 7.6 Punto de inicio (T0/C0), "Reanudar" y volver a ver.
+3. 7.3 Motor puro: cerrada (`241c26e`, cierre `45f5cda`).
+4. 7.4 Correcciones del motor, en dos subfases (un APK cada una):
+   - 7.4a, sin migración: historial como conteo (incluye R1, R5–R8 y la grilla como "marcar vistos hasta aquí"); C2 al final del ciclo actual (también al reanudar una pausada); R15; O1 (y R2); O2;
+   - 7.4b, con migración (primero en Supabase): historial de todo el ritmo desde mañana, sin períodos vacíos (R10), con comparación por contenido (R11); fecha de inicio fija con registros; R12.
+5. 7.5 Vínculo Pendiente↔Series/Lectura y subtipo de lectura (migración en Supabase y la migración local siguiente).
+6. 7.6 Punto de inicio (T0/C0), "Continuar" y "Volver a ver" desde En espera y Terminado (O3), deslizar para marcar con "Deshacer" (I6).
 7. 7.7 Lectura por capítulos, tomo opcional y K.
-8. 7.8 API y portadas.
-9. 7.9 Visualización del ritmo.
-10. 7.10 Estadísticas de entretenimiento.
+8. 7.8 API, portadas y progreso con portada (I3).
+9. 7.9 Visualización del ritmo, "Hoy te toca" (I1) y fecha estimada de fin (I2).
+10. 7.10 Estadísticas de entretenimiento, rachas y mapa de calor (I4).
+11. 7.11 Recordatorio diario local (I5).
+
+Antes de la 7.5: dirección visual con maquetas (ver Ideas nuevas).
