@@ -3,7 +3,8 @@
 // Pruebas de los cambios A PROPÓSITO de la 7.4a, con tablas "entrada → resultado esperado"
 // escritas desde las decisiones (claude/DISENO-ENTRETENIMIENTO.md, plan de la 7.4a), no desde lo
 // que la app hace hoy:
-//   1. Ciclo: E1, E2, E3 (reanudar al final del ciclo actual, también con offset negativo).
+//   1. Ciclo: E1, E2, E3 (opción B: reanudar entra en la vuelta en curso conservando su lugar;
+//      también con offset negativo, el escenario P4 y las flechas con una serie pausada).
 //   2. Grilla hacia adelante (video y lectura): una fila por capítulo en UNA transacción,
 //      confirmación con más de 1 capítulo (Cancelar no escribe), último capítulo con cada botón.
 //   3. Grilla hacia atrás: confirmación, borrado lógico de la fila más reciente por capítulo,
@@ -14,6 +15,7 @@
 //   7. R15: temporadas con 0 capítulos se saltan en video y en lectura; 7b. el hueco que deja una
 //      temporada intermedia vacía del formulario también se salta (decisión del usuario, 7.4a).
 //   8. O1: límite obligatorio ≥ 1; NULL/0 = sin límite; aviso antes del formulario; editar no se bloquea.
+//      8b. O4: cada temporada o parte con al menos 1 capítulo o tomo.
 //   9. Outbox: cada fila de historial escrita o desmarcada encola su entrada.
 //  10. Cabecera del Registro (ajuste b): se relee de la BD al marcar y desmarcar, sin salir.
 //  11. Sync (ajuste a): una serie con interleave_offset negativo sube y baja por PGlite (migraciones
@@ -263,6 +265,19 @@ async function entorno(uid = UID) {
         await quiet(async () => { await handleTogglePauseSeries(s); await espia.asentar(); });
     };
 
+    // Flechas ↑/↓ de la pestaña "Viendo" (moveUp/moveDown reales, con su getFilteredSeries).
+    const flecha = async (cat, nombre, direccion) => {
+        usar();
+        const originalList = await lista(cat);
+        const getFilteredSeries = instanciar(extraer(V(cat).detalle, 'getFilteredSeries'), { originalList, currentStatusTab: 'Viendo' });
+        const indice = getFilteredSeries().findIndex((x) => x.name === nombre);
+        const espia = espiar(db);
+        const mover = instanciar(extraer(V(cat).detalle, direccion === 'up' ? 'moveUp' : 'moveDown'), {
+            originalList, currentStatusTab: 'Viendo', getFilteredSeries, db: espia.db, fetchSeries: () => {},
+        });
+        await quiet(async () => { await mover(indice); await espia.asentar(); });
+    };
+
     const reiniciar = async (cat, nombre) => {
         usar();
         const s = await serie(cat, nombre);
@@ -301,7 +316,7 @@ async function entorno(uid = UID) {
         return { status: s.status, T: s.current_season, E: s.current_episode, vistos: motorCola.watchedCount(s) };
     };
 
-    return { dev, db, user, uid, usar, ok, crearCategoria, categoria, lista, serie, registro, cola, agregar, marcar, verEnOrden, desmarcarRegistro, tocar, pausar, reiniciar, botonAgregar, historial, estado };
+    return { dev, db, user, uid, usar, ok, crearCategoria, categoria, lista, serie, registro, cola, agregar, marcar, verEnOrden, desmarcarRegistro, tocar, pausar, reiniciar, botonAgregar, historial, estado, flecha };
 }
 
 // =============================================================================================
@@ -341,7 +356,8 @@ seccion('1. Ciclo: serie nueva y reanudar (E1, E2, E3)');
         { caso: 'sin cola', esperado: { offset: 0, cola: ['N·T1E1', 'N·T1E2', 'N·T1E3'] }, obtenido: sinCola },
     ]);
 
-    // E3 (opción A): reanudar = final de la vuelta actual con su propio progreso, sort_order MAX + 1.
+    // E3 (opción B, tras la prueba de la 7.4a): reanudar = vuelta en curso con su propio progreso
+    // (offset = r0 − vistos) y CONSERVA su sort_order: sale en su posición de siempre.
     E = await entorno();
     cat = await E.crearCategoria();
     for (const n of ['A', 'B', 'C', 'D']) await E.agregar(cat, { name: n, temporadas: [10] });
@@ -388,12 +404,57 @@ seccion('1. Ciclo: serie nueva y reanudar (E1, E2, E3)');
     const s = await E.serie(cat, 'S');
     const e3d = { offset: s.interleave_offset, sortOrder: s.sort_order, status: s.status };
 
-    tabla('E3: reanudar entra al final de la vuelta actual (sort_order MAX + 1, baja al final de "Viendo")', [
-        { caso: 'E3', esperado: { enPausa: ['A·T1E2', 'C·T1E2', 'D·T1E2'], B: { status: 'Mirando', offset: 1, sortOrder: 5 }, viendo: ['A', 'C', 'D', 'B'], cola6: ['A·T1E3', 'C·T1E3', 'D·T1E3', 'B·T1E2', 'A·T1E4', 'C·T1E4'] }, obtenido: e3 },
-        { caso: 'a mitad de vuelta', esperado: { C: { offset: 0, sortOrder: 4 }, cola5: ['B·T1E2', 'C·T1E2', 'A·T1E3', 'B·T1E3', 'C·T1E3'] }, obtenido: e3b },
-        { caso: 'offset negativo', esperado: { B: { offset: -8, sortOrder: 3, vistos: 10 }, cola4: ['A·T1E3', 'B·T1E11', 'A·T1E4', 'B·T1E12'] }, obtenido: e3c },
-        { caso: 'sin otras en la cola', esperado: { offset: 0, sortOrder: 2, status: 'Mirando' }, obtenido: e3d },
+    // Escenario P4 de la prueba en Registro Dev: A, B, C, D; A = 3, C = 3, D con p = 2 (nueva en el
+    // ciclo 2) y B pausada con 2 vistos. Al reanudar: r0 = mín(3, 3, 2) = 2 → offset de B = 0, p = 2.
+    // Vuelta 2: B3, D1 (por posición); vuelta 3: A4, B4, C4, D2.
+    E = await entorno();
+    cat = await E.crearCategoria();
+    for (const n of ['A', 'B', 'C']) await E.agregar(cat, { name: n, temporadas: [10] });
+    await E.verEnOrden(cat, 6);
+    await E.agregar(cat, { name: 'D', temporadas: [10] });
+    await E.pausar(cat, 'B');
+    await E.tocar(cat, 'A', 1, 3);
+    await E.tocar(cat, 'C', 1, 3);
+    await E.pausar(cat, 'B');
+    b = await E.serie(cat, 'B');
+    const dP4 = await E.serie(cat, 'D');
+    const p4 = { B: { offset: b.interleave_offset, sortOrder: b.sort_order }, D: { offset: dP4.interleave_offset, sortOrder: dP4.sort_order }, cola6: (await E.cola(cat)).slice(0, 6).map(etiqueta) };
+
+    tabla('E3 (opción B): reanudar entra en la vuelta en curso y conserva su lugar (sort_order)', [
+        // r0 = 2, offset de B = 2 − 1 = 1 → p = 2: vuelta 2 = A3, B2, C3, D3 (por posición).
+        { caso: 'E3', esperado: { enPausa: ['A·T1E2', 'C·T1E2', 'D·T1E2'], B: { status: 'Mirando', offset: 1, sortOrder: 2 }, viendo: ['A', 'B', 'C', 'D'], cola6: ['A·T1E3', 'B·T1E2', 'C·T1E3', 'D·T1E3', 'A·T1E4', 'B·T1E3'] }, obtenido: e3 },
+        { caso: 'a mitad de vuelta', esperado: { C: { offset: 0, sortOrder: 3 }, cola5: ['B·T1E2', 'C·T1E2', 'A·T1E3', 'B·T1E3', 'C·T1E3'] }, obtenido: e3b },
+        { caso: 'offset negativo', esperado: { B: { offset: -8, sortOrder: 2, vistos: 10 }, cola4: ['A·T1E3', 'B·T1E11', 'A·T1E4', 'B·T1E12'] }, obtenido: e3c },
+        { caso: 'sin otras en la cola', esperado: { offset: 0, sortOrder: 1, status: 'Mirando' }, obtenido: e3d },
+        { caso: 'escenario P4', esperado: { B: { offset: 0, sortOrder: 2 }, D: { offset: 2, sortOrder: 4 }, cola6: ['B·T1E3', 'D·T1E1', 'A·T1E4', 'B·T1E4', 'C·T1E4', 'D·T1E2'] }, obtenido: p4 },
     ]);
+
+    // Flechas con B pausada: reordenar las demás y reanudar. "Viendo" incluye a las pausadas, así
+    // que moveUp/moveDown renumeran a todas (1..n): sin sort_order repetidos y B sale en la cola en
+    // la posición que muestra la lista.
+    // A, B, C, D; ven 1 cada una; se pausa B; D sube dos veces (A, D, B, C) y A baja una (D, A, B, C);
+    // la cola da D2, A2 (C = 1). Al reanudar B: r0 = mín(2, 2, 1) = 1 → offset 0, p = 1.
+    // Vuelta 1: B2, C2 (por posición); vuelta 2: D3, A3, B3, C3.
+    E = await entorno();
+    cat = await E.crearCategoria();
+    for (const n of ['A', 'B', 'C', 'D']) await E.agregar(cat, { name: n, temporadas: [10] });
+    await E.verEnOrden(cat, 4);
+    await E.pausar(cat, 'B');
+    await E.flecha(cat, 'D', 'up');
+    await E.flecha(cat, 'D', 'up');
+    await E.flecha(cat, 'A', 'down');
+    const vistosConFlechas = await E.verEnOrden(cat, 2);
+    await E.pausar(cat, 'B');
+    const viendo = motorDetalle.filterSeriesByTab(await E.lista(cat), 'Viendo');
+    const colaF = (await E.cola(cat)).slice(0, 6).map(etiqueta);
+    tabla('E3 con flechas: B pausada, reordenar las demás y reanudar', [{
+        caso: 'D ↑↑, A ↓, reanudar B',
+        esperado: { vistos: ['D·T1E2', 'A·T1E2'], viendo: ['D', 'A', 'B', 'C'], sortOrder: [1, 2, 3, 4], repetidos: 0, cola6: ['B·T1E2', 'C·T1E2', 'D·T1E3', 'A·T1E3', 'B·T1E3', 'C·T1E3'] },
+        obtenido: {
+            vistos: vistosConFlechas, viendo: viendo.map((x) => x.name), sortOrder: viendo.map((x) => x.sort_order),
+            repetidos: viendo.length - new Set(viendo.map((x) => x.sort_order)).size, cola6: colaF,
+        },
+    }]);
 }
 
 // =============================================================================================
@@ -668,17 +729,23 @@ seccion('7. R15: una temporada con 0 capítulos se salta (video y lectura)');
     check('R15 nivel puro: episode_count nulo se salta (P·T1E1, P·T3E1)', igual(motorCola.episodesForSeries(s).map(etiqueta), ['P·T1E1', 'P·T3E1']));
 }
 
-seccion('7b. Hueco: una temporada intermedia vacía en el formulario (video y lectura)');
+seccion('7b. Hueco: falta una temporada intermedia entre las guardadas (video y lectura)');
 {
-    // El formulario descarta la temporada vacía y conserva la numeración: se guardan T1 y T3 con
-    // total_seasons 2. Decisión del usuario (7.4a): la que falta se salta y la serie termina en la
-    // de número más alto (antes: la T2 que falta contaba como 999 capítulos y la T3 nunca llegaba).
+    // Datos de antes de O4: el formulario descartaba la temporada vacía y conservaba la numeración
+    // (T1 y T3 con total_seasons 2). Desde O4 el formulario ya no los crea, así que se guardan con
+    // la fachada. Decisión del usuario (7.4a): la que falta se salta y la serie termina en la de
+    // número más alto (antes: la T2 que falta contaba como 999 capítulos y la T3 nunca llegaba).
     const filas = [];
     for (const tipo of ['video', 'reading']) {
         const v = VARIANTES[tipo];
         const E = await entorno();
         const cat = await E.crearCategoria({ type: tipo });
-        await E.agregar(cat, { name: 'H', temporadas: [2, 0, 2] });
+        const conHueco = async (name) => {
+            E.usar();
+            E.ok(await E.db.addSeriesWithSeasons({ category_id: cat.id, name, description: '', status: 'Nueva', current_season: 1, current_episode: 1, total_seasons: 2 },
+                [{ season_number: 1, episode_count: 2 }, { season_number: 3, episode_count: 2 }]), 'addSeriesWithSeasons');
+        };
+        await conHueco('H');
         const h = await E.serie(cat, 'H');
         const guardado = { temporadas: h.seasons.map((t) => t.season_number), total: h.total_seasons };
         const cola = (await E.cola(cat)).map(etiqueta);
@@ -687,7 +754,7 @@ seccion('7b. Hueco: una temporada intermedia vacía en el formulario (video y le
         await E.marcar(cat, 'H');
         const alFinal = await E.marcar(cat, 'H', 'Terminado');
         const finalH = await E.estado(cat, 'H');
-        await E.agregar(cat, { name: 'G', temporadas: [2, 0, 2] });
+        await conHueco('G');
         const al = await E.tocar(cat, 'G', 3, 1, 'Marcar');
         const g = await E.estado(cat, 'G');
         const alUltimo = await E.tocar(cat, 'G', 3, 2, 'Terminado');
@@ -721,6 +788,37 @@ seccion('7b. Hueco: una temporada intermedia vacía en el formulario (video y le
 // =============================================================================================
 // 8. O1: límite de series activas
 // =============================================================================================
+seccion('8b. O4: cada temporada o parte con al menos 1 capítulo o tomo (video y lectura)');
+for (const tipo of ['video', 'reading']) {
+    const E = await entorno();
+    const cat = await E.crearCategoria({ type: tipo });
+    const MSG = tipo === 'video' ? 'Cada temporada debe tener al menos 1 capítulo.' : 'Cada parte debe tener al menos 1 tomo.';
+    const filas = [];
+    const alertas = (al) => al.map((a) => ({ titulo: a.titulo, mensaje: a.mensaje }));
+    for (const [nombre, temporadas] of [['cero en medio', [2, 0, 2]], ['vacía al final', [2, '']], ['no numérica', [2, 'abc']], ['negativa', [-1]]]) {
+        const al = await E.agregar(cat, { name: nombre, temporadas });
+        filas.push({ caso: nombre, esperado: { alertas: [{ titulo: 'Error', mensaje: MSG }], guardada: false }, obtenido: { alertas: alertas(al), guardada: (await E.lista(cat)).some((s) => s.name === nombre) } });
+    }
+    const alOk = await E.agregar(cat, { name: 'válida', temporadas: [2, 1] });
+    const ok = await E.serie(cat, 'válida');
+    filas.push({ caso: '[2, 1]', esperado: { alertas: [], temporadas: [[1, 2], [2, 1]] }, obtenido: { alertas: alertas(alOk), temporadas: ok.seasons.map((x) => [x.season_number, x.episode_count]) } });
+    // Una serie vieja con una temporada en 0 (guardada antes de O4): al editarla hay que corregirla.
+    E.usar();
+    E.ok(await E.db.addSeriesWithSeasons({ category_id: cat.id, name: 'vieja', description: '', status: 'Nueva', current_season: 1, current_episode: 1, total_seasons: 2 },
+        [{ season_number: 1, episode_count: 2 }, { season_number: 2, episode_count: 0 }]), 'addSeriesWithSeasons');
+    const vieja = await E.serie(cat, 'vieja');
+    const alVieja = await E.agregar(cat, { name: 'vieja', temporadas: [2, 0], editar: vieja.id });
+    const sigue = (await E.serie(cat, 'vieja')).seasons.map((x) => [x.season_number, x.episode_count]);
+    const alCorregida = await E.agregar(cat, { name: 'vieja', temporadas: [2, 3], editar: vieja.id });
+    filas.push({
+        caso: 'editar una vieja con una temporada en 0',
+        esperado: { conCero: [{ titulo: 'Error', mensaje: MSG }], sigue: [[1, 2], [2, 0]], corregida: [], despues: [[1, 2], [2, 3]] },
+        obtenido: { conCero: alertas(alVieja), sigue, corregida: alertas(alCorregida), despues: (await E.serie(cat, 'vieja')).seasons.map((x) => [x.season_number, x.episode_count]) },
+    });
+    tabla(`O4 (${tipo})`, filas);
+}
+check('O4 nivel puro: validateSeriesForm devuelve temporadaVacia', motorDetalle.validateSeriesForm({ name: 'x', seasons: [{ number: 1, episodes: '3' }, { number: 2, episodes: '0' }], status: 'Nueva', currentSeason: 1, currentEpisode: 1 }).error === 'temporadaVacia');
+
 seccion('8. O1: límite obligatorio ≥ 1, aviso antes del formulario, editar no se bloquea');
 for (const tipo of ['video', 'reading']) {
     const v = VARIANTES[tipo];

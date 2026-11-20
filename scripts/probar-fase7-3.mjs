@@ -296,10 +296,10 @@ const conConteoViejo = (wl) => wl.map((s) => ({ ...s, watched_count: utils.getWa
 const RETIRADAS = [
     ['registro: loadData', 'la cabecera relee el total de la categoría de la BD (R1, ajuste b) y la cola ya no tiene variante'],
     ['registro: onUnmarkWatched', 'R8: una serie cerrada vuelve a Mirando'],
-    ['detalle: handleSave', 'serie nueva al final de la vuelta actual (C2) y límite NULL/0 = sin límite (O1)'],
+    ['detalle: handleSave', 'serie nueva al final de la vuelta actual (C2), límite NULL/0 = sin límite (O1) y temporadas de al menos 1 capítulo (O4)'],
     ['detalle: updateToChapter', 'la grilla marca/desmarca historial (decisión 2, ajuste c)'],
     ['detalle: handleRestart', 'el aviso muestra los vistos del historial (decisión 4)'],
-    ['detalle: handleTogglePauseSeries', 'reanudar al final del ciclo actual (E3, opción A)'],
+    ['detalle: handleTogglePauseSeries', 'reanudar en la vuelta en curso conservando su lugar (E3, opción B)'],
     ['atraso: calculateHeaderBacklog / calculateGlobalBacklog', 'el total sale del historial (R1)'],
 ];
 

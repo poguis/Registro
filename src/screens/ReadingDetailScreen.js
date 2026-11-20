@@ -185,6 +185,7 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
     const handleSave = async () => {
         const formErrors = {
             nombre: 'El nombre es obligatorio',
+            temporadaVacia: 'Cada parte debe tener al menos 1 tomo.',
             unidades: 'Tomos inválidos',
             numeros: 'Números inválidos',
             temporadaRango: 'Parte fuera de rango',
@@ -320,7 +321,7 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
                 series.current_season,
                 series.current_episode,
                 decision.status,
-                decision.sortOrder,
+                null, // E3 opción B: conserva su sort_order
                 undefined,
                 undefined,
                 decision.interleaveOffset

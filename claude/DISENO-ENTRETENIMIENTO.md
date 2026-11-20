@@ -46,6 +46,7 @@ Origen: respuestas del usuario del 2026-11-17 y resultados de la 7.2 (commit `d5
 - [OK] N capítulos por día (nunca "1 cada N días" en video).
 - [OK] Rotación de un capítulo por serie: el bloque K no aplica a video (K = 1 fijo).
 - [OK] Una serie que entra a mitad de ciclo (nueva, reanudada o vuelta a ver) se pone al final del ciclo actual, sin salir atrasada. Hoy entra al final del ciclo siguiente (C2): se corrige.
+- [OK] (prueba 7.4a, cambia la opción A elegida en el plan) Una serie **pausada que se reanuda conserva su lugar** en la lista (`sort_order`) y entra en la vuelta en curso con su propio progreso: dentro de esa vuelta sale en el orden que siempre tuvo. Solo las series nuevas van al final.
 - Hoy:
   - la cola es un round-robin de un capítulo por serie según el progreso + `interleave_offset`, con `sort_order` como desempate dentro de la vuelta;
   - N solo decide cuántos se pintan como atraso;
@@ -110,7 +111,9 @@ Lista viva. Cada observación se asigna a una subfase cuando se planifica; las d
 - O1 (prueba 7.3): el límite de series activas es obligatorio al crear o editar una categoría, de video y de lectura (no puede quedar vacío; mínimo 1). Dentro de la categoría no se puede superar, y el aviso "Límite Alcanzado" sale al tocar "Agregar", antes de abrir el formulario. Reemplaza R2 (el 0 que bloquea todo). → 7.4a.
 - O2 (prueba 7.3): en el Registro de lectura, las etiquetas o los contadores "Pendiente" y "Visto" se muestran mal. Revisar con la captura del usuario y el código. → 7.4a.
 - O3 (prueba 7.3): En espera y Terminado ofrecen las mismas dos acciones: "Continuar" (reanudar donde quedó, tras agregar capítulos o una temporada) y "Volver a ver" con el selector de punto de inicio (también desde la mitad, no solo desde T1C1). → 7.6.
-- R15 (7.3): con una temporada de 0 capítulos, video genera 1 capítulo y pasa a la siguiente, y lectura genera hasta 999. Conservado en la 7.3 (`QueueVariant`); se decide en la 7.4a.
+- R15 (7.3): con una temporada de 0 capítulos, video genera 1 capítulo y pasa a la siguiente, y lectura genera hasta 999. Conservado en la 7.3 (`QueueVariant`); en la 7.4a se salta igual en los dos.
+- O4 (prueba 7.4a): el formulario permite crear una temporada (o parte) con 0 capítulos (o tomos), que no tiene sentido. Cada temporada debe tener al menos 1. La cola sigue saltando las de 0 que ya existan. → corrección de la 7.4a.
+- O5 (prueba 7.4a): el tema claro es demasiado blanco; usar un fondo claro cálido (beige o hueso), no blanco puro, en toda la app. → dirección visual.
 
 ## Ideas nuevas [OK] (aceptadas por el usuario el 2026-11-18, todas con un diseño visual mejorado)
 - I1 "Hoy te toca" en el inicio: lo que toca ver y leer hoy en todas las categorías, para marcar con un toque. → 7.9.
@@ -128,7 +131,7 @@ Cada subfase con su plan, su aprobación y su ciclo completo. Si surge algo nuev
 2. Este documento en el repo: cerrado (`758e7de`).
 3. 7.3 Motor puro: cerrada (`241c26e`, cierre `45f5cda`).
 4. 7.4 Correcciones del motor, en dos subfases (un APK cada una):
-   - 7.4a, sin migración: historial como conteo (incluye R1, R5–R8 y la grilla como "marcar vistos hasta aquí"); C2 al final del ciclo actual (también al reanudar una pausada); R15; O1 (y R2); O2;
+   - 7.4a, sin migración: historial como conteo (incluye R1, R5–R8 y la grilla como "marcar vistos hasta aquí"); C2 al final del ciclo actual (la pausada que se reanuda entra en la vuelta en curso conservando su lugar); R15; O1 (y R2); O2; corrección tras la prueba del celular: E3 conservando el lugar y O4 (temporadas de al menos 1 capítulo), con APK 1.3.7 / vc 11;
    - 7.4b, con migración (primero en Supabase): historial de todo el ritmo desde mañana, sin períodos vacíos (R10), con comparación por contenido (R11); fecha de inicio fija con registros; R12.
 5. 7.5 Vínculo Pendiente↔Series/Lectura y subtipo de lectura (migración en Supabase y la migración local siguiente).
 6. 7.6 Punto de inicio (T0/C0), "Continuar" y "Volver a ver" desde En espera y Terminado (O3), deslizar para marcar con "Deshacer" (I6).

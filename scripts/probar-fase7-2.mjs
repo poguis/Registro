@@ -76,9 +76,9 @@ const CASOS = [
             colaEnPausa5: ['S3·T1E2', 'S4·T1E2', 'S5·T1E2', 'S1·T1E3', 'S3·T1E3'],
             totalVistoSegunPantalla: { registroCapitulos: 12, detalleSerie: 12, listaCategorias: 12 },
             interleaveS2: { antes: 0, despues: 0 },
-            colaTrasReanudar6: ['S4·T1E3', 'S5·T1E3', 'S2·T1E3', 'S1·T1E4', 'S3·T1E4', 'S4·T1E4'],
+            colaTrasReanudar6: ['S2·T1E3', 'S4·T1E3', 'S5·T1E3', 'S1·T1E4', 'S2·T1E4', 'S3·T1E4'],
         },
-        comportamiento: 'la serie pausada sale de la cola; al reanudar, interleave_offset la pone en la vuelta actual y sort_order = MAX + 1: sale al final de esa vuelta con su propio progreso; las tres pantallas cuentan igual el total visto (historial de todas las series, también la pausada)',
+        comportamiento: 'la serie pausada sale de la cola; al reanudar, interleave_offset la pone en la vuelta actual y conserva su lugar en la lista (sort_order): sale en su posición dentro de la vuelta en curso, con su propio progreso; las tres pantallas cuentan igual el total visto (historial de todas las series, también la pausada)',
     },
     {
         id: 'C4', titulo: 'Cambiar la cuota de dos días de la semana (hoy y ayer) en una categoría de video',

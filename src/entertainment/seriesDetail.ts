@@ -35,13 +35,16 @@ export function reorderActive(filtered: Row[], index: number, direction: 'up' | 
     return newList;
 }
 
-export type SeriesFormError = 'nombre' | 'unidades' | 'numeros' | 'temporadaRango' | 'capituloRango';
+export type SeriesFormError = 'nombre' | 'temporadaVacia' | 'unidades' | 'numeros' | 'temporadaRango' | 'capituloRango';
 
 // Validación del formulario de serie/obra. La pantalla traduce el código a su texto.
+// O4 (7.4a): cada temporada/parte necesita al menos 1 capítulo/tomo (una fila vacía, 0 o no
+// numérica se rechaza); 'unidades' queda para una lista sin filas.
 export function validateSeriesForm(form: { name: string; seasons: Row[]; status: string; currentSeason: any; currentEpisode: any }):
     { error: SeriesFormError } | { validSeasons: Row[] } {
     const { name, seasons, status, currentSeason, currentEpisode } = form;
     if (!name.trim()) return { error: 'nombre' };
+    if (seasons.some((s) => !(parseInt(s.episodes) >= 1))) return { error: 'temporadaVacia' };
     const validSeasons = seasons.filter((s) => parseInt(s.episodes) > 0);
     if (validSeasons.length === 0) return { error: 'unidades' };
     if (status === 'Mirando') {
@@ -156,20 +159,20 @@ export function restartWatchedCount(series: Row): number {
 export const seriesWatchedTotal = (list: Row[]): number => list.reduce((a, s) => a + watchedCount(s), 0);
 
 export type TogglePauseDecision =
-    | { action: 'resume'; status: 'Mirando'; interleaveOffset: number; sortOrder: number }
+    | { action: 'resume'; status: 'Mirando'; interleaveOffset: number }
     | { action: 'pause'; status: 'Pausado' }
     | { action: 'none' };
 
-// ⏸/▶ de una serie. Al reanudar (E3) entra al final del ciclo actual con su propio progreso:
-// interleave_offset = r0 − vistos (puede ser negativo) y sort_order = máximo + 1. Si no hay otras
-// series en la cola, el offset no cambia.
+// ⏸/▶ de una serie. Al reanudar (E3, opción B tras la prueba de la 7.4a) entra en la vuelta en
+// curso con su propio progreso, interleave_offset = r0 − vistos (puede ser negativo), y CONSERVA
+// su sort_order: dentro de esa vuelta sale en la posición que siempre tuvo y no baja en "Viendo"
+// (solo las series nuevas van al final). Si no hay otras series en la cola, el offset no cambia.
 export function decideTogglePause(series: Row, originalList: Row[]): TogglePauseDecision {
     if (series.status === 'Pausado') {
         const others = originalList.filter((s) => s.id !== series.id);
         const r0 = currentRound(others);
         const interleaveOffset = r0 === null ? (series.interleave_offset || 0) : r0 - watchedCount(series);
-        const sortOrder = originalList.reduce((m, s) => Math.max(m, s.sort_order || 0), 0) + 1;
-        return { action: 'resume', status: 'Mirando', interleaveOffset, sortOrder };
+        return { action: 'resume', status: 'Mirando', interleaveOffset };
     }
     if (series.status === 'Mirando' || series.status === 'Nueva') return { action: 'pause', status: 'Pausado' };
     return { action: 'none' };

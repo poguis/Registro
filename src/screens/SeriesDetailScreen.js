@@ -200,6 +200,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
     const handleSave = async () => {
         const formErrors = {
             nombre: 'El nombre es obligatorio',
+            temporadaVacia: 'Cada temporada debe tener al menos 1 capítulo.',
             unidades: 'Capítulos inválidos',
             numeros: 'Números inválidos',
             temporadaRango: 'Temporada fuera de rango',
@@ -335,7 +336,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 series.current_season,
                 series.current_episode,
                 decision.status,
-                decision.sortOrder,
+                null, // E3 opción B: conserva su sort_order
                 undefined,
                 undefined,
                 decision.interleaveOffset
