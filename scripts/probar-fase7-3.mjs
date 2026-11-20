@@ -82,11 +82,16 @@ section(`1. Los 14 casos de probar-fase7-2 (oráculo de ${REF}; la 7.4a cambia s
     };
     const viejo = casosDe(execFileSync('git', ['show', `${REF}:scripts/probar-fase7-2.mjs`], { encoding: 'utf8' }));
     const nuevo = casosDe(readFileSync('scripts/probar-fase7-2.mjs', 'utf8'));
+    // C6 (cierre de la 7.4a): solo cambia su frase `comportamiento` (el conteo sale del historial);
+    // la entrada y los valores tienen que seguir idénticos a los de la referencia.
+    const SOLO_FRASE = ['C6'];
+    const sinFrase = (x) => x.replace(/\n        comportamiento: '.*',\n/, '\n        comportamiento: <frase>,\n');
     const ids = Object.keys(viejo.casos);
-    const cambiados = ids.filter((id) => viejo.casos[id] !== nuevo.casos[id]);
-    check(`bloque CASOS: los mismos 14 casos y solo cambian ${CAMBIAN.join(', ')} respecto de ${REF}`,
-        ids.length === 14 && JSON.stringify(Object.keys(nuevo.casos)) === JSON.stringify(ids) && viejo.resto === nuevo.resto && JSON.stringify(cambiados) === JSON.stringify(CAMBIAN),
-        `cambian: ${cambiados.join(', ') || 'ninguno'}`);
+    const cambiados = ids.filter((id) => !SOLO_FRASE.includes(id) && viejo.casos[id] !== nuevo.casos[id]);
+    const fraseOk = SOLO_FRASE.every((id) => sinFrase(viejo.casos[id]) === sinFrase(nuevo.casos[id]) && sinFrase(nuevo.casos[id]) !== nuevo.casos[id]);
+    check(`bloque CASOS: los mismos 14 casos y solo cambian ${CAMBIAN.join(', ')} respecto de ${REF} (en ${SOLO_FRASE.join(', ')}, solo la frase de comportamiento)`,
+        ids.length === 14 && JSON.stringify(Object.keys(nuevo.casos)) === JSON.stringify(ids) && viejo.resto === nuevo.resto && JSON.stringify(cambiados) === JSON.stringify(CAMBIAN) && fraseOk,
+        `cambian: ${cambiados.join(', ') || 'ninguno'}; ${SOLO_FRASE.join(', ')} solo en la frase: ${fraseOk ? 'sí' : 'no'}`);
     const r = spawnSync(process.execPath, ['scripts/probar-fase7-2.mjs'], { encoding: 'utf8', timeout: 600000 });
     const oks = (r.stdout.match(/^OK/gm) || []).length;
     const fallas = (r.stdout.match(/^FALLA/gm) || []).length;

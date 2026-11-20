@@ -1,16 +1,16 @@
 # Traspaso a la Fase 7
 
-Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar la 7.1 (2026-11-16), la 7.2 (2026-11-17) y la 7.3 (2026-11-18). Las fases 0–6 están cerradas; el detalle de cada una está en DECISIONES.md (Fases) y CLAUDE.md. El traspaso anterior (`claude/TRASPASO-FASE6.md`) queda como histórico.
+Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar la 7.1 (2026-11-16), la 7.2 (2026-11-17), la 7.3 (2026-11-18) y la 7.4a (2026-11-20). Las fases 0–6 están cerradas; el detalle de cada una está en DECISIONES.md (Fases) y CLAUDE.md. El traspaso anterior (`claude/TRASPASO-FASE6.md`) queda como histórico.
 
 ## 1. Estado actual
 
 ### Celular del usuario
-- **Registro (producción)** `com.poguis.Registro`: **1.3.5 / versionCode 9** (7.3, 2026-11-18), firma EAS `31:32:DE:…:3E:52`, instalada siempre encima (`install -r`), mismo `firstInstallTime` desde 2026-09-21. Sync encendida contra **Poguis**. BD local `user_version` 5: sin `legacy_*` ni columna `password`.
+- **Registro (producción)** `com.poguis.Registro`: **1.3.7 / versionCode 11** (7.4a, 2026-11-20), firma EAS `31:32:DE:…:3E:52`, instalada siempre encima (`install -r`), mismo `firstInstallTime` desde 2026-09-21. Sync encendida contra **Poguis**. BD local `user_version` 5: sin `legacy_*` ni columna `password`.
 - `respaldos/` del celular: los 10 respaldos manuales más recientes y la `pre-migracion-v5`; 0 copias con la contraseña antigua (retención de la 6.7).
-- **Registro Dev** `com.poguis.Registro.dev`: **1.3.5 / versionCode 9**, firma `debug.keystore` `fac61745…`, contra **Registro Dev**, instalada encima con el mismo `firstInstallTime`. Se instala al lado de la app real y tiene su propia BD.
+- **Registro Dev** `com.poguis.Registro.dev`: **1.3.7 / versionCode 11**, firma `debug.keystore` `fac61745…`, contra **Registro Dev**, instalada encima con el mismo `firstInstallTime`. Se instala al lado de la app real y tiene su propia BD.
 
 ### Poguis (producción)
-- Datos reales de un único usuario: **31 filas** en las 15 tablas sincronizadas, **12 vivas y 19 borradas** (`verificar-fase5` 16/16 = respaldo "después" de la 7.3, 2026-11-18).
+- Datos reales de un único usuario: **31 filas** en las 15 tablas sincronizadas, **12 vivas y 19 borradas** (`verificar-fase5` 16/16 = respaldo "después" de la 7.3, 2026-11-18). **Sin cambios en la 7.4a** (2026-11-20: `verificar-fase5` = "después", 31 / 12 / 19, un `user_id`).
 - **Diferencia con la 6.7** (30 / 26 / 4, que coincide con su `verificar-fase5-poguis.json`):
   - +1 fila viva en `balance_history` (de 2 a 3), un movimiento del usuario;
   - 15 tombstones de entretenimiento: 1 categoría, 1 cuota, 1 serie, 1 temporada y 11 filas de `watch_history`. El usuario los borró desde la app antes de la 7.3, como decidió el diseño (Alcance), y quedan para siempre igual que los de la 6.8.
@@ -28,7 +28,7 @@ Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar
 - Datos de prueba que se quedan sin acción: el elemento `[prueba F6.3]` en `backlog` y el tombstone "Venta" en `finance_categories` (6.6). El usuario sintético de la 6.2 se borró (cascade verificado).
 
 ### Versiones y commits
-- `app.json`: `versionName` 1.3.5, `versionCode` 9. Para cada APK que se vaya a instalar, subir los dos (las versiones no pueden bajar).
+- `app.json`: `versionName` 1.3.7, `versionCode` 11. Para cada APK que se vaya a instalar, subir los dos (las versiones no pueden bajar).
 - Expo SDK 54 (`expo` 54.0.38), React Native 0.81.5, `expo-sqlite` 16.0.10 (SQLite 3.50.3, sin modo de solo lectura), auth-js 2.118.
 - Commits de la Fase 6:
   - `97fb9b6` / `ceed19b` (6.1)
@@ -42,7 +42,8 @@ Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar
 - Commits de la Fase 7:
   - `89a3514` (7.1, implementación) y `d4bad14` (cierre de la 7.1);
   - `d55b5e1` (7.2) y `758e7de` (diseño y cierre de la 7.2);
-  - `241c26e` (7.3, implementación) y el commit de cierre de la 7.3.
+  - `241c26e` (7.3, implementación), `45f5cda` (cierre de la 7.3) y `0d8d327` (diseño con I1–I6 y 7.4 dividida);
+  - `90ea3b5` (7.4a), `47f358c` (corrección de la 7.4a) y el commit de este cierre.
 
 ### Credenciales (nombres y ubicación, nunca valores)
 - `.env` (fuera de git; plantilla `.env.example`): `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (Poguis) y `EXPO_PUBLIC_SUPABASE_DEV_URL` / `EXPO_PUBLIC_SUPABASE_DEV_PUBLISHABLE_KEY` (Registro Dev). Solo claves `sb_publishable_`; 0 secret keys en los dos proyectos.
@@ -96,7 +97,7 @@ Cerrado: el punto 7 (7.1, ver §5). Los demás siguen pendientes.
      - la reconexión dentro de los 60 s de enfriamiento de auth-js seguida del ciclo por `TOKEN_REFRESHED` (solo en `probar-fase5`);
      - una cuenta Google distinta bloqueada (solo en `probar-fase3`).
    - **Descartado:** el cursor para las tablas vacías (DECISIONES.md, Descartado).
-9. **Rediseño de entretenimiento (subfases 7.3–7.10):** ver `claude/DISENO-ENTRETENIMIENTO.md`. El análisis previo (7.2, §6) y el motor puro (7.3, §7) están cerrados; sigue la 7.4.
+9. **Rediseño de entretenimiento (subfases 7.3–7.10):** ver `claude/DISENO-ENTRETENIMIENTO.md`. El análisis previo (7.2, §6), el motor puro (7.3, §7) y la 7.4a (§8) están cerrados; sigue la 7.4b.
 
 ## 4. [PENDIENTE] vigentes (DECISIONES.md)
 - **Restaurar un respaldo dentro de la app.**
@@ -158,3 +159,24 @@ Cerrado: el punto 7 (7.1, ver §5). Los demás siguen pendientes.
   - `verificar-fase5` en Poguis: 16/16 = "después" (31 / 12 / 19, un `user_id`).
 - Observaciones del celular: O1 (límite obligatorio, mínimo 1, avisado al tocar Agregar; reemplaza R2) y O2 (Pendiente/Visto en el Registro de lectura) → 7.4a; O3 (Continuar y Volver a ver desde En espera y Terminado) → 7.6. Lista viva e ideas I1–I6 en claude/DISENO-ENTRETENIMIENTO.md.
 - **Siguiente:** la 7.4 (correcciones del motor y fuente de verdad), según el diseño.
+
+## 8. Fase 7.4a — historial como conteo, ciclo y correcciones [CERRADA 2026-11-20]
+- **Commits:** `90ea3b5` (implementación, APK 1.3.6 / vc 10, solo Registro Dev) y `47f358c` (corrección tras la prueba del celular, APK **1.3.7 / versionCode 11**). Sin cambios de esquema, migraciones, `src/sync/` ni `supabase/`.
+- **Qué cambió:**
+  - **El historial cuenta lo visto:** `watched_count` de una serie = sus filas vivas de `watch_history` + `reading_history`; `totalWatched` de una categoría = la suma de TODAS sus series vivas (también pausadas y cerradas). El puntero solo dice cuál es el siguiente; `initial_*` y `cycle_offset` ya no cuentan.
+  - **La grilla es "marcar vistos hasta aquí":** hacia adelante escribe una fila por capítulo en una sola transacción y pide confirmación con más de 1; hacia atrás pregunta "¿Desmarcar desde…?" y borra la fila más reciente de cada capítulo. En el último capítulo sigue la alerta En espera / Terminado.
+  - **Ciclo:** la serie nueva va al final de la vuelta en curso. La pausada que se reanuda entra en esa vuelta y **conserva su lugar** (E3 opción B, decidida tras la prueba de la 1.3.6).
+  - **Corregidos:** R1, R2, R5–R8, R15 y R16 (hueco de temporadas). **Cerradas:** O1 (límite obligatorio ≥ 1, aviso antes del formulario), O2 (pestañas del Registro de lectura en modo oscuro) y O4 (temporadas de al menos 1 capítulo).
+- **Pruebas en la PC:**
+  - `scripts/probar-fase7-4a.mjs`: **35 OK** (ciclo E1–E3, escenario P4 y flechas con una pausada, grilla, R8, reiniciar, R1, cabecera del Registro, R15, hueco, O1, O4, outbox y sync de un `interleave_offset` negativo por PGlite).
+  - `probar-fase7-2`: **17 OK**; `CASOS` cambia solo en C2, C3, C7, C11 y C12 frente a `241c26e`.
+  - `probar-fase7-3`: **12 OK, 0 diferencias** frente a `241c26e` en las familias que no cambian.
+  - El resto de suites en verde, en serie, con `probar-fase4` sola (88 OK). `expo-doctor` 18/18, `expo export` sin errores, `escanear-historial` y `verificar-secretos` en 0.
+- **Registro Dev:** la 1.3.6 (P1–P13) y la 1.3.7 (P4, flechas, P2, P5 y P12), todo OK.
+- **Producción, con el protocolo completo:**
+  - respaldo "antes" (app 1.3.5);
+  - `install -r` de la 1.3.7 con la firma EAS `3132ded2…3e52` comprobada, de versionCode 9 a 11 y con el mismo `firstInstallTime`;
+  - respaldo "después" (app 1.3.7);
+  - los dos válidos y `comparar-sync` idénticos en las 15 tablas, con el mismo saldo;
+  - `verificar-fase5` en Poguis = "después" en las 16 filas (31 / 12 / 19, un `user_id`).
+- **Siguiente:** la 7.4b (con migración, primero en Supabase), según el diseño.

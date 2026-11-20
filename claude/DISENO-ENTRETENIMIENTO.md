@@ -4,7 +4,7 @@ Estados: [OK] decidido por el usuario · [PROPUESTA] sugerido, se confirma en la
 
 Origen: respuestas del usuario del 2026-11-17 y resultados de la 7.2 (commit `d55b5e1`: `docs/ENTRETENIMIENTO-ACTUAL.md` y `scripts/probar-fase7-2.mjs`, 17 OK). R1–R14 y C1–C14 remiten a ese documento y a esa suite.
 
-**Estado: vigente.** 7.3 cerrada; sigue la 7.4a. Se actualiza al cerrar cada subfase, y cualquier cambio de criterio se marca aquí.
+**Estado: vigente.** 7.4a cerrada; sigue la 7.4b. Se actualiza al cerrar cada subfase, y cualquier cambio de criterio se marca aquí.
 
 ## Alcance y datos
 - [OK] Datos existentes de entretenimiento en producción (1 categoría de video, 1 serie, 1 temporada y 11 filas en `watch_history`): el usuario los borra desde la app (borrado lógico) y el rediseño no los migra. Sus tombstones quedan en el celular y en Poguis, igual que los de la 6.8. Las migraciones nuevas tienen que tolerar tombstones.
@@ -78,13 +78,14 @@ Origen: respuestas del usuario del 2026-11-17 y resultados de la 7.2 (commit `d5
 - [PROPUESTA] El modelo concreto (columnas nuevas, si se reutilizan `seasons` y la tabla para los tomos opcionales, el historial de ritmo) se define en el plan de la subfase que lo necesita. Todo cambio de esquema va en una migración de Supabase aplicada antes del APK, más la migración local correspondiente; nunca borra datos.
 
 ## Bugs del comportamiento actual (7.2), a corregir en la 7.4 salvo que se indique otra subfase
-- R1/C3: el Registro no cuenta el progreso de las series pausadas (10 frente a 12).
-- R2/C12: un límite de 0 bloquea todas las series nuevas; además, el 0 se muestra vacío y se guarda como NULL.
-- R5/R6/C11: reiniciar no actualiza el punto inicial, y reiniciar desde En espera pierde 1 (se resuelve con el historial como fuente de verdad).
-- R7: la grilla mueve el puntero sin escribir historial.
-- R8: desmarcar en una serie Terminado la deja Terminado.
+- R1/C3: el Registro no cuenta el progreso de las series pausadas (10 frente a 12). **Corregido en la 7.4a.**
+- R2/C12: un límite de 0 bloquea todas las series nuevas; además, el 0 se muestra vacío y se guarda como NULL. **Corregido en la 7.4a.** (O1)
+- R5/R6/C11: reiniciar no actualiza el punto inicial, y reiniciar desde En espera pierde 1 (se resuelve con el historial como fuente de verdad). **Corregido en la 7.4a.**
+- R7: la grilla mueve el puntero sin escribir historial. **Corregido en la 7.4a.**
+- R8: desmarcar en una serie Terminado la deja Terminado. **Corregido en la 7.4a.**
 - R10/R11: períodos de cuota vacíos y comparación por texto.
 - R12/C14: pausa de categoría con inicio y fin el mismo día queda como una fila sin efecto.
+- R15 y R16 (temporadas de 0 capítulos y temporadas que faltan entre las guardadas): **Corregido en la 7.4a.** Ver Observaciones.
 
 ## API de búsqueda (7.8)
 - [OK] Títulos en inglés. Anime/manga: nombre en alfabeto latino (inglés o romaji; "One Piece" tal cual).
@@ -108,11 +109,12 @@ Origen: respuestas del usuario del 2026-11-17 y resultados de la 7.2 (commit `d5
 
 ## Observaciones del usuario en las pruebas del celular
 Lista viva. Cada observación se asigna a una subfase cuando se planifica; las de UX sin subfase obvia van a la 7.4 o a una subfase de pulido.
-- O1 (prueba 7.3): el límite de series activas es obligatorio al crear o editar una categoría, de video y de lectura (no puede quedar vacío; mínimo 1). Dentro de la categoría no se puede superar, y el aviso "Límite Alcanzado" sale al tocar "Agregar", antes de abrir el formulario. Reemplaza R2 (el 0 que bloquea todo). → 7.4a.
-- O2 (prueba 7.3): en el Registro de lectura, las etiquetas o los contadores "Pendiente" y "Visto" se muestran mal. Revisar con la captura del usuario y el código. → 7.4a.
+- O1 (prueba 7.3): el límite de series activas es obligatorio al crear o editar una categoría, de video y de lectura (no puede quedar vacío; mínimo 1). Dentro de la categoría no se puede superar, y el aviso "Límite Alcanzado" sale al tocar "Agregar", antes de abrir el formulario. Reemplaza R2 (el 0 que bloquea todo). → 7.4a. **Cerrada en la 7.4a.**
+- O2 (prueba 7.3): en el Registro de lectura, las etiquetas o los contadores "Pendiente" y "Visto" se muestran mal. Revisar con la captura del usuario y el código. → 7.4a. **Cerrada en la 7.4a** (la barra de pestañas tenía fondo blanco fijo).
 - O3 (prueba 7.3): En espera y Terminado ofrecen las mismas dos acciones: "Continuar" (reanudar donde quedó, tras agregar capítulos o una temporada) y "Volver a ver" con el selector de punto de inicio (también desde la mitad, no solo desde T1C1). → 7.6.
-- R15 (7.3): con una temporada de 0 capítulos, video genera 1 capítulo y pasa a la siguiente, y lectura genera hasta 999. Conservado en la 7.3 (`QueueVariant`); en la 7.4a se salta igual en los dos.
-- O4 (prueba 7.4a): el formulario permite crear una temporada (o parte) con 0 capítulos (o tomos), que no tiene sentido. Cada temporada debe tener al menos 1. La cola sigue saltando las de 0 que ya existan. → corrección de la 7.4a.
+- R15 (7.3): con una temporada de 0 capítulos, video genera 1 capítulo y pasa a la siguiente, y lectura genera hasta 999. Conservado en la 7.3 (`QueueVariant`); en la 7.4a se salta igual en los dos. **Corregido en la 7.4a.**
+- R16 (hallado en la 7.4a): una temporada que falta entre las guardadas (el formulario descartaba la vacía y conservaba la numeración) contaba como de 999 capítulos y la serie nunca llegaba a la siguiente. **Corregido en la 7.4a.** Se salta, y la serie termina en la temporada de número más alto; 999 solo para una serie sin temporadas.
+- O4 (prueba 7.4a): el formulario permite crear una temporada (o parte) con 0 capítulos (o tomos), que no tiene sentido. Cada temporada debe tener al menos 1. La cola sigue saltando las de 0 que ya existan. → corrección de la 7.4a. **Cerrada en la 7.4a.**
 - O5 (prueba 7.4a): el tema claro es demasiado blanco; usar un fondo claro cálido (beige o hueso), no blanco puro, en toda la app. → dirección visual.
 
 ## Ideas nuevas [OK] (aceptadas por el usuario el 2026-11-18, todas con un diseño visual mejorado)
@@ -131,7 +133,7 @@ Cada subfase con su plan, su aprobación y su ciclo completo. Si surge algo nuev
 2. Este documento en el repo: cerrado (`758e7de`).
 3. 7.3 Motor puro: cerrada (`241c26e`, cierre `45f5cda`).
 4. 7.4 Correcciones del motor, en dos subfases (un APK cada una):
-   - 7.4a, sin migración: historial como conteo (incluye R1, R5–R8 y la grilla como "marcar vistos hasta aquí"); C2 al final del ciclo actual (la pausada que se reanuda entra en la vuelta en curso conservando su lugar); R15; O1 (y R2); O2; corrección tras la prueba del celular: E3 conservando el lugar y O4 (temporadas de al menos 1 capítulo), con APK 1.3.7 / vc 11;
+   - 7.4a: **cerrada** (`90ea3b5`, `47f358c` y el commit de este cierre). Sin migración: historial como conteo (incluye R1, R5–R8 y la grilla como "marcar vistos hasta aquí"); C2 al final del ciclo actual (la pausada que se reanuda entra en la vuelta en curso conservando su lugar); R15; O1 (y R2); O2; corrección tras la prueba del celular: E3 conservando el lugar y O4 (temporadas de al menos 1 capítulo), con APK 1.3.7 / vc 11;
    - 7.4b, con migración (primero en Supabase): historial de todo el ritmo desde mañana, sin períodos vacíos (R10), con comparación por contenido (R11); fecha de inicio fija con registros; R12.
 5. 7.5 Vínculo Pendiente↔Series/Lectura y subtipo de lectura (migración en Supabase y la migración local siguiente).
 6. 7.6 Punto de inicio (T0/C0), "Continuar" y "Volver a ver" desde En espera y Terminado (O3), deslizar para marcar con "Deshacer" (I6).

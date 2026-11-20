@@ -106,7 +106,7 @@ const CASOS = [
             enEspera: { status: 'En espera', T: 1, E: 2, vistos: 2, enCola: false, historial: 2 },
             cancelar: { status: 'Mirando', T: 1, E: 2, vistos: 1, enCola: true, historial: 1 },
         },
-        comportamiento: 'al marcar el último capítulo pregunta "En espera" o "Terminado"; el puntero se queda en el último capítulo y el estado cerrado suma +1 al conteo; Cancelar no guarda nada',
+        comportamiento: 'al marcar el último capítulo pregunta "En espera" o "Terminado"; el puntero se queda en el último capítulo y el conteo sale del historial (una fila por capítulo marcado); Cancelar no guarda nada',
     },
     {
         id: 'C7', titulo: 'Serie terminada 6×20: agregar el capítulo 21 a la T6 y, aparte, una T7 nueva',

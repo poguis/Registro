@@ -9,6 +9,8 @@ Cada afirmación lleva una referencia `archivo:línea` o el caso de `scripts/pro
 Las referencias de línea corresponden al commit `d4bad14`.
 
 > **Nota (Fase 7.3, `241c26e`):** la lógica de las funciones del anexo A vive ahora en `src/entertainment/` (`queue.ts` y `seriesDetail.ts`), con el mismo comportamiento (`scripts/probar-fase7-3.mjs`: 0 diferencias). Las pantallas solo ejecutan los efectos. Las referencias `archivo:línea` de este documento siguen correspondiendo a `d4bad14`. Desde la 7.3 se agrega R15.
+>
+> **Nota (Fase 7.4a, `90ea3b5` y `47f358c`):** desde la 7.4a están corregidos R1, R2, R5, R6, R7, R8 y R15, y C2 (la serie nueva entra al final de la vuelta en curso; la pausada que se reanuda entra en esa vuelta conservando su lugar). Se agrega R16, también corregido. El historial cuenta lo visto y la grilla es "marcar vistos hasta aquí". Este documento sigue describiendo el comportamiento de `d4bad14`; el actual está en CLAUDE.md (Architecture) y en `scripts/probar-fase7-4a.mjs`.
 
 ---
 
@@ -213,25 +215,26 @@ El orden manual (↑↓) solo cambia `sort_order`, que desempata dentro de una v
 | Bloque de alternancia K (3/día con K=4: lunes A1–A3, martes A4, B1, B2) | **No existe.** La cola alterna siempre de a 1 capítulo por serie | `ChapterRegistryScreen.js:85-104`; **C1** |
 | Cambios de ritmo hacia adelante sin recalcular el pasado | **Parcial.** Las cuotas por día sí; la frecuencia de lectura y la fecha de inicio recalculan todo el pasado | **C4**, **C9** |
 
-## 10. Bugs y riesgos encontrados (sin corregir)
+## 10. Bugs y riesgos encontrados (corregidos o pendientes, ver la última columna)
 
 | # | Hallazgo | Evidencia | Efecto |
 |---|---|---|---|
-| R1 | El registro de capítulos no cuenta el progreso de las series **pausadas**: `getFullWatchlist` excluye 'Pausado' | `series.ts:159`, `ChapterRegistryScreen.js:74`; **C3** (10 frente a 12) | Más atraso en el registro que en el detalle y la lista mientras haya una serie pausada |
-| R2 | `series_count = 0` bloquea toda serie nueva, aunque el esquema (`migration2.ts:92`) y el formulario digan "0 = sin límite". Además, al reabrir el formulario el 0 se muestra vacío y al guardar pasa a NULL | `SeriesDetailScreen.js:220-224`, `SeriesAnimeScreen.js:194,239,627`; **C12** | Una categoría con 0 no admite series hasta volver a editarla |
+| R1 | El registro de capítulos no cuenta el progreso de las series **pausadas**: `getFullWatchlist` excluye 'Pausado' | `series.ts:159`, `ChapterRegistryScreen.js:74`; **C3** (10 frente a 12) | Más atraso en el registro que en el detalle y la lista mientras haya una serie pausada. **Corregido en la 7.4a.** |
+| R2 | `series_count = 0` bloquea toda serie nueva, aunque el esquema (`migration2.ts:92`) y el formulario digan "0 = sin límite". Además, al reabrir el formulario el 0 se muestra vacío y al guardar pasa a NULL | `SeriesDetailScreen.js:220-224`, `SeriesAnimeScreen.js:194,239,627`; **C12** | Una categoría con 0 no admite series hasta volver a editarla. **Corregido en la 7.4a.** |
 | R3 | Frecuencia (lectura) y fecha de inicio sin historial | `entertainment.ts:182-190`; **C9** | Cambiar el ritmo de lectura reescribe atraso y adelanto pasados |
 | R4 | Reanudar un capítulo nuevo de la última temporada no tiene vía correcta | **C7** | El capítulo queda visto sin verlo, o el anterior pierde su "visto" |
-| R5 | Reiniciar no actualiza `initial_season`/`initial_episode` | `series.ts:126-131`; **C11** | Si la serie empezó a mitad, ver de nuevo lo anterior al inicio no cuenta (2 → 2 tras ver la T1 completa) |
-| R6 | Reiniciar desde 'En espera' pierde 1: `handleRestart` solo suma +1 si es Terminado, pero el conteo sumaba +1 también en En espera | `SeriesDetailScreen.js:313`, `backlogUtils.js:215`; **C11** (3 → 2) | La categoría pierde un capítulo de progreso |
-| R7 | La grilla del detalle mueve el puntero sin escribir historial | `SeriesDetailScreen.js:284-293` | El historial (Registro → vistos) y el conteo pueden no coincidir |
-| R8 | Desmarcar en el registro conserva el estado (`status` null) | `ChapterRegistryScreen.js:150-154` | Desmarcar un capítulo de una serie Terminado la deja Terminado con el puntero en ese capítulo, que sigue contando +1. No lo prueba la suite |
+| R5 | Reiniciar no actualiza `initial_season`/`initial_episode` | `series.ts:126-131`; **C11** | Si la serie empezó a mitad, ver de nuevo lo anterior al inicio no cuenta (2 → 2 tras ver la T1 completa). **Corregido en la 7.4a.** |
+| R6 | Reiniciar desde 'En espera' pierde 1: `handleRestart` solo suma +1 si es Terminado, pero el conteo sumaba +1 también en En espera | `SeriesDetailScreen.js:313`, `backlogUtils.js:215`; **C11** (3 → 2) | La categoría pierde un capítulo de progreso. **Corregido en la 7.4a.** |
+| R7 | La grilla del detalle mueve el puntero sin escribir historial | `SeriesDetailScreen.js:284-293` | El historial (Registro → vistos) y el conteo pueden no coincidir. **Corregido en la 7.4a.** |
+| R8 | Desmarcar en el registro conserva el estado (`status` null) | `ChapterRegistryScreen.js:150-154` | Desmarcar un capítulo de una serie Terminado la deja Terminado con el puntero en ese capítulo, que sigue contando +1. No lo prueba la suite. **Corregido en la 7.4a.** |
 | R9 | `sort_order`: el repositorio usa MAX + 1 de todas las series y las flechas renumeran solo las activas; el valor de la pantalla se ignora | `series.ts:63-67`, `SeriesDetailScreen.js:154-172,246-247`; **C2** | Pueden quedar `sort_order` repetidos entre activas y terminadas (inofensivo para la cola, que solo ve activas) |
 | R10 | Dos ediciones de cuotas el mismo día dejan un período vacío (fin anterior al inicio) | `entertainment.ts:173-180`; **C4** | Filas inútiles en `entertainment_quotas_history` (y en el servidor) |
 | R11 | La comparación de cuotas es por texto JSON | `entertainment.ts:169` | El mismo contenido con otro orden de claves abriría un período nuevo. Hoy el formulario conserva el orden; no se observó |
 | R12 | Pausar y reanudar una categoría el mismo día deja una pausa con fin anterior al inicio | `SeriesAnimeScreen.js:262-269`; **C14** | No excluye nada (correcto en la práctica), pero queda una fila sin efecto |
 | R13 | Las pantallas de lectura son copias de las de video | punto 6 | Cada arreglo hay que hacerlo dos veces; ya divergen en detalles (texto de alertas, límite solo en el formulario de video) |
 | R14 | La lógica de la cola y de orden vive en closures de pantallas | anexo A | Solo se puede probar extrayendo el código (como hace esta suite); conviene moverla a módulos puros, usando las tablas de **C1–C14** como oráculo |
-| R15 | Con una temporada de `episode_count` 0, la cola de video genera 1 capítulo y pasa a la siguiente temporada (`seasonObj ? episode_count : 999`), y la de lectura genera hasta 999 (`episode_count \|\| 999`) | `ChapterRegistryScreen.js:114` frente a `ReadingRegistryScreen.js:86` (en `d4bad14`); desde la 7.3, `QueueVariant` en `src/entertainment/queue.ts` | Video y lectura dan colas distintas con los mismos datos. Se conserva en la 7.3 y se decide en la 7.4 |
+| R15 | Con una temporada de `episode_count` 0, la cola de video genera 1 capítulo y pasa a la siguiente temporada (`seasonObj ? episode_count : 999`), y la de lectura genera hasta 999 (`episode_count \|\| 999`) | `ChapterRegistryScreen.js:114` frente a `ReadingRegistryScreen.js:86` (en `d4bad14`); desde la 7.3, `QueueVariant` en `src/entertainment/queue.ts` | Video y lectura dan colas distintas con los mismos datos. Se conserva en la 7.3. **Corregido en la 7.4a.** Las temporadas de 0 capítulos se saltan igual en los dos (y desde la corrección de la 7.4a el formulario ya no deja crearlas, O4) |
+| R16 | Una temporada que falta entre las guardadas (el formulario descartaba la vacía y conservaba la numeración: T1 y T3 con `total_seasons` 2) contaba como de 999 capítulos y la serie nunca llegaba a la temporada siguiente. Igual en video y en lectura | Hallado en la 7.4a; `src/entertainment/queue.ts` (`episodesInSeason`, `maxSeasonOf`) | La cola mostraba T2E1…T2E498 inexistentes y la T3 nunca llegaba. **Corregido en la 7.4a.** La temporada que falta se salta y la serie termina en la de número más alto; 999 solo para una serie sin temporadas guardadas |
 
 ---
 
