@@ -101,6 +101,7 @@ Es padre: `unique(id, user_id)`.
 | quotas | TEXT JSON NOT NULL | jsonb not null | CHECK objeto; un array se rechaza y se reporta (no existe en los datos) |
 | start_date | TEXT NOT NULL | date not null | |
 | end_date | TEXT | date | NULL = cuota vigente |
+| frequency | INTEGER (migración local 6) | integer, NULL (`20261121000100_frecuencia_cuotas.sql`) | Fase 7.4b. Lectura: frecuencia del período (n > 0: n por día; n < 0: 1 cada |n| días). Video: NULL. NULL en un período de lectura de antes de la 7.4b = la frecuencia de la categoría; el repositorio la congela al cerrar el período. Sin CHECK |
 
 ### series
 | Columna | SQLite | Postgres | Notas |
@@ -169,6 +170,13 @@ Es padre: `unique(id, user_id)`.
 - `quotas`: objeto. Un array se **rechaza** (error de mapeo, la fila queda en la outbox con `last_error`), porque su significado depende del tipo de categoría y no se debe adivinar. Hoy no hay ninguno.
 - `cycle`: array de `{type, days}`.
 - Pull: `JSON.stringify(v)`. jsonb no conserva el orden de las claves ni los espacios, lo que es inocuo para los lectores actuales.
+
+## Columnas nuevas y compatibilidad entre versiones (Fase 7.4b)
+Una columna sincronizada nueva se agrega primero en Supabase y después en la app (APK con su migración local):
+- **App vieja contra un servidor con la columna:** `fromRemote` y `sameAsLocal` recorren solo las columnas del mapeo de esa versión, así que la columna desconocida del pull se ignora (sin fallos ni bloqueos). Su push emite solo las columnas que conoce, y el upsert masivo de PostgREST (`on conflict (id) do update` solo de las columnas del cuerpo) **conserva** el valor de la columna nueva en las filas que toca; las filas que inserta quedan con NULL.
+- **App nueva contra un servidor sin la columna:** cada push de la tabla falla (PostgREST: PGRST204, HTTP 400; PGlite: 42703) y la entrada queda **bloqueada** con su motivo; las demás tablas suben. Tras aplicar el SQL, "Reintentar" (`unblockAll`) la sube.
+- Por eso el orden es siempre **SQL → APK**. Lo prueba `scripts/probar-fase7-4b.mjs` con PGlite y el código real de las dos versiones (la vieja, `git archive 47f358c`).
+- `comparar-sync` normaliza con `toRemote` sobre `SELECT *`: en una BD sin la columna (`user_version` 5) cuenta como NULL, así que un respaldo de antes y uno de después de la migración con los mismos datos son idénticos.
 
 ## Columnas solo del servidor
 - `server_updated_at`: lo asigna el trigger `set_server_updated_at` (BEFORE INSERT OR UPDATE) e ignora el valor del cliente.

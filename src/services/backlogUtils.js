@@ -53,9 +53,22 @@ export const getQuotasForDate = (date, category) => {
     return q;
 };
 
+// Fase 7.4b: frecuencia de lectura vigente en una fecha = la del período del historial que la
+// cubre o, si ese período no la tiene (NULL, datos de antes de la 7.4b), la de la categoría.
+export const getFrequencyForDate = (date, category) => {
+    const dStr = getLocalDateString(date);
+    const history = category.quotas_history || [];
+    const record = history.find(h => dStr >= h.start_date && dStr <= (h.end_date || '9999-12-31'));
+    if (record && record.frequency !== null && record.frequency !== undefined) return Number(record.frequency);
+    return category.frequency;
+};
+
+const gcd = (a, b) => (b === 0 ? a : gcd(b, a % b));
+const lcm = (a, b) => (a / gcd(a, b)) * b;
+
 export const calculateBacklog = (category, totalWatched = 0) => {
-    const { start_date: startStr, frequency: freq, days_of_week: daysOfWeek, type, pauses = [], quotas_history: history = [] } = category;
-    
+    const { start_date: startStr, frequency: catFreq, days_of_week: daysOfWeek, type, pauses = [], quotas_history: history = [] } = category;
+
     if (!startStr) return null;
 
     const now = new Date();
@@ -66,6 +79,11 @@ export const calculateBacklog = (category, totalWatched = 0) => {
 
     let targetItems = 0;
     let validDaysPassed = 0;
+    // Lectura (7.4b): cada día activo aporta la frecuencia de SU período: n > 0 suma n; n < 0 suma
+    // 1/|n|. Las fracciones se acumulan exactas (días por cada N) y se redondea hacia abajo solo el
+    // total, así partir un período sin cambiar N no cambia la meta.
+    let readingIntItems = 0;
+    const readingDaysByN = new Map();
     let current = new Date(startDate);
     const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -85,19 +103,27 @@ export const calculateBacklog = (category, totalWatched = 0) => {
                 } else if (activeQuotas && activeQuotas[dayName] > 0) {
                     isActive = true;
                 }
-                if (isActive) validDaysPassed++;
+                if (isActive) {
+                    validDaysPassed++;
+                    const f = Number(getFrequencyForDate(current, category)) || 0;
+                    if (f > 0) readingIntItems += f;
+                    else if (f < 0) readingDaysByN.set(-f, (readingDaysByN.get(-f) || 0) + 1);
+                }
             }
         }
         current.setDate(current.getDate() + 1);
     }
 
+    // Meta exacta de lectura como fracción readingNum / readingDen (para los días de atraso/adelanto).
+    let readingNum = 0;
+    let readingDen = 1;
     if (type === 'reading') {
-        if (!freq) return null;
-        if (freq > 0) {
-            targetItems = validDaysPassed * freq;
-        } else {
-            targetItems = Math.floor(validDaysPassed / Math.abs(freq));
-        }
+        // Sin ninguna frecuencia (ni en la categoría ni en los períodos), como antes: sin cálculo.
+        if (!catFreq && !(history || []).some(h => h.frequency)) return null;
+        readingDen = [...readingDaysByN.keys()].reduce((acc, n) => lcm(acc, n), 1);
+        readingNum = readingIntItems * readingDen;
+        for (const [n, days] of readingDaysByN) readingNum += days * (readingDen / n);
+        targetItems = Math.floor(readingNum / readingDen);
     }
 
     let backlogItems = targetItems - totalWatched;
@@ -119,9 +145,19 @@ export const calculateBacklog = (category, totalWatched = 0) => {
         return p;
     });
 
-    if (type === 'video' || (type === 'reading' && freq > 0)) {
+    // Lectura (7.4b): la rama ("n por día" frente a "1 cada N") la decide el período de HOY para el
+    // atraso y el de MAÑANA para el adelanto (que se cuenta desde mañana). Con un solo período es
+    // la frecuencia de siempre.
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const freqHoy = type === 'reading' ? Number(getFrequencyForDate(now, category)) || 0 : 0;
+    const freqManana = type === 'reading' ? Number(getFrequencyForDate(tomorrow, category)) || 0 : 0;
+    const walkAtraso = type === 'video' || freqHoy > 0;
+    const walkAdelanto = type === 'video' || freqManana > 0;
+
+    if (walkAtraso || walkAdelanto) {
         // Video or Reading with daily quota: Count based on work days
-        if (backlogItems > 0) {
+        if (walkAtraso && backlogItems > 0) {
             let tempBacklog = backlogItems;
             let checkDate = new Date(now);
             const safetyMax = 3650;
@@ -144,7 +180,7 @@ export const calculateBacklog = (category, totalWatched = 0) => {
             }
         }
 
-        if (adelantoItems > 0) {
+        if (walkAdelanto && adelantoItems > 0) {
             let tempAdelanto = adelantoItems;
             let checkDate = new Date(now);
             checkDate.setDate(checkDate.getDate() + 1);
@@ -166,20 +202,21 @@ export const calculateBacklog = (category, totalWatched = 0) => {
                 safety++;
             }
         }
-    } else if (type === 'reading' && freq < 0) {
-        // Reading with 1 item every N days (freq < 0)
-        // Fixed logic: atraso/adelanto is relative to completion of N-day cycles
-        const N = Math.abs(freq);
-        if (backlogItems > 0) {
-            daysAtraso = validDaysPassed - (totalWatched * N);
-            if (daysAtraso < 0) daysAtraso = 0;
-        }
-        if (adelantoItems > 0) {
-            // How many days ahead? (Total work capacity - days used)
-            // Example: totalWatched=2, N=3. Total capacity = 6 days. If validDaysPassed=4, then 2 days ahead.
-            adelantoDays = (totalWatched * N) - validDaysPassed;
-            if (adelantoDays < 0) adelantoDays = 0;
-        }
+    }
+    // Reading with 1 item every N days (freq < 0): atraso/adelanto relative to completion of N-day
+    // cycles. 7.4b: expressed in units of the N of the period (today for atraso, tomorrow for
+    // adelanto) over the EXACT target fraction; with a single period N it is the same formula as
+    // before: (validDays/N − watched) × N = validDays − watched × N.
+    if (type === 'reading' && !walkAtraso && freqHoy < 0 && backlogItems > 0) {
+        const N = Math.abs(freqHoy);
+        daysAtraso = Math.ceil(((readingNum - totalWatched * readingDen) * N) / readingDen);
+        if (daysAtraso < 0) daysAtraso = 0;
+    }
+    if (type === 'reading' && !walkAdelanto && freqManana < 0 && adelantoItems > 0) {
+        // Example: totalWatched=2, N=3. Total capacity = 6 days. If validDaysPassed=4, then 2 days ahead.
+        const N = Math.abs(freqManana);
+        adelantoDays = Math.ceil(((totalWatched * readingDen - readingNum) * N) / readingDen);
+        if (adelantoDays < 0) adelantoDays = 0;
     }
 
     const unitLabel = type === 'video' ? 'Caps' : 'Tomos';

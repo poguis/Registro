@@ -442,7 +442,10 @@ section('4. getEntertainmentCategories: mismo resultado que la versión anterior
         }
         return Object.fromEntries(Object.entries(out).sort());
     };
-    const sinTotal = (lista) => lista.map(({ totalWatched, ...c }) => c);
+    // 7.4b: la referencia f3772d9 no trae quotas_history[].frequency (columna nueva de la migración 6);
+    // se compara sin ella y aparte se comprueba que es NULL en todas (filas sembradas sin frecuencia).
+    const sinTotal = (lista) => lista.map(({ totalWatched, ...c }) => ({ ...c, quotas_history: (c.quotas_history || []).map(({ frequency, ...q }) => q) }));
+    const frecuenciasNulas = (lista) => lista.every((c) => (c.quotas_history || []).every((q) => q.frequency === null));
     const totales = (lista) => Object.fromEntries(lista.map((c) => [c.id, c.totalWatched]).sort());
     const { getEntertainmentCategories } = await import('../src/data/repositories/entertainment.ts');
     const conn = getConnection();
@@ -472,6 +475,7 @@ section('4. getEntertainmentCategories: mismo resultado que la versión anterior
         same(sinTotal(after), sinTotal(before)), `${after.length} categorías${diffNote(sinTotal(after), sinTotal(before))}`);
     check('otro usuario: resultado idéntico a la referencia f3772d9 salvo totalWatched', same(sinTotal(otherRes), sinTotal(otherRef)), `${otherRes.length} categoría(s)${diffNote(sinTotal(otherRes), sinTotal(otherRef))}`);
     check('usuario sin datos: resultado completo idéntico a la referencia f3772d9 (lista vacía)', same(nobody, nobodyRef) && nobody.length === 0);
+    check('quotas_history[].frequency (7.4b): presente y NULL en todas las cuotas sembradas y del fixture', frecuenciasNulas(after) && frecuenciasNulas(otherRes) && after.some((x) => (x.quotas_history || []).length > 0));
     // totalWatched (7.4a) = conteo independiente del historial; en las sembradas, el valor esperado
     // a mano: series vivas 0..3 con 1+s+ci filas vivas cada una (la borrada y las filas borradas no cuentan).
     const indep = await conteoIndependiente(user);

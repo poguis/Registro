@@ -6,7 +6,7 @@
 // la grilla, R8, R15 y O1; esas funciones se retiran de aquí y las cubre probar-fase7-4a. Lo que
 // NO debía cambiar se sigue comparando con 241c26e:
 // 1. probar-fase7-2: 17 OK y su bloque CASOS idéntico al de 241c26e salvo EXACTAMENTE C2, C3, C7,
-//    C11 y C12 (los cambios aprobados de la 7.4a).
+//    C11 y C12 (los cambios aprobados de la 7.4a), C4, C9 y C14 (los de la 7.4b) y la frase de C6.
 // 2. Nivel puro: la cola (buildQueue/episodesForSeries del motor de 241c26e, cargado con
 //    `git show` en un temporal, frente al actual) sobre entradas sin temporadas de 0 capítulos
 //    (R15) ni huecos, con total_seasons = nº de temporadas y watched_count = el conteo por puntero
@@ -71,9 +71,10 @@ const P = {
 // =============================================================================================
 // 1. Los 14 casos de probar-fase7-2
 // =============================================================================================
-section(`1. Los 14 casos de probar-fase7-2 (oráculo de ${REF}; la 7.4a cambia solo C2, C3, C7, C11 y C12)`);
+section(`1. Los 14 casos de probar-fase7-2 (oráculo de ${REF}; la 7.4a cambia C2, C3, C7, C11 y C12, y la 7.4b C4, C9 y C14)`);
 {
-    const CAMBIAN = ['C2', 'C3', 'C7', 'C11', 'C12'];
+    // 7.4a: C2, C3, C7, C11, C12. 7.4b (ritmo desde mañana, frecuencia en el historial, R12): C4, C9, C14.
+    const CAMBIAN = ['C2', 'C3', 'C4', 'C7', 'C9', 'C11', 'C12', 'C14'];
     const bloque = (t) => t.slice(t.indexOf('const CASOS = ['), t.indexOf('// 2. MECANISMO'));
     // Texto de cada caso por id (y el resto del bloque, que tiene que quedar igual).
     const casosDe = (t) => {

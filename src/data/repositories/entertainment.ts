@@ -2,6 +2,8 @@ import { getConnection, type Row } from '../db/connection';
 import { insertRow, updateRow, softDelete, softDeleteWhere, ownerOf } from './rows';
 import { deleteSeriesCascade } from './series';
 import { getLocalDateString } from '../../services/backlogUtils';
+import { planRhythmChange, planStartDateChange, type RhythmAction } from '../../entertainment/rhythm';
+import { canEditStartDate, decideResume } from '../../entertainment/category';
 
 // Categorías de entretenimiento (video/lectura), pausas e historial de cuotas.
 // days_of_week y quotas: JSON objeto {"Monday":1,...}; al leer se acepta el array legado.
@@ -33,11 +35,12 @@ export async function addEntertainmentCategory(userId: string, data: CategoryInp
         series_count: data.seriesCount,
         description: data.description,
     });
-    // Registro inicial de cuotas
+    // Registro inicial de cuotas (7.4b: en lectura, con su frecuencia explícita; en video, NULL)
     await insertRow('entertainment_quotas_history', userId, {
         category_id: categoryId,
         quotas: daysString,
         start_date: data.startDate || getLocalDateString(),
+        frequency: data.type === 'reading' ? data.frequency : null,
     });
     return categoryId;
 }
@@ -83,7 +86,7 @@ export async function getEntertainmentCategories(userId: string): Promise<Row[]>
     );
     if (categories.length === 0) return [];
     const quotasByCategory = groupBy(await db().getAllAsync<Row>(
-        `SELECT category_id AS _group, quotas, start_date, end_date FROM entertainment_quotas_history
+        `SELECT category_id AS _group, quotas, start_date, end_date, frequency FROM entertainment_quotas_history
          WHERE category_id IN (${CATEGORY_IDS}) AND deleted_at IS NULL ORDER BY category_id, start_date ASC, rowid ASC`,
         [userId]
     ), '_group');
@@ -132,12 +135,17 @@ export async function pauseCategory(categoryId: string, date: string): Promise<v
     await insertRow('entertainment_pauses', userId, { category_id: categoryId, pause_start: date });
 }
 
+// R12 (7.4b): una pausa que empezó después de la fecha de reanudación (pausar y reanudar el mismo
+// día: la pantalla reanuda con fecha de ayer) no tuvo efecto y se borra lógicamente.
 export async function resumeCategory(categoryId: string, date: string): Promise<void> {
     const open = await db().getAllAsync<Row>(
-        'SELECT id FROM entertainment_pauses WHERE category_id = ? AND pause_end IS NULL AND deleted_at IS NULL',
+        'SELECT id, pause_start FROM entertainment_pauses WHERE category_id = ? AND pause_end IS NULL AND deleted_at IS NULL',
         [categoryId]
     );
-    for (const p of open) await updateRow('entertainment_pauses', p.id, { pause_end: date });
+    for (const p of open) {
+        if (decideResume(p, date) === 'delete') await softDelete('entertainment_pauses', p.id);
+        else await updateRow('entertainment_pauses', p.id, { pause_end: date });
+    }
 }
 
 export async function getQuotaHistory(categoryId: string): Promise<Row[]> {
@@ -148,29 +156,52 @@ export async function getQuotaHistory(categoryId: string): Promise<Row[]> {
     return history.map((h) => ({ ...h, quotas: parseJson(h.quotas, {}) }));
 }
 
+// Períodos vivos del historial de ritmo de una categoría, por fecha de inicio.
+const livePeriods = (categoryId: string) => db().getAllAsync<Row>(
+    `SELECT id, quotas, start_date, end_date, frequency FROM entertainment_quotas_history
+     WHERE category_id = ? AND deleted_at IS NULL ORDER BY start_date ASC, rowid ASC`,
+    [categoryId]
+);
+
+// Ejecuta las acciones del motor (src/entertainment/rhythm.ts) dentro de la transacción del
+// llamador: cada fila con su entrada en la outbox (rows.ts).
+async function applyRhythmActions(categoryId: string, userId: string, actions: RhythmAction[]): Promise<void> {
+    for (const a of actions) {
+        if (a.kind === 'update') await updateRow('entertainment_quotas_history', a.id, a.values);
+        else if (a.kind === 'insert') await insertRow('entertainment_quotas_history', userId, { category_id: categoryId, ...a.values });
+        else await softDelete('entertainment_quotas_history', a.id);
+    }
+}
+
+// Fase 7.4b: el ritmo (cuotas por día y, en lectura, la frecuencia) va en el historial y todo
+// cambio rige DESDE MAÑANA, sin recalcular el pasado (R10/R11 en planRhythmChange). La fecha de
+// inicio solo cambia sin registros, y el primer período se mueve con ella; con registros se
+// conserva la guardada. Nombre, descripción, tipo y límite no crean períodos. La categoría sigue
+// guardando days_of_week y frequency (el ritmo desde mañana) para mostrarlos.
 export async function updateEntertainmentCategory(id: string, data: CategoryInput): Promise<void> {
     const daysString = JSON.stringify(data.daysOfWeek);
     const current = await db().getFirstAsync<Row>(
-        'SELECT user_id, days_of_week FROM entertainment_categories WHERE id = ? AND deleted_at IS NULL',
+        'SELECT * FROM entertainment_categories WHERE id = ? AND deleted_at IS NULL',
         [id]
     );
-    if (current && current.days_of_week !== daysString) {
+    let startDate = data.startDate;
+    if (current) {
         const today = getLocalDateString();
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        // 1. Cerrar la cuota vigente (end_date = ayer)
-        const open = await db().getAllAsync<Row>(
-            'SELECT id FROM entertainment_quotas_history WHERE category_id = ? AND end_date IS NULL AND deleted_at IS NULL',
-            [id]
-        );
-        for (const q of open) await updateRow('entertainment_quotas_history', q.id, { end_date: getLocalDateString(yesterday) });
-        // 2. Nueva cuota desde hoy
-        await insertRow('entertainment_quotas_history', current.user_id, { category_id: id, quotas: daysString, start_date: today });
+        if ((data.startDate || null) !== (current.start_date || null)) {
+            if (!canEditStartDate({ totalWatched: await getCategoryWatchedTotal(id) })) startDate = current.start_date;
+            else if (data.startDate) await applyRhythmActions(id, current.user_id, planStartDateChange({ periods: await livePeriods(id), newStart: data.startDate }));
+        }
+        await applyRhythmActions(id, current.user_id, planRhythmChange({
+            periods: await livePeriods(id),
+            category: { ...current, type: data.type },
+            next: { quotas: data.daysOfWeek, frequency: data.frequency },
+            today,
+        }));
     }
     await updateRow('entertainment_categories', id, {
         name: data.name,
         type: data.type,
-        start_date: data.startDate,
+        start_date: startDate,
         days_of_week: daysString,
         frequency: data.frequency,
         series_count: data.seriesCount,

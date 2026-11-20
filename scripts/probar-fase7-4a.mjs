@@ -886,7 +886,7 @@ for (const tipo of ['video', 'reading']) {
         const noop = () => {};
         const openModal = instanciar(extraer(CATEGORIAS, 'openModal'), {
             setIsEditing: noop, setEditingId: noop, setName: noop, setType: noop, setStartDate: noop, getLocalDateString, console,
-            setSelectedDays: noop, setFrequency: noop, setSeriesCount: (x) => { mostrado = x; }, setDescription: noop, setModalVisible: noop,
+            setSelectedDays: noop, setFrequency: noop, setSeriesCount: (x) => { mostrado = x; }, setDescription: noop, setModalVisible: noop, setStartDateLocked: noop,
         });
         openModal(await E.crearCategoria({ seriesCount: limite }));
         reabrir.push({ caso: `series_count ${limite}`, esperado, obtenido: mostrado });

@@ -16,7 +16,9 @@ export const COLUMNS: Record<string, Record<string, Kind>> = {
     services: { name: 'text', type: 'text', status: 'text', original_value: 'money', additional_value: 'money', total_value: 'money' },
     entertainment_categories: { name: 'text', type: 'text', start_date: 'date', days_of_week: 'days_of_week', frequency: 'int', series_count: 'int', description: 'text' },
     entertainment_pauses: { category_id: 'uuid', pause_start: 'date', pause_end: 'date' },
-    entertainment_quotas_history: { category_id: 'uuid', quotas: 'json_object', start_date: 'date', end_date: 'date' },
+    // frequency (Fase 7.4b, migración local 6 / Supabase 20261121000100): frecuencia de lectura del período; NULL en video
+    // y en los períodos de lectura de antes (= la de la categoría).
+    entertainment_quotas_history: { category_id: 'uuid', quotas: 'json_object', start_date: 'date', end_date: 'date', frequency: 'int' },
     series: {
         category_id: 'uuid', name: 'text', description: 'text', status: 'text', current_season: 'int', current_episode: 'int',
         initial_season: 'int', initial_episode: 'int', total_seasons: 'int', sort_order: 'int', cycle_offset: 'int',

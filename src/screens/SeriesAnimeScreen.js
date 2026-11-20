@@ -19,7 +19,7 @@ import db from '../services/db';
 import { useSyncRefresh } from '../sync/useSyncRefresh';
 import { calculateBacklog, getLocalDateString } from '../services/backlogUtils';
 // Fase 7.4a (O1): el límite de activas es obligatorio (entero ≥ 1), en video y en lectura.
-import { validateCategoryForm } from '../entertainment/category';
+import { validateCategoryForm, canEditStartDate } from '../entertainment/category';
 
 const DAYS = [
     { key: 'Monday', label: 'L' },
@@ -157,6 +157,8 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
 
     // Calendar State
     const [calendarVisible, setCalendarVisible] = useState(false);
+    // Fase 7.4b: con registros (filas vivas de historial) la fecha de inicio queda fija.
+    const [startDateLocked, setStartDateLocked] = useState(false);
 
     const fetchCategories = async () => {
         const result = await db.getEntertainmentCategories(user.id);
@@ -174,6 +176,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
     const openModal = (item = null) => {
         if (item) {
             setIsEditing(true);
+            setStartDateLocked(!canEditStartDate(item));
             setEditingId(item.id);
             setName(item.name);
             setType(item.type);
@@ -197,6 +200,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
             setDescription(item.description || '');
         } else {
             setIsEditing(false);
+            setStartDateLocked(false);
             setEditingId(null);
             setName('');
             setType('video');
@@ -544,12 +548,19 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
 
                             {/* Start Date - Custom Calendar Trigger */}
                             <Text style={[styles.label, { color: theme.text }]}>Fecha de Inicio</Text>
-                            <TouchableOpacity
-                                style={[styles.dateButton, { backgroundColor: theme.inputBackground, borderColor: theme.border }]}
-                                onPress={() => setCalendarVisible(true)}
-                            >
-                                <Text style={[styles.dateButtonText, { color: theme.text }]}>📅 {startDate || 'Seleccionar Fecha'}</Text>
-                            </TouchableOpacity>
+                            {startDateLocked ? (
+                                <View style={[styles.dateButton, { backgroundColor: theme.inputBackground, borderColor: theme.border }]}>
+                                    <Text style={[styles.dateButtonText, { color: theme.subText }]}>📅 {startDate}</Text>
+                                    <Text style={[styles.dateLockedText, { color: theme.subText }]}>La fecha de inicio no se puede cambiar porque ya hay registros.</Text>
+                                </View>
+                            ) : (
+                                <TouchableOpacity
+                                    style={[styles.dateButton, { backgroundColor: theme.inputBackground, borderColor: theme.border }]}
+                                    onPress={() => setCalendarVisible(true)}
+                                >
+                                    <Text style={[styles.dateButtonText, { color: theme.text }]}>📅 {startDate || 'Seleccionar Fecha'}</Text>
+                                </TouchableOpacity>
+                            )}
 
                             {/* Days Selection logic based on type */}
                             {type === 'video' ? (
@@ -965,6 +976,10 @@ const styles = StyleSheet.create({
         borderColor: '#ddd',
         marginBottom: 10,
         alignItems: 'center',
+    },
+    dateLockedText: {
+        fontSize: 12,
+        marginTop: 4,
     },
     dateButtonText: {
         fontSize: 16,

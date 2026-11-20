@@ -3,6 +3,7 @@ import { migration2 } from '../data/db/migration2';
 import { migration3 } from '../data/db/migration3';
 import { migration4 } from '../data/db/migration4';
 import { migration5 } from '../data/db/migration5';
+import { migration6 } from '../data/db/migration6';
 
 // Migraciones de esquema versionadas con PRAGMA user_version.
 // Reglas: cada migración corre en una transacción exclusiva y sube user_version
@@ -250,6 +251,12 @@ export const MIGRATIONS = [
         description: 'Fase 6.7: elimina las tablas legacy_* (lista explícita, con copia previa); no toca ninguna otra tabla',
         requiresBackup: true,
         up: migration5,
+    },
+    {
+        version: 6,
+        description: 'Fase 7.4b: frecuencia de lectura en el historial de ritmo (entertainment_quotas_history.frequency); solo aditiva, no modifica datos',
+        requiresBackup: true,
+        up: migration6,
     },
 ];
 

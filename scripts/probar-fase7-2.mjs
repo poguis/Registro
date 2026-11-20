@@ -84,12 +84,12 @@ const CASOS = [
         id: 'C4', titulo: 'Cambiar la cuota de dos días de la semana (hoy y ayer) en una categoría de video',
         entrada: { inicio: 'hoy-9', cuotas: 'todas 1', cambio: { diaDeHoy: 3, diaDeAyer: 5 } },
         actual: {
-            pasadoIgual: true, cuotaHoy: { antes: 1, despues: 3 }, cuotaAyer: { antes: 1, despues: 1 },
-            metaAntes: 10, metaDespues: 12,
-            historial: { registros: 2, primeroCierra: 'hoy-1', segundoAbre: 'hoy' },
-            segundaEdicionMismoDia: { registros: 3, registroSinDias: true },
+            pasadoIgual: true, cuotaHoy: { antes: 1, despues: 1 }, cuotaAyer: { antes: 1, despues: 1 }, cuotaHoyMas7: { antes: 1, despues: 3 },
+            metaAntes: 10, metaDespues: 10,
+            historial: { registros: 2, primeroCierra: 'hoy', segundoAbre: 'hoy+1' },
+            segundaEdicionMismoDia: { registros: 2, registroSinDias: false },
         },
-        comportamiento: 'editar las cuotas cierra el período vigente AYER y abre uno nuevo HOY: el pasado no cambia y el cambio rige ya para hoy; editar dos veces el mismo día deja un registro vacío (inicio hoy, fin ayer)',
+        comportamiento: 'editar las cuotas cierra el período vigente HOY y abre uno nuevo MAÑANA: ni el pasado ni hoy cambian (la meta de hoy sigue igual) y el cambio rige la próxima vez que toca ese día; una segunda edición el mismo día actualiza ese período futuro en vez de crear otro (nunca queda un período con fin anterior al inicio)',
     },
     {
         id: 'C5', titulo: 'Saldo adelantado (video, cuota 1 diaria, 5 días, 8 vistos)',
@@ -137,12 +137,12 @@ const CASOS = [
         id: 'C9', titulo: 'Hipótesis: ¿cambiar frecuencia o fecha de inicio recalcula el pasado?',
         entrada: { lectura: { inicio: 'hoy-9', frecuencia: '2 → 3', inicioNuevo: 'hoy-19' }, video: { inicio: 'hoy-9', inicioAntes: 'hoy-19', inicioDespues: 'hoy-4' } },
         actual: {
-            lecturaFrecuencia: { metaAntes: 20, metaDespues: 30, historialCambia: false },
+            lecturaFrecuencia: { metaAntes: 20, metaDespues: 20, historialCambia: true },
             lecturaInicio: { metaAntes: 20, metaDespues: 40, historialCambia: false },
             videoInicioAntes: { metaAntes: 10, metaDespues: 20 },
             videoInicioDespues: { metaAntes: 10, metaDespues: 5 },
         },
-        comportamiento: 'SÍ: frecuencia (lectura) y fecha de inicio (lectura y video) no tienen historial; cambiarlas recalcula toda la meta desde el inicio (solo las cuotas por día tienen historial)',
+        comportamiento: 'NO para la frecuencia: va en el historial de ritmo (un período nuevo desde mañana) y no recalcula el pasado; la fecha de inicio se puede cambiar solo sin registros (estas categorías no tienen) y entonces el primer período se mueve con ella y la meta se recalcula desde la fecha nueva',
     },
     {
         id: 'C10', titulo: 'Punto de inicio: T0C1, T1C0 (estado Nueva) y T0C1 con estado Mirando',
@@ -188,8 +188,8 @@ const CASOS = [
     {
         id: 'C14', titulo: 'Pausa de categoría (video, cuota 1 diaria desde hoy-6)',
         entrada: { pausa: 'hoy-3 → hoy-2', mismoDia: 'pausar hoy y reanudar hoy' },
-        actual: { metaSinPausa: 7, metaConPausa: 5, mismoDia: { metaAntes: 7, metaDespues: 7, pausaFinAntesDeInicio: true } },
-        comportamiento: 'los días dentro de una pausa no suman cuota; pausar y reanudar el mismo día (la pantalla reanuda con fecha de ayer) deja una pausa con fin anterior al inicio y no excluye nada',
+        actual: { metaSinPausa: 7, metaConPausa: 5, mismoDia: { metaAntes: 7, metaDespues: 7, pausaFinAntesDeInicio: false, pausasVivas: 0 } },
+        comportamiento: 'los días dentro de una pausa no suman cuota; pausar y reanudar el mismo día (la pantalla reanuda con fecha de ayer) no tuvo efecto: la pausa se borra lógicamente en vez de quedar con fin anterior al inicio',
     },
 ];
 
@@ -493,13 +493,15 @@ const ESCENARIOS = {
         await editar(nuevas);
         const c1 = await E.categoria(cat.id);
         const hist = c1.quotas_history;
-        const rel = (fecha) => (fecha === dia(0) ? 'hoy' : fecha === dia(-1) ? 'hoy-1' : fecha);
+        const rel = (fecha) => (fecha === dia(0) ? 'hoy' : fecha === dia(-1) ? 'hoy-1' : fecha === dia(1) ? 'hoy+1' : fecha);
         await editar({ ...nuevas, [nombreDia(0)]: 4 });
         const c2 = await E.categoria(cat.id);
         return {
             pasadoIgual: JSON.stringify(cuotasPasado(c1)) === JSON.stringify(antes.pasado),
             cuotaHoy: { antes: antes.hoy, despues: getQuotasForDate(hoyMas(0), c1)[nombreDia(0)] },
             cuotaAyer: { antes: antes.pasado[8], despues: cuotasPasado(c1)[8] },
+            // 7.4b: el cambio rige desde mañana; el mismo día de la semana que hoy, la próxima vez.
+            cuotaHoyMas7: { antes: getQuotasForDate(hoyMas(7), c0)[nombreDia(0)], despues: getQuotasForDate(hoyMas(7), c1)[nombreDia(0)] },
             metaAntes: antes.meta, metaDespues: calculateBacklog(c1, 0).targetItems,
             historial: { registros: hist.length, primeroCierra: rel(hist[0].end_date), segundoAbre: rel(hist[1].start_date) },
             segundaEdicionMismoDia: { registros: c2.quotas_history.length, registroSinDias: c2.quotas_history.some((h) => h.end_date && h.end_date < h.start_date) },
@@ -722,7 +724,7 @@ const ESCENARIOS = {
         const noop = () => {};
         const openModal = instanciar(extraer(PANTALLA.categorias, 'openModal'), {
             setIsEditing: noop, setEditingId: noop, setName: noop, setType: noop, setStartDate: noop, getLocalDateString, console,
-            setSelectedDays: noop, setFrequency: noop, setSeriesCount: (v) => { mostrado = v; }, setDescription: noop, setModalVisible: noop,
+            setSelectedDays: noop, setFrequency: noop, setSeriesCount: (v) => { mostrado = v; }, setDescription: noop, setModalVisible: noop, setStartDateLocked: noop,
         });
         openModal(cCeroExistente);
         return { ...r, formularioCategoria: { cero: cCero.rechazado ?? 'guardado', vacio: cVacio.rechazado ?? 'guardado', unoSeGuardaComo: cUno.series_count, ceroExistenteAlReabrirSeMuestra: mostrado } };
@@ -760,7 +762,7 @@ const ESCENARIOS = {
         E.ok(await E.db.pauseCategory(b.id, dia(0)), 'pauseCategory');
         E.ok(await E.db.resumeCategory(b.id, dia(-1)), 'resumeCategory');
         const pausas = (E.ok(await E.db.getCategoryPauses(b.id), 'getCategoryPauses')).pauses;
-        return { metaSinPausa, metaConPausa, mismoDia: { metaAntes, metaDespues: await meta(b.id), pausaFinAntesDeInicio: pausas.every((p) => p.pause_end < p.pause_start) } };
+        return { metaSinPausa, metaConPausa, mismoDia: { metaAntes, metaDespues: await meta(b.id), pausaFinAntesDeInicio: pausas.some((p) => p.pause_end && p.pause_end < p.pause_start), pausasVivas: pausas.length } };
     },
 };
 

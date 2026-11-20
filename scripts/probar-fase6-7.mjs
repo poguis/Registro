@@ -71,7 +71,8 @@ const dir = (name) => { const p = `${WORK}/${name}`; mkdirSync(p, { recursive: t
 
 // =========================================================================== 1. migración 5
 section('1. Migración 5: elimina SOLO legacy_* (lista explícita), con copia previa');
-check('LATEST_VERSION = 5 y la lista explícita tiene las 16 tablas legacy_*', LATEST_VERSION === 5 && LEGACY_TABLES.length === 16 && LEGACY_TABLES.every((t) => t.startsWith('legacy_')));
+// Fase 7.4b: después de la 5 viene la 6 (frequency en entertainment_quotas_history); al abrir se llega a LATEST_VERSION.
+check('LATEST_VERSION ≥ 5 y la lista explícita tiene las 16 tablas legacy_*', LATEST_VERSION >= 5 && LEGACY_TABLES.length === 16 && LEGACY_TABLES.every((t) => t.startsWith('legacy_')));
 for (const [label, source] of [['fixture (v0)', FIXTURE], ['copia del respaldo real "después" de la 6.6 (v4)', `${REAL_AFTER}.db`]]) {
     const key = label.startsWith('fixture') ? 'm5-fixture' : 'm5-real';
     const path = `${dir(key)}/app_registro_v3.db`;
@@ -89,10 +90,11 @@ for (const [label, source] of [['fixture (v0)', FIXTURE], ['copia del respaldo r
     const log5 = d.prepare("SELECT COUNT(*) n FROM _migration_log WHERE version = 5 AND kind = 'summary'").get().n;
     const logTotal = d.prepare('SELECT COUNT(*) n FROM _migration_log').get().n;
     d.close();
-    check(`${label}: ${legacyBefore} legacy_* antes → 0 después, user_version 5, copia pre-migracion-v5 pedida`,
-        legacyBefore === 16 && legacyAfter.length === 0 && uvOf(path) === 5 && backupCalls.includes('pre-migracion-v5'), backupCalls.join(', '));
+    check(`${label}: ${legacyBefore} legacy_* antes → 0 después, user_version ${LATEST_VERSION}, copia pre-migracion-v5 pedida`,
+        legacyBefore === 16 && legacyAfter.length === 0 && uvOf(path) === LATEST_VERSION && backupCalls.includes('pre-migracion-v5'), backupCalls.join(', '));
     check(`${label}: las 15 tablas sincronizadas idénticas (comparar-sync) y mismo saldo`, cmp.identical && cmp.balanceEqual);
-    check(`${label}: users, outbox, sync_meta, sync_state y _id_map intactos; _migration_log + 1 resumen (v5)`, after.kept === before.kept && log5 === 1 && logTotal === before.log + 1);
+    // + 1 resumen por cada migración desde la 5 (la 5 y, desde la 7.4b, la 6).
+    check(`${label}: users, outbox, sync_meta, sync_state y _id_map intactos; _migration_log + 1 resumen por migración (v5…v${LATEST_VERSION})`, after.kept === before.kept && log5 === 1 && logTotal === before.log + (LATEST_VERSION - 4));
     const again = await D.openDevice(key, path);
     await again.svc.db.closeAsync();
     check(`${label}: reabrir no repite nada`, again.svc.lastMigration.applied.length === 0 && hashTables(path, KEPT_LOCAL) === after.kept);
@@ -115,7 +117,7 @@ for (const [label, source] of [['fixture (v0)', FIXTURE], ['copia del respaldo r
     check('sin la copia previa la migración 5 no corre y no toca nada', noCopy && uvOf(path) === 4 && hashTables(path, all) === before);
     const ok = await D.openDevice('m5-fallo', path);
     await ok.svc.db.closeAsync();
-    check('reintento: migra hasta v5', uvOf(path) === 5 && tablesOf(path).every((t) => !t.startsWith('legacy_')));
+    check(`reintento: migra hasta v${LATEST_VERSION}`, uvOf(path) === LATEST_VERSION && tablesOf(path).every((t) => !t.startsWith('legacy_')));
 }
 
 // =========================================================================== 2. retención pura
