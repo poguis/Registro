@@ -4,7 +4,7 @@ Estados: [OK] decidido por el usuario · [PROPUESTA] sugerido, se confirma en la
 
 Origen: respuestas del usuario del 2026-11-17 y resultados de la 7.2 (commit `d55b5e1`: `docs/ENTRETENIMIENTO-ACTUAL.md` y `scripts/probar-fase7-2.mjs`, 17 OK). R1–R14 y C1–C14 remiten a ese documento y a esa suite.
 
-**Estado: vigente.** 7.4a cerrada; sigue la 7.4b. Se actualiza al cerrar cada subfase, y cualquier cambio de criterio se marca aquí.
+**Estado: vigente.** 7.4b cerrada; sigue la dirección visual y después la 7.5. Se actualiza al cerrar cada subfase, y cualquier cambio de criterio se marca aquí.
 
 ## Alcance y datos
 - [OK] Datos existentes de entretenimiento en producción (1 categoría de video, 1 serie, 1 temporada y 11 filas en `watch_history`): el usuario los borra desde la app (borrado lógico) y el rediseño no los migra. Sus tombstones quedan en el celular y en Poguis, igual que los de la 6.8. Las migraciones nuevas tienen que tolerar tombstones.
@@ -63,7 +63,7 @@ Origen: respuestas del usuario del 2026-11-17 y resultados de la 7.2 (commit `d5
 ## Cuotas y cambios de ritmo
 - [OK] Todo parámetro de ritmo (días activos, cuotas por día, frecuencia, K, unidad) va en un historial con fecha de vigencia. Cada cambio aplica **desde mañana**. Nunca se recalculan los pendientes ni el adelanto pasados. El adelantado se mantiene.
 - [OK] La fecha de inicio de la categoría solo se puede editar mientras la categoría no tiene registros; después queda fija. Lo que cambia es el ritmo (días, frecuencia) y las pausas.
-- Hoy (7.2):
+- Hoy (7.2), **corregido en la 7.4b** (ritmo desde mañana con historial, también de la frecuencia; R10–R12; fecha de inicio fija con registros):
   - las cuotas de video rigen ya para hoy (C4); dos ediciones el mismo día dejan un período vacío (R10); la comparación es por texto JSON (R11);
   - la frecuencia de lectura (R3) y la fecha de inicio (lectura y video, C9) no tienen historial y recalculan todo el pasado;
   - adelanto (C5): vistos − meta; los días de adelanto se cuentan desde mañana.
@@ -83,8 +83,8 @@ Origen: respuestas del usuario del 2026-11-17 y resultados de la 7.2 (commit `d5
 - R5/R6/C11: reiniciar no actualiza el punto inicial, y reiniciar desde En espera pierde 1 (se resuelve con el historial como fuente de verdad). **Corregido en la 7.4a.**
 - R7: la grilla mueve el puntero sin escribir historial. **Corregido en la 7.4a.**
 - R8: desmarcar en una serie Terminado la deja Terminado. **Corregido en la 7.4a.**
-- R10/R11: períodos de cuota vacíos y comparación por texto.
-- R12/C14: pausa de categoría con inicio y fin el mismo día queda como una fila sin efecto.
+- R10/R11: períodos de cuota vacíos y comparación por texto. **Corregido en la 7.4b.**
+- R12/C14: pausa de categoría con inicio y fin el mismo día queda como una fila sin efecto. **Corregido en la 7.4b.**
 - R15 y R16 (temporadas de 0 capítulos y temporadas que faltan entre las guardadas): **Corregido en la 7.4a.** Ver Observaciones.
 
 ## API de búsqueda (7.8)
@@ -134,7 +134,7 @@ Cada subfase con su plan, su aprobación y su ciclo completo. Si surge algo nuev
 3. 7.3 Motor puro: cerrada (`241c26e`, cierre `45f5cda`).
 4. 7.4 Correcciones del motor, en dos subfases (un APK cada una):
    - 7.4a: **cerrada** (`90ea3b5`, `47f358c` y el commit de este cierre). Sin migración: historial como conteo (incluye R1, R5–R8 y la grilla como "marcar vistos hasta aquí"); C2 al final del ciclo actual (la pausada que se reanuda entra en la vuelta en curso conservando su lugar); R15; O1 (y R2); O2; corrección tras la prueba del celular: E3 conservando el lugar y O4 (temporadas de al menos 1 capítulo), con APK 1.3.7 / vc 11;
-   - 7.4b, con migración (primero en Supabase): historial de todo el ritmo desde mañana, sin períodos vacíos (R10), con comparación por contenido (R11); fecha de inicio fija con registros; R12.
+   - 7.4b: **cerrada** (`20ad1cb` y el commit de este cierre). Con migración (primero en Supabase): historial de todo el ritmo desde mañana, sin períodos vacíos (R10), con comparación por contenido (R11); fecha de inicio fija con registros; R12.
 5. 7.5 Vínculo Pendiente↔Series/Lectura y subtipo de lectura (migración en Supabase y la migración local siguiente).
 6. 7.6 Punto de inicio (T0/C0), "Continuar" y "Volver a ver" desde En espera y Terminado (O3), deslizar para marcar con "Deshacer" (I6).
 7. 7.7 Lectura por capítulos, tomo opcional y K.

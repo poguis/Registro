@@ -1,6 +1,6 @@
 # Mapeo de sincronización SQLite ↔ Postgres
 
-Referencia para el mapeador de la Fase 4. Esquema local: `src/data/db/migration2.ts` (tablas de dominio) + `migration3.ts` (`users`) + `migration4.ts` (estado de sync) + `migration5.ts` (elimina las `legacy_*`, sin tocar estas tablas); `user_version` actual 5. Esquema del servidor: `supabase/migrations/` (Fase 2).
+Referencia para el mapeador de la Fase 4. Esquema local: `src/data/db/migration2.ts` (tablas de dominio) + `migration3.ts` (`users`) + `migration4.ts` (estado de sync) + `migration5.ts` (elimina las `legacy_*`, sin tocar estas tablas) + `migration6.ts` (Fase 7.4b: `entertainment_quotas_history.frequency`); `user_version` actual 6. Esquema del servidor: `supabase/migrations/` (Fase 2; desde la 7.4b, 5 archivos con `20261121000100_frecuencia_cuotas.sql`).
 
 Las reglas están implementadas en **`src/sync/mapping.ts`** (único lugar: lo usan el motor de sync, los repositorios para redondear dinero y los scripts de prueba). El motor está en `src/sync/` (ver "Motor de sincronización" al final). `scripts/probar-fase2.mjs` y `scripts/probar-fase4.mjs` lo ejercitan contra un Postgres local (PGlite).
 

@@ -14,6 +14,8 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 - [OK] Plan Free para empezar. Es conocida la pausa por inactividad; subir a Pro al publicar o si se necesita 24/7.
 - [OK] Esquema de Postgres como archivos SQL en `supabase/migrations/`. Claude Code solo GENERA los archivos; el usuario los aplica.
 - [OK] Prohibido ejecutar comandos contra el proyecto remoto de Supabase (`supabase db push`, `db reset --linked`, `functions deploy`, etc.).
+- [OK] Fase 7.4b — migración 5 de Supabase (`supabase/migrations/20261121000100_frecuencia_cuotas.sql`): solo aditiva, agrega `entertainment_quotas_history.frequency integer` (NULL; frecuencia de lectura del período, NULL en video y en los períodos de antes = la de la categoría). No crea objetos; reafirma los grants de 4/4 sin cambiar ningún privilegio (verificado en PGlite, comparando tabla y columnas para anon, authenticated, PUBLIC y service_role, y con `auditar-fase6` 18/18 en Poguis). Aplicada a mano en Registro Dev y en Poguis (2026-11-20/21); `supabase/verificar-fase7-4b.sql` (solo lectura) 9/9 ok en los dos.
+- [OK] Regla operativa (Fase 7.4b): con cambios de esquema sincronizado, primero el SQL en el proyecto (Registro Dev y luego Poguis) y después el APK. La app anterior tolera columnas nuevas (su pull las ignora y su upsert parcial no las borra); la app nueva contra un servidor sin la columna deja bloqueadas las filas de esa tabla hasta aplicar el SQL y pulsar "Reintentar". Probado en la 7.4b con PGlite y el código real de las dos versiones (`scripts/probar-fase7-4b.mjs`, compatibilidad a y b; `docs/MAPEO-SYNC.md`).
 
 ## Seguridad
 - [OK] RLS activada en todas las tablas. Políticas por `user_id = auth.uid()` para select/insert/update. Sin política DELETE: el borrado es lógico (UPDATE de `deleted_at`).
@@ -33,6 +35,7 @@ Estados: [OK] decidido · [PROPUESTA] sugerido, el usuario puede cambiarlo · [P
 ## Datos locales
 - [OK] SQLite local es la fuente de verdad de la UI. Toda lectura y escritura va contra SQLite; la app funciona 100% sin internet.
 - [OK] Versionado de esquema con `PRAGMA user_version` y migraciones ordenadas. Prohibido renombrar el archivo `.db` o borrar datos para cambiar el esquema. **Única excepción autorizada:** la migración 5 (Fase 6.7), que elimina las 16 tablas `legacy_*` por lista explícita, tras la copia física `pre-migracion-v5` y verificando que no cambian los conteos de las demás tablas (detalle en Fases, 6.7).
+- [OK] Fase 7.4b — migración local 6 (`src/data/db/migration6.ts`): solo aditiva, `ALTER TABLE entertainment_quotas_history ADD COLUMN frequency INTEGER`, tras la copia física `pre-migracion-v6`; verifica la columna y que los conteos de todas las tablas no cambian; no rellena valores ni encola nada (el repositorio congela el NULL al cerrar un período). `LATEST_VERSION` = 6.
 - [OK] Operaciones de varios pasos dentro de `withTransactionAsync`.
 - [OK] Acceso a datos mediante repositorios por feature (se parte `db.js` de forma gradual).
 - [OK] SQLite del dispositivo: 3.50.3 (expo-sqlite 16 empaquetado).

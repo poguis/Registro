@@ -1,21 +1,21 @@
 # Traspaso a la Fase 7
 
-Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar la 7.1 (2026-11-16), la 7.2 (2026-11-17), la 7.3 (2026-11-18) y la 7.4a (2026-11-20). Las fases 0–6 están cerradas; el detalle de cada una está en DECISIONES.md (Fases) y CLAUDE.md. El traspaso anterior (`claude/TRASPASO-FASE6.md`) queda como histórico.
+Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar la 7.1 (2026-11-16), la 7.2 (2026-11-17), la 7.3 (2026-11-18), la 7.4a (2026-11-20) y la 7.4b (2026-11-21). Las fases 0–6 están cerradas; el detalle de cada una está en DECISIONES.md (Fases) y CLAUDE.md. El traspaso anterior (`claude/TRASPASO-FASE6.md`) queda como histórico.
 
 ## 1. Estado actual
 
 ### Celular del usuario
-- **Registro (producción)** `com.poguis.Registro`: **1.3.7 / versionCode 11** (7.4a, 2026-11-20), firma EAS `31:32:DE:…:3E:52`, instalada siempre encima (`install -r`), mismo `firstInstallTime` desde 2026-09-21. Sync encendida contra **Poguis**. BD local `user_version` 5: sin `legacy_*` ni columna `password`.
+- **Registro (producción)** `com.poguis.Registro`: **1.3.8 / versionCode 12** (7.4b, 2026-11-21), firma EAS `31:32:DE:…:3E:52`, instalada siempre encima (`install -r`), mismo `firstInstallTime` desde 2026-09-21. Sync encendida contra **Poguis**. BD local `user_version` **6**: sin `legacy_*` ni columna `password`, con `entertainment_quotas_history.frequency`.
 - `respaldos/` del celular: los 10 respaldos manuales más recientes y la `pre-migracion-v5`; 0 copias con la contraseña antigua (retención de la 6.7).
-- **Registro Dev** `com.poguis.Registro.dev`: **1.3.7 / versionCode 11**, firma `debug.keystore` `fac61745…`, contra **Registro Dev**, instalada encima con el mismo `firstInstallTime`. Se instala al lado de la app real y tiene su propia BD.
+- **Registro Dev** `com.poguis.Registro.dev`: **1.3.8 / versionCode 12** (`user_version` 6), firma `debug.keystore` `fac61745…`, contra **Registro Dev**, instalada encima con el mismo `firstInstallTime`. Se instala al lado de la app real y tiene su propia BD.
 
 ### Poguis (producción)
-- Datos reales de un único usuario: **31 filas** en las 15 tablas sincronizadas, **12 vivas y 19 borradas** (`verificar-fase5` 16/16 = respaldo "después" de la 7.3, 2026-11-18). **Sin cambios en la 7.4a** (2026-11-20: `verificar-fase5` = "después", 31 / 12 / 19, un `user_id`).
+- Datos reales de un único usuario: **31 filas** en las 15 tablas sincronizadas, **12 vivas y 19 borradas** (`verificar-fase5` 16/16 = respaldo "después" de la 7.3, 2026-11-18). **Sin cambios en la 7.4a** (2026-11-20: `verificar-fase5` = "después", 31 / 12 / 19, un `user_id`) **ni en la 7.4b** (2026-11-21: `verificar-fase5` = "después" en las 16 filas, 31 / 12 / 19, un `user_id`; `auditar-fase6` 18/18 estrictos).
 - **Diferencia con la 6.7** (30 / 26 / 4, que coincide con su `verificar-fase5-poguis.json`):
   - +1 fila viva en `balance_history` (de 2 a 3), un movimiento del usuario;
   - 15 tombstones de entretenimiento: 1 categoría, 1 cuota, 1 serie, 1 temporada y 11 filas de `watch_history`. El usuario los borró desde la app antes de la 7.3, como decidió el diseño (Alcance), y quedan para siempre igual que los de la 6.8.
 - Las otras 4 borradas son los tombstones de prueba de `backlog` (`[prueba RLS]` y 3 `[prueba F5]`). **Se quedan** (6.8, decisión del usuario).
-- Esquema: las 4 migraciones de `supabase/migrations/`, RLS en las 15 tablas, sin DELETE, sin `security definer`. Auditoría 6.1: 18/18 estrictos.
+- Esquema: las **5** migraciones de `supabase/migrations/` (la 5.ª, `20261121000100_frecuencia_cuotas.sql`, de la 7.4b), RLS en las 15 tablas, sin DELETE, sin `security definer`. Auditoría: 18/18 estrictos (6.1 y de nuevo tras la 7.4b).
 - Auth:
   - registro de usuarios nuevos **cerrado**;
   - proveedor Google;
@@ -24,11 +24,11 @@ Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar
   - Site URL `localhost` (solo de respaldo).
 
 ### Registro Dev
-- Mismas 4 migraciones y proveedor Google. El registro está **abierto** para pruebas.
+- Mismas **5** migraciones (la 5.ª aplicada en la 7.4b, `verificar-fase7-4b` 9/9) y proveedor Google. El registro está **abierto** para pruebas.
 - Datos de prueba que se quedan sin acción: el elemento `[prueba F6.3]` en `backlog` y el tombstone "Venta" en `finance_categories` (6.6). El usuario sintético de la 6.2 se borró (cascade verificado).
 
 ### Versiones y commits
-- `app.json`: `versionName` 1.3.7, `versionCode` 11. Para cada APK que se vaya a instalar, subir los dos (las versiones no pueden bajar).
+- `app.json`: `versionName` 1.3.8, `versionCode` 12. Para cada APK que se vaya a instalar, subir los dos (las versiones no pueden bajar).
 - Expo SDK 54 (`expo` 54.0.38), React Native 0.81.5, `expo-sqlite` 16.0.10 (SQLite 3.50.3, sin modo de solo lectura), auth-js 2.118.
 - Commits de la Fase 6:
   - `97fb9b6` / `ceed19b` (6.1)
@@ -43,7 +43,8 @@ Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar
   - `89a3514` (7.1, implementación) y `d4bad14` (cierre de la 7.1);
   - `d55b5e1` (7.2) y `758e7de` (diseño y cierre de la 7.2);
   - `241c26e` (7.3, implementación), `45f5cda` (cierre de la 7.3) y `0d8d327` (diseño con I1–I6 y 7.4 dividida);
-  - `90ea3b5` (7.4a), `47f358c` (corrección de la 7.4a) y el commit de este cierre.
+  - `90ea3b5` (7.4a), `47f358c` (corrección de la 7.4a) y `6fbc2c6` (cierre de la 7.4a);
+  - `20ad1cb` (7.4b) y el commit de este cierre.
 
 ### Credenciales (nombres y ubicación, nunca valores)
 - `.env` (fuera de git; plantilla `.env.example`): `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (Poguis) y `EXPO_PUBLIC_SUPABASE_DEV_URL` / `EXPO_PUBLIC_SUPABASE_DEV_PUBLISHABLE_KEY` (Registro Dev). Solo claves `sb_publishable_`; 0 secret keys en los dos proyectos.
@@ -97,7 +98,7 @@ Cerrado: el punto 7 (7.1, ver §5). Los demás siguen pendientes.
      - la reconexión dentro de los 60 s de enfriamiento de auth-js seguida del ciclo por `TOKEN_REFRESHED` (solo en `probar-fase5`);
      - una cuenta Google distinta bloqueada (solo en `probar-fase3`).
    - **Descartado:** el cursor para las tablas vacías (DECISIONES.md, Descartado).
-9. **Rediseño de entretenimiento (subfases 7.3–7.10):** ver `claude/DISENO-ENTRETENIMIENTO.md`. El análisis previo (7.2, §6), el motor puro (7.3, §7) y la 7.4a (§8) están cerrados; sigue la 7.4b.
+9. **Rediseño de entretenimiento (subfases 7.3–7.10):** ver `claude/DISENO-ENTRETENIMIENTO.md`. El análisis previo (7.2, §6), el motor puro (7.3, §7), la 7.4a (§8) y la 7.4b (§9) están cerrados; sigue la dirección visual (antes de la 7.5).
 
 ## 4. [PENDIENTE] vigentes (DECISIONES.md)
 - **Restaurar un respaldo dentro de la app.**
@@ -179,4 +180,36 @@ Cerrado: el punto 7 (7.1, ver §5). Los demás siguen pendientes.
   - respaldo "después" (app 1.3.7);
   - los dos válidos y `comparar-sync` idénticos en las 15 tablas, con el mismo saldo;
   - `verificar-fase5` en Poguis = "después" en las 16 filas (31 / 12 / 19, un `user_id`).
-- **Siguiente:** la 7.4b (con migración, primero en Supabase), según el diseño.
+- **Siguiente:** la 7.4b (con migración, primero en Supabase), según el diseño. Cerrada: ver §9.
+
+## 9. Fase 7.4b — historial de ritmo, fecha de inicio fija y R10–R12 [CERRADA 2026-11-21]
+- **Commit:** `20ad1cb`; APK **1.3.8 / versionCode 12**. Migración 5 de Supabase (`supabase/migrations/20261121000100_frecuencia_cuotas.sql`, solo aditiva) y migración local 6 (`src/data/db/migration6.ts`, copia `pre-migracion-v6`). Verificación de solo lectura: `supabase/verificar-fase7-4b.sql` (9 filas).
+- **Qué cambió:**
+  - **El ritmo cambia desde mañana:** cuotas por día y, en lectura, frecuencia. El período vigente cierra hoy y se abre uno nuevo desde mañana, así que ni la meta de hoy ni la de los días anteriores cambian.
+  - **R10:** otra edición del mismo día actualiza el período que empieza mañana; si deshace el cambio, ese período se borra y el anterior se reabre. Nunca queda un período con fin anterior a su inicio.
+  - **R11:** la comparación es por contenido (cuotas normalizadas a los 7 días, sin depender del orden de las claves, y la frecuencia en lectura). Una edición sin cambios, o que solo toca el nombre, la descripción o el límite, no crea período.
+  - **La frecuencia va en el historial** (`entertainment_quotas_history.frequency`). Un período de lectura de antes (NULL = la de la categoría) se congela con ese valor al cerrarse.
+  - **"1 cada N":** fracciones exactas por período, redondeando solo el total. Los días de atraso y adelanto se expresan en el N de hoy y de mañana; con un solo período es la fórmula de siempre.
+  - **Fecha de inicio:** fija con registros (en la pantalla, con el texto "La fecha de inicio no se puede cambiar porque ya hay registros.", y en el repositorio). Sin registros es editable y el primer período se mueve con ella.
+  - **R12:** reanudar una pausa el mismo día en que empezó la borra lógicamente. Nota: como la pausa no tuvo efecto, hoy vuelve a contar para la meta.
+- **Pruebas en la PC:**
+  - `scripts/probar-fase7-4b.mjs`: **24 OK**.
+  - `probar-fase7-2`: **17 OK**; `CASOS` cambia en C4, C9 y C14.
+  - `probar-fase7-3`: **12 OK**.
+  - El resto de suites en verde, en serie, con `probar-fase4` sola (88 OK).
+  - Compatibilidad 1.3.7 ↔ 1.3.8 probada con PGlite y el código real de `47f358c`:
+    - **a.** la 1.3.7 contra un servidor CON la columna: pull sin fallos y su push conserva `frequency`;
+    - **b.** la 1.3.8 contra un servidor SIN ella: filas bloqueadas, que suben tras el SQL y "Reintentar".
+  - Privilegios de la tabla y de sus columnas idénticos antes y después de la migración.
+- **Hallazgo:** C14 pasaba sin probar nada desde la 7.2 (`every` sobre una lista vacía). Ahora usa `some` y `pausasVivas`.
+- **Registro Dev:**
+  - SQL aplicado, `verificar-fase7-4b` 9/9;
+  - partes HOY y MAÑANA de la lista, todo OK;
+  - el respaldo HOY tenía 2 períodos por categoría editada, la frecuencia 2 congelada y las pausas sin efecto borradas.
+- **Producción, con el protocolo completo:**
+  - respaldo "antes" (app 1.3.7, v5);
+  - SQL en Poguis (`verificar-fase7-4b` 9/9) justo antes del `install -r` de la 1.3.8, con la firma EAS `3132ded2…3e52`, de versionCode 11 a 12 y con el mismo `firstInstallTime`;
+  - respaldo "después" (app 1.3.8, v6, con `pre-migracion-v6`);
+  - los dos válidos y `comparar-sync` idénticos en las 15 tablas, con el mismo saldo;
+  - `verificar-fase5` = "después" en las 16 filas (31 / 12 / 19, un `user_id`) y `auditar-fase6` 18/18.
+- **Siguiente:** la dirección visual (O5 y el diseño visual de las ideas), antes de la 7.5.
