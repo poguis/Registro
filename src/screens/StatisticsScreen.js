@@ -1,18 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    TouchableOpacity,
-    ScrollView,
-    Dimensions,
-    Modal,
-    TextInput,
-    FlatList
-} from 'react-native';
+import React, { useState, useEffect, useMemo } from 'react';
+import { View, StyleSheet, TouchableOpacity, ScrollView, Dimensions, Modal, FlatList } from 'react-native';
+import { Text, TextInput } from '../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme, FONT, RADIUS } from '../contexts/ThemeContext';
 import db from '../services/db';
 import { useSyncRefresh } from '../sync/useSyncRefresh';
 import { getUtcRange, parseDbTimestamp } from '../services/dateRange';
@@ -20,7 +10,10 @@ import { getUtcRange, parseDbTimestamp } from '../services/dateRange';
 const { width } = Dimensions.get('window');
 
 export default function StatisticsScreen({ user, onBack }) {
-    const { theme, isDarkMode } = useTheme();
+    const { theme } = useTheme();
+    const styles = useMemo(() => makeStyles(theme), [theme]);
+    // Ingreso y gasto: colores de dinero del tema; fondos suaves con los tonos verde y rojo.
+    const ingreso = theme.money.ingreso, gasto = theme.money.gasto;
     const [stats, setStats] = useState([]);
     const [period, setPeriod] = useState('month'); // 'week', 'month', 'year', 'custom', 'all'
     const [viewType, setViewType] = useState('expense'); // 'income' or 'expense'
@@ -69,14 +62,13 @@ export default function StatisticsScreen({ user, onBack }) {
     const maxVal = Math.max(...filteredStats.map(s => viewType === 'expense' ? s.expense : s.income), 1);
 
     return (
-        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-            <StatusBar style={isDarkMode ? "light" : "dark"} />
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
 
-            <View style={[styles.header, { backgroundColor: theme.header, borderBottomColor: theme.border }]}>
+            <View style={[styles.header, { backgroundColor: theme.surface, borderBottomColor: theme.line }]}>
                 <TouchableOpacity onPress={onBack}>
-                    <Text style={{ fontSize: 24, color: theme.text }}>←</Text>
+                    <Text style={{ fontSize: 24, color: theme.ink }}>←</Text>
                 </TouchableOpacity>
-                <Text style={[styles.headerTitle, { color: theme.text }]}>Reporte Financiero</Text>
+                <Text style={[styles.headerTitle, { color: theme.ink }]} numberOfLines={1}>Reporte Financiero</Text>
                 <TouchableOpacity onPress={() => setShowDatePicker(true)}>
                     <Text style={{ fontSize: 22 }}>📅</Text>
                 </TouchableOpacity>
@@ -88,13 +80,13 @@ export default function StatisticsScreen({ user, onBack }) {
                         key={p}
                         style={[
                             styles.periodBtn,
-                            { backgroundColor: period === p ? theme.accent : theme.inputBackground }
+                            { backgroundColor: period === p ? theme.accent : theme.raised }
                         ]}
                         onPress={() => setPeriod(p)}
                     >
                         <Text style={[
                             styles.periodText,
-                            { color: period === p ? '#fff' : theme.subText }
+                            { color: period === p ? theme.onAccent : theme.muted }
                         ]}>
                             {p === 'today' ? 'Hoy' : p === 'week' ? 'Sem' : p === 'month' ? 'Mes' : p === 'year' ? 'Año' : 'Todo'}
                         </Text>
@@ -104,16 +96,16 @@ export default function StatisticsScreen({ user, onBack }) {
 
             <ScrollView contentContainerStyle={{ padding: 15 }}>
                 {/* Visual Summary Card - Premium Redesign */}
-                <View style={[styles.summaryCard, { backgroundColor: theme.card }]}>
+                <View style={[styles.summaryCard, { backgroundColor: theme.surface }]}>
                     <View style={styles.cardHeader}>
                         <View>
-                            <Text style={[styles.summaryLabel, { color: theme.subText }]}>Balance Total</Text>
-                            <Text style={[styles.balanceValue, { color: theme.text }]}>
+                            <Text style={[styles.summaryLabel, { color: theme.muted }]}>Balance Total</Text>
+                            <Text style={[styles.balanceValue, { color: theme.ink }]}>
                                 ${(totals.income - totals.expense).toFixed(2)}
                             </Text>
                         </View>
-                        <View style={[styles.trendBadge, { backgroundColor: (totals.income - totals.expense) >= 0 ? 'rgba(76, 175, 80, 0.1)' : 'rgba(244, 67, 54, 0.1)' }]}>
-                            <Text style={{ color: (totals.income - totals.expense) >= 0 ? '#4CAF50' : '#F44336', fontWeight: 'bold', fontSize: 12 }}>
+                        <View style={[styles.trendBadge, { backgroundColor: (totals.income - totals.expense) >= 0 ? theme.tones.verde.bg : theme.tones.rojo.bg }]}>
+                            <Text style={{ color: (totals.income - totals.expense) >= 0 ? theme.tones.verde.fg : theme.tones.rojo.fg, fontFamily: FONT.bold, fontSize: 12 }}>
                                 {(totals.income - totals.expense) >= 0 ? '↑ Ahorro' : '↓ Déficit'}
                             </Text>
                         </View>
@@ -121,17 +113,17 @@ export default function StatisticsScreen({ user, onBack }) {
 
                     <View style={styles.progressContainer}>
                         <View style={styles.progressHeader}>
-                            <Text style={[styles.progressLabel, { color: theme.subText }]}>Uso del Ingreso (Gasto)</Text>
-                            <Text style={[styles.progressPercent, { color: theme.text }]}>
+                            <Text style={[styles.progressLabel, { color: theme.muted }]}>Uso del Ingreso (Gasto)</Text>
+                            <Text style={[styles.progressPercent, { color: theme.ink }]}>
                                 {Math.round((totals.expense / (totals.income || 1)) * 100)}%
                             </Text>
                         </View>
-                        <View style={[styles.progressBarBase, { backgroundColor: theme.inputBackground }]}>
+                        <View style={[styles.progressBarBase, { backgroundColor: theme.raised }]}>
                             <View style={[
                                 styles.progressBarFill,
                                 {
                                     width: `${Math.min((totals.expense / (totals.income || 1)) * 100, 100)}%`,
-                                    backgroundColor: (totals.expense / (totals.income || 1)) > 0.8 ? '#F44336' : theme.accent
+                                    backgroundColor: (totals.expense / (totals.income || 1)) > 0.8 ? gasto : theme.accent
                                 }
                             ]} />
                         </View>
@@ -139,76 +131,76 @@ export default function StatisticsScreen({ user, onBack }) {
 
                     <View style={styles.cardFooter}>
                         <View style={styles.footerItem}>
-                            <View style={[styles.dot, { backgroundColor: '#4CAF50' }]} />
-                            <Text style={[styles.footerText, { color: theme.subText }]}>Ingresos: <Text style={{ color: theme.text, fontWeight: 'bold' }}>${totals.income.toFixed(0)}</Text></Text>
+                            <View style={[styles.dot, { backgroundColor: ingreso }]} />
+                            <Text style={[styles.footerText, { color: theme.muted }]}>Ingresos: <Text style={{ color: theme.ink, fontFamily: FONT.bold }}>${totals.income.toFixed(0)}</Text></Text>
                         </View>
                         <View style={styles.footerItem}>
-                            <View style={[styles.dot, { backgroundColor: '#F44336' }]} />
-                            <Text style={[styles.footerText, { color: theme.subText }]}>Gastos: <Text style={{ color: theme.text, fontWeight: 'bold' }}>${totals.expense.toFixed(0)}</Text></Text>
+                            <View style={[styles.dot, { backgroundColor: gasto }]} />
+                            <Text style={[styles.footerText, { color: theme.muted }]}>Gastos: <Text style={{ color: theme.ink, fontFamily: FONT.bold }}>${totals.expense.toFixed(0)}</Text></Text>
                         </View>
                     </View>
                 </View>
 
                 {/* Totals Summary Row */}
                 <View style={styles.summaryRow}>
-                    <View style={[styles.totalBox, { backgroundColor: theme.card }]}>
-                        <View style={[styles.iconCircle, { backgroundColor: 'rgba(76, 175, 80, 0.1)' }]}>
+                    <View style={[styles.totalBox, { backgroundColor: theme.surface }]}>
+                        <View style={[styles.iconCircle, { backgroundColor: theme.tones.verde.bg }]}>
                             <Text style={{ fontSize: 18 }}>💰</Text>
                         </View>
-                        <Text style={[styles.totalLabel, { color: theme.subText }]}>Entradas</Text>
-                        <Text style={[styles.totalValue, { color: '#4CAF50' }]}>+${totals.income.toFixed(2)}</Text>
+                        <Text style={[styles.totalLabel, { color: theme.muted }]}>Entradas</Text>
+                        <Text numberOfLines={1} style={[styles.totalValue, { color: ingreso }]}>+${totals.income.toFixed(2)}</Text>
                     </View>
-                    <View style={[styles.totalBox, { backgroundColor: theme.card }]}>
-                        <View style={[styles.iconCircle, { backgroundColor: 'rgba(244, 67, 54, 0.1)' }]}>
+                    <View style={[styles.totalBox, { backgroundColor: theme.surface }]}>
+                        <View style={[styles.iconCircle, { backgroundColor: theme.tones.rojo.bg }]}>
                             <Text style={{ fontSize: 18 }}>💸</Text>
                         </View>
-                        <Text style={[styles.totalLabel, { color: theme.subText }]}>Salidas</Text>
-                        <Text style={[styles.totalValue, { color: '#F44336' }]}>-${totals.expense.toFixed(2)}</Text>
+                        <Text style={[styles.totalLabel, { color: theme.muted }]}>Salidas</Text>
+                        <Text numberOfLines={1} style={[styles.totalValue, { color: gasto }]}>-${totals.expense.toFixed(2)}</Text>
                     </View>
                 </View>
 
                 {/* View Switcher */}
-                <View style={[styles.switcher, { backgroundColor: theme.inputBackground }]}>
+                <View style={[styles.switcher, { backgroundColor: theme.raised }]}>
                     <TouchableOpacity
-                        style={[styles.switchBtn, viewType === 'expense' && { backgroundColor: theme.card, elevation: 2 }]}
+                        style={[styles.switchBtn, viewType === 'expense' && { backgroundColor: theme.surface, elevation: 2 }]}
                         onPress={() => setViewType('expense')}
                     >
-                        <Text style={[styles.switchText, { color: viewType === 'expense' ? theme.accent : theme.subText }]}>Gastos</Text>
+                        <Text style={[styles.switchText, { color: viewType === 'expense' ? theme.accent : theme.muted }]}>Gastos</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                        style={[styles.switchBtn, viewType === 'income' && { backgroundColor: theme.card, elevation: 2 }]}
+                        style={[styles.switchBtn, viewType === 'income' && { backgroundColor: theme.surface, elevation: 2 }]}
                         onPress={() => setViewType('income')}
                     >
-                        <Text style={[styles.switchText, { color: viewType === 'income' ? theme.accent : theme.subText }]}>Ingresos</Text>
+                        <Text style={[styles.switchText, { color: viewType === 'income' ? theme.accent : theme.muted }]}>Ingresos</Text>
                     </TouchableOpacity>
                 </View>
 
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>
+                <Text style={[styles.sectionTitle, { color: theme.ink }]}>
                     Distribución de {viewType === 'expense' ? 'Gastos' : 'Ingresos'}
                 </Text>
 
                 {filteredStats.map((item, index) => (
                     <TouchableOpacity
                         key={index}
-                        style={[styles.statRow, { backgroundColor: theme.card }]}
+                        style={[styles.statRow, { backgroundColor: theme.surface }]}
                         onPress={() => handleCategoryPress(item.category)}
                     >
                         <View style={styles.statInfo}>
                             <View style={styles.catInfo}>
-                                <Text style={[styles.catName, { color: theme.text }]}>{item.category}</Text>
-                                <Text style={[styles.catCount, { color: theme.subText }]}>{item.count} mov.</Text>
+                                <Text style={[styles.catName, { color: theme.ink }]} numberOfLines={1} ellipsizeMode="tail">{item.category}</Text>
+                                <Text style={[styles.catCount, { color: theme.muted }]} numberOfLines={1}>{item.count} mov.</Text>
                             </View>
-                            <Text style={[styles.catValue, { color: viewType === 'expense' ? '#F44336' : '#4CAF50' }]}>
+                            <Text style={[styles.catValue, { color: viewType === 'expense' ? gasto : ingreso }]}>
                                 ${viewType === 'expense' ? item.expense.toFixed(2) : item.income.toFixed(2)}
                             </Text>
                         </View>
-                        <View style={[styles.barContainer, { backgroundColor: theme.inputBackground }]}>
+                        <View style={[styles.barContainer, { backgroundColor: theme.raised }]}>
                             <View
                                 style={[
                                     styles.barFill,
                                     {
                                         width: `${((viewType === 'expense' ? item.expense : item.income) / maxVal) * 100}%`,
-                                        backgroundColor: viewType === 'expense' ? '#F44336' : '#4CAF50'
+                                        backgroundColor: viewType === 'expense' ? gasto : ingreso
                                     }
                                 ]}
                             />
@@ -219,7 +211,7 @@ export default function StatisticsScreen({ user, onBack }) {
                 {filteredStats.length === 0 && (
                     <View style={styles.emptyContainer}>
                         <Text style={{ fontSize: 50, marginBottom: 10 }}>Empty</Text>
-                        <Text style={[styles.empty, { color: theme.subText }]}>
+                        <Text style={[styles.empty, { color: theme.muted }]}>
                             No hay {viewType === 'expense' ? 'gastos' : 'ingresos'} en este periodo
                         </Text>
                     </View>
@@ -228,36 +220,36 @@ export default function StatisticsScreen({ user, onBack }) {
 
             {/* Custom Date Picker Modal */}
             <Modal visible={showDatePicker} transparent animationType="slide">
-                <View style={[styles.overlay, { backgroundColor: 'rgba(0,0,0,0.8)' }]}>
-                    <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-                        <Text style={[styles.modalTitle, { color: theme.text }]}>Rango de Informe</Text>
+                <View style={[styles.overlay, { backgroundColor: theme.overlay }]}>
+                    <View style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+                        <Text style={[styles.modalTitle, { color: theme.ink }]} numberOfLines={1}>Rango de Informe</Text>
 
                         <View style={styles.datePickerContainer}>
                             <View style={styles.dateBlock}>
-                                <Text style={[styles.dateLabel, { color: theme.subText }]}>Inicio:</Text>
+                                <Text style={[styles.dateLabel, { color: theme.muted }]}>Inicio:</Text>
                                 <View style={styles.dateInputsRow}>
-                                    <TextInput style={[styles.dateInput, { backgroundColor: theme.inputBackground, color: theme.text }]} keyboardType="numeric" maxLength={4} value={customRange.start.getFullYear().toString()} onChangeText={(v) => { const d = new Date(customRange.start); d.setFullYear(parseInt(v) || 2024); setCustomRange(p => ({ ...p, start: d })) }} />
-                                    <TextInput style={[styles.dateInput, { backgroundColor: theme.inputBackground, color: theme.text }]} keyboardType="numeric" maxLength={2} value={(customRange.start.getMonth() + 1).toString()} onChangeText={(v) => { const d = new Date(customRange.start); d.setMonth((parseInt(v) || 1) - 1); setCustomRange(p => ({ ...p, start: d })) }} />
-                                    <TextInput style={[styles.dateInput, { backgroundColor: theme.inputBackground, color: theme.text }]} keyboardType="numeric" maxLength={2} value={customRange.start.getDate().toString()} onChangeText={(v) => { const d = new Date(customRange.start); d.setDate(parseInt(v) || 1); setCustomRange(p => ({ ...p, start: d })) }} />
+                                    <TextInput style={[styles.dateInput, { backgroundColor: theme.raised, color: theme.ink }]} keyboardType="numeric" maxLength={4} value={customRange.start.getFullYear().toString()} onChangeText={(v) => { const d = new Date(customRange.start); d.setFullYear(parseInt(v) || 2024); setCustomRange(p => ({ ...p, start: d })) }} />
+                                    <TextInput style={[styles.dateInput, { backgroundColor: theme.raised, color: theme.ink }]} keyboardType="numeric" maxLength={2} value={(customRange.start.getMonth() + 1).toString()} onChangeText={(v) => { const d = new Date(customRange.start); d.setMonth((parseInt(v) || 1) - 1); setCustomRange(p => ({ ...p, start: d })) }} />
+                                    <TextInput style={[styles.dateInput, { backgroundColor: theme.raised, color: theme.ink }]} keyboardType="numeric" maxLength={2} value={customRange.start.getDate().toString()} onChangeText={(v) => { const d = new Date(customRange.start); d.setDate(parseInt(v) || 1); setCustomRange(p => ({ ...p, start: d })) }} />
                                 </View>
                             </View>
 
                             <View style={[styles.dateBlock, { marginTop: 20 }]}>
-                                <Text style={[styles.dateLabel, { color: theme.subText }]}>Fin:</Text>
+                                <Text style={[styles.dateLabel, { color: theme.muted }]}>Fin:</Text>
                                 <View style={styles.dateInputsRow}>
-                                    <TextInput style={[styles.dateInput, { backgroundColor: theme.inputBackground, color: theme.text }]} keyboardType="numeric" maxLength={4} value={customRange.end.getFullYear().toString()} onChangeText={(v) => { const d = new Date(customRange.end); d.setFullYear(parseInt(v) || 2024); setCustomRange(p => ({ ...p, end: d })) }} />
-                                    <TextInput style={[styles.dateInput, { backgroundColor: theme.inputBackground, color: theme.text }]} keyboardType="numeric" maxLength={2} value={(customRange.end.getMonth() + 1).toString()} onChangeText={(v) => { const d = new Date(customRange.end); d.setMonth((parseInt(v) || 1) - 1); setCustomRange(p => ({ ...p, end: d })) }} />
-                                    <TextInput style={[styles.dateInput, { backgroundColor: theme.inputBackground, color: theme.text }]} keyboardType="numeric" maxLength={2} value={customRange.end.getDate().toString()} onChangeText={(v) => { const d = new Date(customRange.end); d.setDate(parseInt(v) || 1); setCustomRange(p => ({ ...p, end: d })) }} />
+                                    <TextInput style={[styles.dateInput, { backgroundColor: theme.raised, color: theme.ink }]} keyboardType="numeric" maxLength={4} value={customRange.end.getFullYear().toString()} onChangeText={(v) => { const d = new Date(customRange.end); d.setFullYear(parseInt(v) || 2024); setCustomRange(p => ({ ...p, end: d })) }} />
+                                    <TextInput style={[styles.dateInput, { backgroundColor: theme.raised, color: theme.ink }]} keyboardType="numeric" maxLength={2} value={(customRange.end.getMonth() + 1).toString()} onChangeText={(v) => { const d = new Date(customRange.end); d.setMonth((parseInt(v) || 1) - 1); setCustomRange(p => ({ ...p, end: d })) }} />
+                                    <TextInput style={[styles.dateInput, { backgroundColor: theme.raised, color: theme.ink }]} keyboardType="numeric" maxLength={2} value={customRange.end.getDate().toString()} onChangeText={(v) => { const d = new Date(customRange.end); d.setDate(parseInt(v) || 1); setCustomRange(p => ({ ...p, end: d })) }} />
                                 </View>
                             </View>
                         </View>
 
                         <View style={styles.btnsRow}>
-                            <TouchableOpacity style={[styles.cancelBtn, { backgroundColor: theme.inputBackground }]} onPress={() => setShowDatePicker(false)}>
-                                <Text style={{ color: theme.text }}>Cerrar</Text>
+                            <TouchableOpacity style={[styles.cancelBtn, { backgroundColor: theme.raised }]} onPress={() => setShowDatePicker(false)}>
+                                <Text style={{ color: theme.ink }}>Cerrar</Text>
                             </TouchableOpacity>
                             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: theme.accent }]} onPress={() => { setPeriod('custom'); setShowDatePicker(false); }}>
-                                <Text style={{ color: '#fff', fontWeight: 'bold' }}>Generar Informe</Text>
+                                <Text style={{ color: theme.onAccent, fontFamily: FONT.bold }}>Generar Informe</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -266,12 +258,12 @@ export default function StatisticsScreen({ user, onBack }) {
 
             {/* Category Details Modal */}
             <Modal visible={showCategoryModal} transparent animationType="slide">
-                <View style={[styles.overlay, { backgroundColor: 'rgba(0,0,0,0.8)' }]}>
-                    <View style={[styles.modalContentFull, { backgroundColor: theme.background }]}>
-                        <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
-                            <Text style={[styles.modalHeaderTitle, { color: theme.text }]}>{selectedCategory}</Text>
+                <View style={[styles.overlay, { backgroundColor: theme.overlay }]}>
+                    <View style={[styles.modalContentFull, { backgroundColor: theme.bg }]}>
+                        <View style={[styles.modalHeader, { borderBottomColor: theme.line }]}>
+                            <Text style={[styles.modalHeaderTitle, { color: theme.ink }]} numberOfLines={1} ellipsizeMode="tail">{selectedCategory}</Text>
                             <TouchableOpacity onPress={() => setShowCategoryModal(false)}>
-                                <Text style={{ fontSize: 24, color: theme.subText }}>✕</Text>
+                                <Text style={{ fontSize: 24, color: theme.muted }}>✕</Text>
                             </TouchableOpacity>
                         </View>
 
@@ -294,20 +286,20 @@ export default function StatisticsScreen({ user, onBack }) {
                                 });
 
                                 return (
-                                    <View style={[styles.historyItem, { borderBottomColor: theme.border }]}>
-                                        <View>
-                                            <Text style={[styles.historyLabel, { color: theme.text }]}>
+                                    <View style={[styles.historyItem, { borderBottomColor: theme.line }]}>
+                                        <View style={{ flex: 1, minWidth: 0, marginRight: 10 }}>
+                                            <Text style={[styles.historyLabel, { color: theme.ink }]} numberOfLines={2} ellipsizeMode="tail">
                                                 {item.description || selectedCategory}
                                             </Text>
-                                            <Text style={[styles.historyDate, { color: theme.subText }]}>{dateStr} • {timeStr}</Text>
+                                            <Text style={[styles.historyDate, { color: theme.muted }]} numberOfLines={1}>{dateStr} • {timeStr}</Text>
                                         </View>
-                                        <Text style={[styles.historyAmount, { color: item.amount > 0 ? '#4CAF50' : '#F44336' }]}>
+                                        <Text style={[styles.historyAmount, { color: item.amount > 0 ? ingreso : gasto, flexShrink: 0 }]}>
                                             {item.amount > 0 ? '+' : '-'}${Math.abs(item.amount).toFixed(2)}
                                         </Text>
                                     </View>
                                 );
                             }}
-                            ListEmptyComponent={<Text style={[styles.empty, { color: theme.subText, marginTop: 50 }]}>No hay movimientos registrados</Text>}
+                            ListEmptyComponent={<Text style={[styles.empty, { color: theme.muted, marginTop: 50 }]}>No hay movimientos registrados</Text>}
                         />
                     </View>
                 </View>
@@ -316,7 +308,8 @@ export default function StatisticsScreen({ user, onBack }) {
     );
 }
 
-const styles = StyleSheet.create({
+// Estilos en función del tema (dirección visual): ningún color fijo.
+const makeStyles = (t) => StyleSheet.create({
     container: { flex: 1 },
     header: {
         flexDirection: 'row',
@@ -325,7 +318,7 @@ const styles = StyleSheet.create({
         padding: 15,
         borderBottomWidth: 1,
     },
-    headerTitle: { fontSize: 18, fontWeight: 'bold' },
+    headerTitle: { fontSize: 18, fontFamily: FONT.bold },
     periodSelector: {
         flexDirection: 'row',
         paddingVertical: 15,
@@ -340,13 +333,13 @@ const styles = StyleSheet.create({
         minWidth: 55,
         alignItems: 'center'
     },
-    periodText: { fontSize: 13, fontWeight: '600' },
+    periodText: { fontSize: 13, fontFamily: FONT.semibold },
     summaryCard: {
         padding: 25,
         borderRadius: 25,
         marginBottom: 20,
         elevation: 6,
-        shadowColor: '#000',
+        shadowColor: t.shadow,
         shadowOffset: { width: 0, height: 6 },
         shadowOpacity: 0.15,
         shadowRadius: 10,
@@ -362,8 +355,8 @@ const styles = StyleSheet.create({
         paddingVertical: 4,
         borderRadius: 12,
     },
-    summaryLabel: { fontSize: 13, fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 0.5 },
-    balanceValue: { fontSize: 32, fontWeight: '900', marginTop: 4 },
+    summaryLabel: { fontSize: 13, fontFamily: FONT.bold, textTransform: 'uppercase', letterSpacing: 0.5 },
+    balanceValue: { fontSize: 32, fontFamily: FONT.bold, marginTop: 4 },
     progressContainer: { marginBottom: 20 },
     progressHeader: {
         flexDirection: 'row',
@@ -371,8 +364,8 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginBottom: 8
     },
-    progressLabel: { fontSize: 12, fontWeight: '600' },
-    progressPercent: { fontSize: 13, fontWeight: 'bold' },
+    progressLabel: { fontSize: 12, fontFamily: FONT.semibold },
+    progressPercent: { fontSize: 13, fontFamily: FONT.bold },
     progressBarBase: { height: 10, borderRadius: 5, overflow: 'hidden' },
     progressBarFill: { height: '100%', borderRadius: 5 },
     cardFooter: {
@@ -393,7 +386,7 @@ const styles = StyleSheet.create({
         padding: 15,
         borderRadius: 18,
         elevation: 2,
-        shadowColor: '#000',
+        shadowColor: t.shadow,
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.05,
         shadowRadius: 4,
@@ -407,8 +400,8 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginBottom: 10
     },
-    totalLabel: { fontSize: 11, fontWeight: 'bold', marginBottom: 4 },
-    totalValue: { fontSize: 15, fontWeight: '900' },
+    totalLabel: { fontSize: 11, fontFamily: FONT.bold, marginBottom: 4 },
+    totalValue: { fontSize: 15, fontFamily: FONT.bold },
     switcher: {
         flexDirection: 'row',
         padding: 5,
@@ -421,14 +414,14 @@ const styles = StyleSheet.create({
         borderRadius: 10,
         alignItems: 'center'
     },
-    switchText: { fontSize: 14, fontWeight: 'bold' },
-    sectionTitle: { fontSize: 16, fontWeight: '900', marginBottom: 15, textTransform: 'uppercase', letterSpacing: 1 },
+    switchText: { fontSize: 14, fontFamily: FONT.bold },
+    sectionTitle: { fontSize: 16, fontFamily: FONT.bold, marginBottom: 15, textTransform: 'uppercase', letterSpacing: 1 },
     statRow: {
         padding: 15,
         borderRadius: 15,
         marginBottom: 12,
         elevation: 1,
-        shadowColor: '#000',
+        shadowColor: t.shadow,
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.05,
         shadowRadius: 2,
@@ -439,20 +432,20 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginBottom: 10
     },
-    catInfo: { flex: 1 },
-    catName: { fontSize: 15, fontWeight: 'bold' },
+    catInfo: { flex: 1, minWidth: 0, marginRight: 10 },
+    catName: { fontSize: 15, fontFamily: FONT.bold },
     catCount: { fontSize: 11 },
-    catValue: { fontSize: 16, fontWeight: '900' },
+    catValue: { fontSize: 16, fontFamily: FONT.bold },
     barContainer: { height: 6, borderRadius: 3, overflow: 'hidden' },
     barFill: { height: '100%', borderRadius: 3 },
     emptyContainer: { alignItems: 'center', padding: 40, opacity: 0.5 },
     empty: { textAlign: 'center' },
-    green: { color: '#4CAF50' },
-    red: { color: '#F44336' },
+    green: { color: t.money.ingreso },
+    red: { color: t.money.gasto },
     overlay: { flex: 1, justifyContent: 'center', padding: 20 },
-    modalContent: { borderRadius: 25, padding: 25 },
-    modalContentFull: { flex: 1, borderRadius: 25, overflow: 'hidden' },
-    modalTitle: { fontSize: 22, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
+    modalContent: { borderRadius: RADIUS.base, padding: 25 },
+    modalContentFull: { flex: 1, borderRadius: RADIUS.base, overflow: 'hidden' },
+    modalTitle: { fontSize: 22, fontFamily: FONT.bold, marginBottom: 20, textAlign: 'center' },
     modalHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -460,7 +453,7 @@ const styles = StyleSheet.create({
         padding: 20,
         borderBottomWidth: 1
     },
-    modalHeaderTitle: { fontSize: 20, fontWeight: 'bold' },
+    modalHeaderTitle: { fontSize: 20, fontFamily: FONT.bold, flex: 1, minWidth: 0, marginRight: 10 },
     historyItem: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -468,16 +461,16 @@ const styles = StyleSheet.create({
         paddingVertical: 15,
         borderBottomWidth: 1
     },
-    historyLabel: { fontSize: 14, fontWeight: '600' },
+    historyLabel: { fontSize: 14, fontFamily: FONT.semibold },
     historyDate: { fontSize: 11 },
-    historyAmount: { fontSize: 15, fontWeight: 'bold' },
+    historyAmount: { fontSize: 15, fontFamily: FONT.bold },
     // Reuse date picker styles from DineroScreen logic
     datePickerContainer: { paddingVertical: 10 },
     dateBlock: { width: '100%' },
-    dateLabel: { fontSize: 13, fontWeight: 'bold', marginBottom: 5 },
+    dateLabel: { fontSize: 13, fontFamily: FONT.bold, marginBottom: 5 },
     dateInputsRow: { flexDirection: 'row', gap: 10 },
-    dateInput: { flex: 1, padding: 12, borderRadius: 10, textAlign: 'center', fontSize: 16, fontWeight: 'bold' },
+    dateInput: { flex: 1, padding: 12, borderRadius: RADIUS.sm, textAlign: 'center', fontSize: 16, fontFamily: FONT.bold },
     btnsRow: { flexDirection: 'row', gap: 15, marginTop: 30 },
-    cancelBtn: { flex: 1, padding: 12, alignItems: 'center', borderRadius: 10 },
-    saveBtn: { flex: 2, padding: 12, alignItems: 'center', borderRadius: 10 }
+    cancelBtn: { flex: 1, padding: 12, alignItems: 'center', justifyContent: 'center', minHeight: 52, borderRadius: RADIUS.sm },
+    saveBtn: { flex: 2, padding: 12, alignItems: 'center', justifyContent: 'center', minHeight: 52, borderRadius: RADIUS.sm }
 });

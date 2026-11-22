@@ -20,6 +20,7 @@
 //
 // Uso: node scripts/probar-fase7-3.mjs [--semilla N] [--casos N]
 import { extraer, instanciar } from './lib/extraer-pantalla.mjs'; // antes que test-hooks (ver el módulo)
+import { hojasDesdeAlert } from './lib/hojas-stub.mjs'; // dirección visual: confirm/informar/avisar → el mismo registro que Alert
 import './lib/test-hooks.mjs';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -223,7 +224,7 @@ function crearMundo(caso, eleccion) {
 const RECARGAS = ['fetchSeries', 'loadData', 'refreshCategory', 'resetForm', 'loadItems'];
 function construir(archivo, nombre, commit, mundo, valores, pila = []) {
     const ext = extraer(archivo, nombre, { commit });
-    const deps = { ...(commit === REF ? BASE_REF : BASE), db: mundo.db, Alert: mundo.Alert, console: mundo.consola, ...valores };
+    const deps = { ...(commit === REF ? BASE_REF : BASE), db: mundo.db, Alert: mundo.Alert, ...hojasDesdeAlert(mundo.Alert), console: mundo.consola, ...valores };
     for (const libre of ext.libres) {
         if (Object.hasOwn(deps, libre)) continue;
         if (/^set[A-Z]/.test(libre)) { deps[libre] = (v) => mundo.reg.push(['set', libre, normalizar(v)]); continue; }
@@ -250,6 +251,15 @@ async function ejecutar(archivo, nombre, commit, caso, valores, args, eleccion) 
         mundo.reg.push(['lanza', e.name, e.message]);
     }
     await vaciar();
+    // Dirección visual (O6): con Alert, la función vieja mostraba la alerta con botones y RETORNABA
+    // enseguida; el botón corría después, suelto. Con la hoja propia, la nueva espera la elección
+    // (`await confirm`) y termina la acción antes de retornar. Mismas escrituras, alertas y llamadas
+    // en el mismo orden; solo cambia en qué punto queda el registro 'retorno'. Cuando hubo una
+    // alerta con botones, 'retorno' se compara al final (su valor se sigue comparando).
+    if (mundo.reg.some((e) => e[0] === 'alert' && e[3])) {
+        const i = mundo.reg.findIndex((e) => e[0] === 'retorno');
+        if (i >= 0) mundo.reg.push(...mundo.reg.splice(i, 1));
+    }
     return mundo.reg;
 }
 

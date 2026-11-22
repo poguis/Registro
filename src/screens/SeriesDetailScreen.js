@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, FlatList, Modal, TextInput, Alert, ScrollView } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, FlatList, Modal, ScrollView } from 'react-native';
+import { useSheet } from '../hooks/useSheet';
+import { Text, TextInput } from '../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
 import db from '../services/db';
 import { useSyncRefresh } from '../sync/useSyncRefresh';
 import { calculateBacklog, calculateBacklogV2, getLocalDateString, getAbsoluteEpisodeCount, getWatchedCountSinceStart } from '../services/backlogUtils';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme, FONT, RADIUS } from '../contexts/ThemeContext';
 // Fase 7.3: las decisiones (validación, límite, orden, pausa, grilla, reinicio) viven en el
 // motor puro (src/entertainment/); aquí quedan los textos, las alertas y las escrituras.
 // Fase 7.4a: la grilla marca/desmarca vistos con filas de historial, el límite se avisa al tocar
@@ -17,7 +18,8 @@ import {
 import { watchedCount } from '../entertainment/queue';
 
 export default function SeriesDetailScreen({ user, category, onBack, onNavigateRegistry }) {
-    const { theme, isDarkMode } = useTheme();
+    const { theme } = useTheme();
+    const { confirm, informar } = useSheet();
     const [seriesList, setSeriesList] = useState([]);
     const [modalVisible, setModalVisible] = useState(false);
 
@@ -133,7 +135,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         if (remaining) {
             setSeasons(remaining);
         } else {
-            Alert.alert('Aviso', 'Debe haber al menos una temporada.');
+            informar('Aviso', 'Debe haber al menos una temporada.');
         }
     };
 
@@ -180,21 +182,18 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
     const getFilteredSeries = () => filterSeriesByTab(originalList, currentStatusTab);
 
     const handleDelete = (seriesId) => {
-        Alert.alert(
-            'Eliminar Serie',
-            '¿Estás seguro?',
-            [
-                { text: 'Cancelar', style: 'cancel' },
-                {
-                    text: 'Eliminar',
-                    style: 'destructive',
-                    onPress: async () => {
-                        const result = await db.deleteSeries(seriesId);
-                        if (result.success) fetchSeries();
-                    }
-                }
-            ]
-        );
+        confirm({
+            titulo: 'Eliminar Serie',
+            mensaje: '¿Estás seguro?',
+            acciones: [
+                { clave: 'cancelar', texto: 'Cancelar', variante: 'cancelar' },
+                { clave: 'eliminar', texto: 'Eliminar', variante: 'destructiva' },
+            ],
+        }).then(async (clave) => {
+            if (clave !== 'eliminar') return;
+            const result = await db.deleteSeries(seriesId);
+            if (result.success) fetchSeries();
+        });
     };
 
     const handleSave = async () => {
@@ -207,11 +206,12 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
             capituloRango: 'Capítulo fuera de rango',
         };
         const validation = validateSeriesForm({ name, seasons, status, currentSeason, currentEpisode });
-        if (validation.error) return Alert.alert('Error', formErrors[validation.error]);
+        if (validation.error) { informar('Error', formErrors[validation.error]); return; }
         const { validSeasons } = validation;
 
         if (isActiveLimitReached({ originalList, status, isEditing, editingSeriesId, category: currentCategory || category })) {
-            return Alert.alert('Límite Alcanzado', `Máximo ${activeLimit(currentCategory || category)} series activas.`);
+            informar('Límite Alcanzado', `Máximo ${activeLimit(currentCategory || category)} series activas.`);
+            return;
         }
 
         const { seriesData, seasonsData } = buildSeriesSave({
@@ -230,7 +230,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
             fetchSeries();
             resetForm();
         } else {
-            Alert.alert('Error', 'No se pudo guardar');
+            informar('Error', 'No se pudo guardar');
         }
     };
 
@@ -260,17 +260,17 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
         // Hacia atrás: desmarca desde el tocado (borrado lógico de las filas de historial).
         if (plan.kind === 'backward') {
-            Alert.alert('Desmarcar', `¿Desmarcar desde ${label(plan.pointer)}?`, [
-                { text: 'Cancelar', style: 'cancel' },
-                {
-                    text: 'Desmarcar',
-                    style: 'destructive',
-                    onPress: async () => {
-                        const result = await db.unmarkEpisodes(seriesId, category.type, plan.episodes, { ...plan.pointer, status: plan.status });
-                        if (result.success) refresh(plan.pointer, plan.status);
-                    }
-                }
-            ]);
+            const clave = await confirm({
+                titulo: 'Desmarcar',
+                mensaje: `¿Desmarcar desde ${label(plan.pointer)}?`,
+                acciones: [
+                    { clave: 'cancelar', texto: 'Cancelar', variante: 'cancelar' },
+                    { clave: 'desmarcar', texto: 'Desmarcar', variante: 'destructiva' },
+                ],
+            });
+            if (clave !== 'desmarcar') return;
+            const result = await db.unmarkEpisodes(seriesId, category.type, plan.episodes, { ...plan.pointer, status: plan.status });
+            if (result.success) refresh(plan.pointer, plan.status);
             return;
         }
 
@@ -279,23 +279,34 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
             const result = await db.markEpisodesWatched(seriesId, category.type, plan.episodes, { ...plan.pointer, status }, Date.now());
             if (result.success) refresh(plan.pointer, status);
         };
-        const confirmMany = (then) => {
-            if (plan.episodes.length <= 1) return then();
+        // Más de un capítulo: se confirma antes; con uno, directo.
+        if (plan.episodes.length > 1) {
             const first = plan.episodes[0], last = plan.episodes[plan.episodes.length - 1];
-            Alert.alert('Marcar vistos', `¿Marcar ${plan.episodes.length} capítulos como vistos (${label(first)} → ${label(last)})?`, [
-                { text: 'Cancelar', style: 'cancel' },
-                { text: 'Marcar', onPress: then }
-            ]);
-        };
+            const clave = await confirm({
+                titulo: 'Marcar vistos',
+                mensaje: `¿Marcar ${plan.episodes.length} capítulos como vistos (${label(first)} → ${label(last)})?`,
+                acciones: [
+                    { clave: 'cancelar', texto: 'Cancelar', variante: 'cancelar' },
+                    { clave: 'marcar', texto: 'Marcar', variante: 'primaria' },
+                ],
+            });
+            if (clave !== 'marcar') return;
+        }
 
         if (plan.isFinal) {
-            confirmMany(() => Alert.alert('¡Serie Completada!', 'Elige destino:', [
-                { text: 'En espera', onPress: () => mark('En espera') },
-                { text: 'Terminado', onPress: () => mark('Terminado') },
-                { text: 'Cancelar', style: 'cancel' }
-            ]));
+            const destino = await confirm({
+                titulo: '¡Serie Completada!',
+                mensaje: 'Elige destino:',
+                acciones: [
+                    { clave: 'espera', texto: 'En espera', variante: 'secundaria' },
+                    { clave: 'terminado', texto: 'Terminado', variante: 'primaria' },
+                    { clave: 'cancelar', texto: 'Cancelar', variante: 'cancelar' },
+                ],
+            });
+            if (destino === 'espera') await mark('En espera');
+            else if (destino === 'terminado') await mark('Terminado');
         } else {
-            confirmMany(() => mark(plan.status));
+            await mark(plan.status);
         }
     };
 
@@ -304,25 +315,26 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         // cycle_offset se sigue escribiendo, pero ya no cuenta: los vistos salen del historial.
         const watchedInThisCycle = restartWatchedCount(activeSeries);
 
-        Alert.alert('Reiniciar', `¿Empezar de cero? (${watchedCount(activeSeries)} vistos)`, [
-            { text: 'Cancelar', style: 'cancel' },
-            {
-                text: 'Reiniciar',
-                onPress: async () => {
-                    const result = await db.restartSeries(activeSeries.id, watchedInThisCycle);
-                    if (result.success) {
-                        fetchSeries();
-                        setProgressModalVisible(false);
-                    }
-                }
-            }
-        ]);
+        const clave = await confirm({
+            titulo: 'Reiniciar',
+            mensaje: `¿Empezar de cero? (${watchedCount(activeSeries)} vistos)`,
+            acciones: [
+                { clave: 'cancelar', texto: 'Cancelar', variante: 'cancelar' },
+                { clave: 'reiniciar', texto: 'Reiniciar', variante: 'primaria' },
+            ],
+        });
+        if (clave !== 'reiniciar') return;
+        const result = await db.restartSeries(activeSeries.id, watchedInThisCycle);
+        if (result.success) {
+            fetchSeries();
+            setProgressModalVisible(false);
+        }
     };
 
     // "+ Nueva Serie": con el límite alcanzado, el aviso sale antes de abrir el formulario (O1).
     const handleAddPress = () => {
         const check = canAddSeries(originalList, currentCategory || category);
-        if (!check.ok) return Alert.alert('Límite Alcanzado', `Máximo ${check.limit} series activas.`);
+        if (!check.ok) { informar('Límite Alcanzado', `Máximo ${check.limit} series activas.`); return; }
         resetForm();
         setModalVisible(true);
     };
@@ -362,16 +374,17 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
         if (result.success) {
             await refreshCategory();
         } else {
-            Alert.alert('Error', 'No se pudo cambiar el estado de pausa de la categoría');
+            informar('Error', 'No se pudo cambiar el estado de pausa de la categoría');
         }
     };
 
     const renderSeriesItem = ({ item, index }) => {
-        let badgeStyle = styles.badgeWatching;
-        if (item.status === 'Nueva') badgeStyle = styles.badgeNew;
-        if (item.status === 'En espera') badgeStyle = styles.badgeHold;
-        if (item.status === 'Terminado') badgeStyle = styles.badgeFinished;
-        if (item.status === 'Pausado') badgeStyle = { backgroundColor: '#FFF9C4' };
+        let tone = theme.tones.azul;
+        if (item.status === 'Nueva') tone = theme.tones.verde;
+        if (item.status === 'En espera') tone = theme.tones.naranja;
+        if (item.status === 'Terminado') tone = theme.tones.morado;
+        if (item.status === 'Pausado') tone = theme.tones.pizarra;
+        const badgeStyle = { backgroundColor: tone.bg };
         const isViendo = currentStatusTab === 'Viendo';
 
         let percentDisplay = null;
@@ -393,7 +406,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
         return (
             <TouchableOpacity
-                style={[styles.card, { backgroundColor: theme.card }]}
+                style={[styles.card, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}
                 activeOpacity={0.9}
                 onPress={() => {
                     setActiveSeries(item);
@@ -402,10 +415,10 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
             >
                 <View style={styles.cardHeader}>
                     <View style={[styles.cardHeaderLeft, { marginRight: 10 }]}>
-                        <Text style={[styles.seriesName, { color: theme.text, fontSize: 16, lineHeight: 22 }]}>{item.name}</Text>
+                        <Text style={[styles.seriesName, { color: theme.ink, fontSize: 16, lineHeight: 22 }]} numberOfLines={2} ellipsizeMode="tail">{item.name}</Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 15 }}>
                             <View style={[styles.badge, badgeStyle, { marginTop: 0 }]}>
-                                <Text style={styles.badgeText}>{item.status}</Text>
+                                <Text style={[styles.badgeText, { color: tone.fg }]} numberOfLines={1}>{item.status}</Text>
                             </View>
                             {isViendo && (
                                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15, marginLeft: 5 }}>
@@ -413,10 +426,10 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                                         <Text style={{ fontSize: 18 }}>{item.status === 'Pausado' ? '▶️' : '⏸️'}</Text>
                                     </TouchableOpacity>
                                     <TouchableOpacity onPress={() => moveUp(index)} hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-                                        <Text style={{ fontSize: 18, color: theme.accent, fontWeight: 'bold' }}>↑</Text>
+                                        <Text style={{ fontSize: 18, color: theme.accent, fontFamily: FONT.bold }}>↑</Text>
                                     </TouchableOpacity>
                                     <TouchableOpacity onPress={() => moveDown(index)} hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
-                                        <Text style={{ fontSize: 18, color: theme.accent, fontWeight: 'bold' }}>↓</Text>
+                                        <Text style={{ fontSize: 18, color: theme.accent, fontFamily: FONT.bold }}>↓</Text>
                                     </TouchableOpacity>
                                 </View>
                             )}
@@ -431,11 +444,11 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                         </TouchableOpacity>
                     </View>
                 </View>
-                <Text style={[styles.seriesDescription, { color: theme.subText }]}>{item.description || 'Sin descripción'}</Text>
+                <Text style={[styles.seriesDescription, { color: theme.muted }]} numberOfLines={1} ellipsizeMode="tail">{item.description || 'Sin descripción'}</Text>
                 <View style={styles.cardProgress}>
-                    <Text style={[styles.progressText, { color: theme.text }]}>T{item.current_season} - E{item.current_episode}</Text>
+                    <Text style={[styles.progressText, { color: theme.ink }]} numberOfLines={1}>T{item.current_season} - E{item.current_episode}</Text>
                     {percentDisplay && (
-                        <Text style={[styles.totalText, { color: theme.subText }]}>{percentDisplay}</Text>
+                        <Text style={[styles.totalText, { color: theme.muted }]} numberOfLines={1}>{percentDisplay}</Text>
                     )}
                 </View>
             </TouchableOpacity>
@@ -443,16 +456,15 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
     };
 
     return (
-        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-            <StatusBar style={isDarkMode ? 'light' : 'dark'} />
-            <View style={[styles.header, { borderBottomColor: theme.border }]}>
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+            <View style={[styles.header, { borderBottomColor: theme.line }]}>
                 <View style={styles.headerTop}>
                     <TouchableOpacity onPress={onBack} style={styles.backButton}>
-                        <Text style={[styles.backText, { color: theme.text }]}>←</Text>
+                        <Text style={[styles.backText, { color: theme.ink }]}>←</Text>
                     </TouchableOpacity>
-                    <View style={{ flex: 1, marginLeft: 10 }}>
-                        <Text style={[styles.headerTitle, { color: theme.text }]}>{currentCategory.name}</Text>
-                        <Text style={[styles.headerSubtitle, { color: theme.subText }]}>
+                    <View style={{ flex: 1, minWidth: 0, marginLeft: 10 }}>
+                        <Text style={[styles.headerTitle, { color: theme.ink }]} numberOfLines={2} ellipsizeMode="tail">{currentCategory.name}</Text>
+                        <Text style={[styles.headerSubtitle, { color: theme.muted }]} numberOfLines={1} ellipsizeMode="tail">
                             {backlogInfo 
                                 ? (backlogInfo.items > 0 
                                     ? `Atraso: ${backlogInfo.days}d (${backlogInfo.items} Caps)`
@@ -462,15 +474,15 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                                 : 'Calculando...'}
                         </Text>
                     </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <TouchableOpacity onPress={handleTogglePauseCategory} style={[styles.pauseCategoryBtn, currentCategory.is_paused && { backgroundColor: '#FFCDD2' }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 0 }}>
+                        <TouchableOpacity onPress={handleTogglePauseCategory} style={[styles.pauseCategoryBtn, { backgroundColor: currentCategory.is_paused ? theme.behindBg : theme.raised }]}>
                             <Text style={{ fontSize: 20 }}>{currentCategory.is_paused ? '▶️' : '⏸️'}</Text>
                         </TouchableOpacity>
                         <TouchableOpacity 
                             onPress={() => onNavigateRegistry(currentCategory)}
-                            style={styles.registryButton}
+                            style={[styles.registryButton, { backgroundColor: theme.accent }]}
                         >
-                            <Text style={styles.registryButtonText}>Registro</Text>
+                            <Text style={[styles.registryButtonText, { color: theme.onAccent }]}>Registro</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -495,7 +507,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                                 onPress={() => setCurrentStatusTab(t)}
                                 style={[styles.tab, currentStatusTab === t && { borderBottomColor: theme.accent, borderBottomWidth: 3 }]}
                             >
-                                <Text style={[styles.tabTextHeader, { color: currentStatusTab === t ? theme.accent : theme.subText }]}>{label}</Text>
+                                <Text style={[styles.tabTextHeader, { color: currentStatusTab === t ? theme.accent : theme.muted }]} numberOfLines={1}>{label}</Text>
                             </TouchableOpacity>
                         );
                     })}
@@ -510,7 +522,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 ListHeaderComponent={() => (
                     currentStatusTab === 'Viendo' && (
                         <TouchableOpacity style={[styles.addButton, { backgroundColor: theme.accent }]} onPress={handleAddPress}>
-                            <Text style={styles.addButtonText}>+ Nueva Serie</Text>
+                            <Text style={[styles.addButtonText, { color: theme.onAccent }]}>+ Nueva Serie</Text>
                         </TouchableOpacity>
                     )
                 )}
@@ -518,51 +530,51 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
             {/* Creation/Edit Modal */}
             <Modal visible={modalVisible} animationType="slide" transparent={true}>
-                <View style={styles.modalOverlay}>
-                    <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-                        <Text style={[styles.modalTitle, { color: theme.text }]}>{isEditing ? 'Editar Serie' : 'Añadir Serie'}</Text>
+                <View style={[styles.modalOverlay, { backgroundColor: theme.overlay }]}>
+                    <View style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+                        <Text style={[styles.modalTitle, { color: theme.ink }]}>{isEditing ? 'Editar Serie' : 'Añadir Serie'}</Text>
                         <ScrollView style={{ maxHeight: 400 }}>
-                            <TextInput placeholder="Nombre" style={[styles.input, { color: theme.text, backgroundColor: theme.inputBackground, borderColor: theme.border }]} placeholderTextColor={theme.subText} value={name} onChangeText={setName} />
-                            <TextInput placeholder="Descripción" style={[styles.input, { color: theme.text, backgroundColor: theme.inputBackground, borderColor: theme.border }]} placeholderTextColor={theme.subText} value={description} onChangeText={setDescription} />
+                            <TextInput placeholder="Nombre" style={[styles.input, { color: theme.ink, backgroundColor: theme.raised, borderColor: theme.lineStrong }]} placeholderTextColor={theme.muted} value={name} onChangeText={setName} />
+                            <TextInput placeholder="Descripción" style={[styles.input, { color: theme.ink, backgroundColor: theme.raised, borderColor: theme.lineStrong }]} placeholderTextColor={theme.muted} value={description} onChangeText={setDescription} />
                             
-                            <Text style={[styles.modalSubtitle, { color: theme.text, marginTop: 10 }]}>Temporadas y Capítulos</Text>
+                            <Text style={[styles.modalSubtitle, { color: theme.ink, marginTop: 10 }]}>Temporadas y Capítulos</Text>
                             {seasons.map((s, idx) => (
                                 <View key={idx} style={styles.seasonRow}>
-                                    <Text style={{ color: theme.text, width: 30 }}>T{s.number}</Text>
+                                    <Text style={{ color: theme.ink, width: 30 }}>T{s.number}</Text>
                                     <TextInput
                                         placeholder="Caps"
                                         keyboardType="numeric"
-                                        style={[styles.inputSeason, { color: theme.text, backgroundColor: theme.inputBackground, borderColor: theme.border }]}
-                                        placeholderTextColor={theme.subText}
+                                        style={[styles.inputSeason, { color: theme.ink, backgroundColor: theme.raised, borderColor: theme.lineStrong }]}
+                                        placeholderTextColor={theme.muted}
                                         value={s.episodes}
                                         onChangeText={(val) => updateSeasonEpisodes(idx, val)}
                                     />
                                 </View>
                             ))}
                             <View style={{ flexDirection: 'row', gap: 10 }}>
-                                <TouchableOpacity onPress={handleAddSeason} style={styles.smallButton}><Text style={{ color: '#fff' }}>+ Temporada</Text></TouchableOpacity>
-                                <TouchableOpacity onPress={handleRemoveSeason} style={[styles.smallButton, { backgroundColor: '#EF5350' }]}><Text style={{ color: '#fff' }}>- Temporada</Text></TouchableOpacity>
+                                <TouchableOpacity onPress={handleAddSeason} style={[styles.smallButton, { backgroundColor: theme.accent }]}><Text style={{ color: theme.onAccent }}>+ Temporada</Text></TouchableOpacity>
+                                <TouchableOpacity onPress={handleRemoveSeason} style={[styles.smallButton, { backgroundColor: theme.danger }]}><Text style={{ color: theme.onDanger }}>- Temporada</Text></TouchableOpacity>
                             </View>
 
-                            <Text style={[styles.modalSubtitle, { color: theme.text, marginTop: 20 }]}>Progreso Actual</Text>
+                            <Text style={[styles.modalSubtitle, { color: theme.ink, marginTop: 20 }]}>Progreso Actual</Text>
                             <View style={styles.progressInputRow}>
                                 <View style={{ flex: 1 }}>
-                                    <Text style={{ color: theme.subText, fontSize: 12 }}>Temp.</Text>
-                                    <TextInput keyboardType="numeric" style={[styles.input, { color: theme.text, backgroundColor: theme.inputBackground, borderColor: theme.border }]} value={String(currentSeason)} onChangeText={setCurrentSeason} />
+                                    <Text style={{ color: theme.muted, fontSize: 12 }}>Temp.</Text>
+                                    <TextInput keyboardType="numeric" style={[styles.input, { color: theme.ink, backgroundColor: theme.raised, borderColor: theme.lineStrong }]} value={String(currentSeason)} onChangeText={setCurrentSeason} />
                                 </View>
                                 <View style={{ flex: 1 }}>
-                                    <Text style={{ color: theme.subText, fontSize: 12 }}>Cap.</Text>
-                                    <TextInput keyboardType="numeric" style={[styles.input, { color: theme.text, backgroundColor: theme.inputBackground, borderColor: theme.border }]} value={String(currentEpisode)} onChangeText={setCurrentEpisode} />
+                                    <Text style={{ color: theme.muted, fontSize: 12 }}>Cap.</Text>
+                                    <TextInput keyboardType="numeric" style={[styles.input, { color: theme.ink, backgroundColor: theme.raised, borderColor: theme.lineStrong }]} value={String(currentEpisode)} onChangeText={setCurrentEpisode} />
                                 </View>
                             </View>
                         </ScrollView>
 
                         <View style={styles.modalButtons}>
-                            <TouchableOpacity style={[styles.modalButton, { backgroundColor: theme.border }]} onPress={() => setModalVisible(false)}>
-                                <Text style={{ color: theme.text }}>Cancelar</Text>
+                            <TouchableOpacity style={[styles.modalButton, { backgroundColor: theme.raised }]} onPress={() => setModalVisible(false)}>
+                                <Text style={{ color: theme.ink }}>Cancelar</Text>
                             </TouchableOpacity>
                             <TouchableOpacity style={[styles.modalButton, { backgroundColor: theme.accent }]} onPress={handleSave}>
-                                <Text style={styles.modalButtonText}>Guardar</Text>
+                                <Text style={[styles.modalButtonText, { color: theme.onAccent }]}>Guardar</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -571,18 +583,18 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
 
             {/* Progress Grid Modal */}
             <Modal visible={progressModalVisible} animationType="fade" transparent={true}>
-                <View style={styles.modalOverlay}>
-                    <View style={[styles.gridModalContent, { backgroundColor: theme.card }]}>
+                <View style={[styles.modalOverlay, { backgroundColor: theme.overlay }]}>
+                    <View style={[styles.gridModalContent, { backgroundColor: theme.surface }]}>
                         <View style={[styles.gridHeader, { alignItems: 'flex-start' }]}>
-                            <View style={{ flex: 1, paddingRight: 10 }}>
-                                <Text style={[styles.modalTitle, { color: theme.text, marginBottom: 0, fontSize: 18, lineHeight: 24 }]}>{activeSeries?.name}</Text>
+                            <View style={{ flex: 1, minWidth: 0, paddingRight: 10 }}>
+                                <Text style={[styles.modalTitle, { color: theme.ink, marginBottom: 0, fontSize: 18, lineHeight: 24 }]} numberOfLines={3} ellipsizeMode="tail">{activeSeries?.name}</Text>
                             </View>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: 2 }}>
-                                <TouchableOpacity onPress={handleRestart} style={[styles.restartBtn, { backgroundColor: theme.accent + '22', marginRight: 15 }]}>
-                                    <Text style={{ color: theme.accent, fontWeight: 'bold' }}>Reiniciar</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', paddingTop: 2, flexShrink: 0 }}>
+                                <TouchableOpacity onPress={handleRestart} style={[styles.restartBtn, { backgroundColor: theme.soft, marginRight: 15 }]}>
+                                    <Text style={{ color: theme.accent, fontFamily: FONT.bold }}>Reiniciar</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity onPress={() => setProgressModalVisible(false)} style={{ padding: 5 }}>
-                                    <Text style={{ fontSize: 20, color: theme.text }}>✕</Text>
+                                    <Text style={{ fontSize: 20, color: theme.ink }}>✕</Text>
                                 </TouchableOpacity>
                             </View>
                         </View>
@@ -592,7 +604,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                             keyExtractor={(s) => s.id.toString()}
                             renderItem={({ item: season }) => (
                                 <View style={styles.seasonGridContainer}>
-                                    <Text style={[styles.seasonGridTitle, { color: theme.text }]}>Temporada {season.season_number}</Text>
+                                    <Text style={[styles.seasonGridTitle, { color: theme.ink }]}>Temporada {season.season_number}</Text>
                                     <View style={styles.grid}>
                                         {Array.from({ length: seasonVisibleCounts[season.season_number] || 0 }).map((_, i) => {
                                             const epNum = i + 1;
@@ -606,13 +618,13 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                                                     key={i}
                                                     style={[
                                                         styles.gridItem,
-                                                        { backgroundColor: theme.inputBackground },
+                                                        { backgroundColor: theme.raised },
                                                         isWatched && { backgroundColor: theme.accent },
                                                         isCurrent && { borderWidth: 2, borderColor: theme.accent }
                                                     ]}
                                                     onPress={() => updateToChapter(activeSeries.id, season.season_number, epNum)}
                                                 >
-                                                    <Text style={[styles.gridItemText, { color: theme.text }, isWatched && { color: '#fff' }]}>{epNum}</Text>
+                                                    <Text style={[styles.gridItemText, { color: theme.ink }, isWatched && { color: theme.onAccent }]}>{epNum}</Text>
                                                 </TouchableOpacity>
                                             );
                                         })}
@@ -640,52 +652,48 @@ const styles = StyleSheet.create({
     header: { padding: 15, borderBottomWidth: 1 },
     headerTop: { flexDirection: 'row', alignItems: 'center' },
     backButton: { padding: 5 },
-    backText: { fontSize: 24, fontWeight: 'bold' },
-    headerTitle: { fontSize: 20, fontWeight: 'bold' },
+    backText: { fontSize: 24, fontFamily: FONT.bold },
+    headerTitle: { fontSize: 20, fontFamily: FONT.bold },
     headerSubtitle: { fontSize: 13 },
-    registryButton: { backgroundColor: '#4CAF50', paddingHorizontal: 15, paddingVertical: 8, borderRadius: 8, marginLeft: 10 },
-    registryButtonText: { color: '#fff', fontWeight: 'bold' },
-    pauseCategoryBtn: { padding: 8, borderRadius: 8, backgroundColor: '#f0f0f0' },
+    registryButton: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: RADIUS.sm, marginLeft: 10 },
+    registryButtonText: { fontFamily: FONT.bold },
+    pauseCategoryBtn: { padding: 8, borderRadius: RADIUS.sm },
     tabContainer: { flexDirection: 'row', marginTop: 15, gap: 20 },
     tab: { paddingVertical: 5 },
-    tabTextHeader: { fontWeight: 'bold', fontSize: 15 },
+    tabTextHeader: { fontFamily: FONT.bold, fontSize: 15 },
     listContent: { padding: 15, paddingBottom: 100 },
-    addButton: { padding: 15, borderRadius: 12, alignItems: 'center', marginBottom: 20 },
-    addButtonText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-    card: { padding: 15, borderRadius: 15, marginBottom: 15, elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
+    addButton: { padding: 15, borderRadius: RADIUS.sm, alignItems: 'center', marginBottom: 20, minHeight: 52, justifyContent: 'center' },
+    addButtonText: { fontFamily: FONT.bold, fontSize: 16 },
+    card: { padding: 15, borderRadius: RADIUS.base, marginBottom: 15, elevation: 3, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
     cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-    cardHeaderLeft: { flex: 1 },
-    seriesName: { fontSize: 18, fontWeight: 'bold' },
-    badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 5, alignSelf: 'flex-start', marginTop: 5 },
-    badgeText: { fontSize: 10, fontWeight: 'bold', color: '#fff' },
-    badgeWatching: { backgroundColor: '#2196F3' },
-    badgeNew: { backgroundColor: '#4CAF50' },
-    badgeHold: { backgroundColor: '#FF9800' },
-    badgeFinished: { backgroundColor: '#9C27B0' },
-    actionButtons: { flexDirection: 'row', gap: 10 },
+    cardHeaderLeft: { flex: 1, minWidth: 0 },
+    seriesName: { fontSize: 18, fontFamily: FONT.bold },
+    badge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 5, alignSelf: 'flex-start', marginTop: 5, flexShrink: 0 },
+    badgeText: { fontSize: 10, fontFamily: FONT.bold },
+    actionButtons: { flexDirection: 'row', gap: 10, flexShrink: 0 },
     iconButton: { padding: 5 },
     seriesDescription: { fontSize: 14, marginVertical: 10 },
     cardProgress: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    progressText: { fontWeight: 'bold' },
+    progressText: { fontFamily: FONT.bold },
     totalText: { fontSize: 12 },
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
-    modalContent: { borderRadius: 20, padding: 20, elevation: 5 },
-    modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 20 },
-    modalSubtitle: { fontSize: 14, fontWeight: 'bold', marginBottom: 10 },
-    input: { borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 15 },
+    modalOverlay: { flex: 1, justifyContent: 'center', padding: 20 },
+    modalContent: { borderRadius: RADIUS.base, padding: 20, elevation: 5 },
+    modalTitle: { fontSize: 20, fontFamily: FONT.bold, marginBottom: 20 },
+    modalSubtitle: { fontSize: 14, fontFamily: FONT.bold, marginBottom: 10 },
+    input: { borderWidth: 1, borderRadius: RADIUS.sm, padding: 12, marginBottom: 15 },
     seasonRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
     inputSeason: { flex: 1, borderWidth: 1, borderRadius: 8, padding: 8 },
-    smallButton: { backgroundColor: '#2196F3', padding: 8, borderRadius: 8 },
+    smallButton: { padding: 8, borderRadius: RADIUS.sm },
     progressInputRow: { flexDirection: 'row', gap: 15 },
     modalButtons: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 20 },
-    modalButton: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 10 },
-    modalButtonText: { color: '#fff', fontWeight: 'bold' },
-    gridModalContent: { flex: 0.9, borderRadius: 20, padding: 20 },
+    modalButton: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: RADIUS.sm },
+    modalButtonText: { fontFamily: FONT.bold },
+    gridModalContent: { flex: 0.9, borderRadius: RADIUS.base, padding: 20 },
     gridHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-    restartBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+    restartBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: RADIUS.sm },
     seasonGridContainer: { marginBottom: 25 },
-    seasonGridTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 15 },
+    seasonGridTitle: { fontSize: 16, fontFamily: FONT.bold, marginBottom: 15 },
     grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
     gridItem: { width: 45, height: 45, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-    gridItemText: { fontWeight: 'bold' }
+    gridItemText: { fontFamily: FONT.bold }
 });

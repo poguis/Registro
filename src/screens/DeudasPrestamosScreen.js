@@ -1,26 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    TouchableOpacity,
-    TextInput,
-    ScrollView,
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    FlatList,
-    Modal
-} from 'react-native';
+import React, { useState, useEffect, useMemo } from 'react';
+import { View, StyleSheet, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, FlatList, Modal } from 'react-native';
+import { useSheet } from '../hooks/useSheet';
+import { Text, TextInput } from '../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme, FONT, RADIUS } from '../contexts/ThemeContext';
 import db from '../services/db';
 import { useSyncRefresh } from '../sync/useSyncRefresh';
 import { parseDbTimestamp } from '../services/dateRange';
 
 export default function DeudasPrestamosScreen({ user, onBack }) {
-    const { theme, isDarkMode } = useTheme();
+    const { theme } = useTheme();
+    const styles = useMemo(() => makeStyles(theme), [theme]);
+    const { confirm, informar } = useSheet();
     const [activeTab, setActiveTab] = useState('deudas'); // 'deudas' | 'prestamos'
     const [data, setData] = useState([]);
 
@@ -62,7 +53,7 @@ export default function DeudasPrestamosScreen({ user, onBack }) {
 
     const handleSave = async () => {
         if (!amount) {
-            Alert.alert('Error', 'La cantidad es obligatoria');
+            informar('Error', 'La cantidad es obligatoria');
             return;
         }
 
@@ -71,13 +62,13 @@ export default function DeudasPrestamosScreen({ user, onBack }) {
 
         if (isNewContact) {
             if (!contactName.trim()) {
-                Alert.alert('Error', 'El nombre es obligatorio');
+                informar('Error', 'El nombre es obligatorio');
                 return;
             }
             finalId = null; // Let DB create it
         } else {
             if (!selectedContactId) {
-                Alert.alert('Error', 'Selecciona una persona');
+                informar('Error', 'Selecciona una persona');
                 return;
             }
             // Find name for consistency
@@ -100,65 +91,61 @@ export default function DeudasPrestamosScreen({ user, onBack }) {
             setShowAddModal(false);
             loadData();
         } else {
-            Alert.alert('Error', result.error);
+            informar('Error', result.error);
         }
     };
 
     const handleDelete = async (transactionId) => {
-        Alert.alert(
-            'Confirmar',
-            '¿Estás seguro de eliminar este registro?',
-            [
-                { text: 'Cancelar', style: 'cancel' },
-                {
-                    text: 'Eliminar',
-                    style: 'destructive',
-                    onPress: async () => {
-                        await db.deleteTransaction(transactionId);
-                        loadData();
-                    }
-                }
-            ]
-        );
+        const clave = await confirm({
+            titulo: 'Confirmar',
+            mensaje: '¿Estás seguro de eliminar este registro?',
+            acciones: [
+                { clave: 'cancelar', texto: 'Cancelar', variante: 'cancelar' },
+                { clave: 'eliminar', texto: 'Eliminar', variante: 'destructiva' },
+            ],
+        });
+        if (clave !== 'eliminar') return;
+        await db.deleteTransaction(transactionId);
+        loadData();
     };
 
     const renderContactCard = ({ item }) => {
         const isExpanded = expandedContactId === item.id;
 
         return (
-            <View style={[styles.card, { backgroundColor: theme.card }]}>
+            <View style={[styles.card, { backgroundColor: theme.surface }]}>
                 <TouchableOpacity
                     style={styles.cardHeader}
                     onPress={() => setExpandedContactId(isExpanded ? null : item.id)}
                     activeOpacity={0.7}
                 >
-                    <View>
-                        <Text style={[styles.contactName, { color: theme.text }]}>{item.name}</Text>
-                        <Text style={[styles.transCount, { color: theme.subText }]}>
+                    <View style={{ flex: 1, minWidth: 0, marginRight: 10 }}>
+                        <Text style={[styles.contactName, { color: theme.ink }]} numberOfLines={2} ellipsizeMode="tail">{item.name}</Text>
+                        <Text style={[styles.transCount, { color: theme.muted }]} numberOfLines={1}>
                             {item.transactions.length} registros
                         </Text>
                     </View>
-                    <View style={{ alignItems: 'flex-end' }}>
+                    <View style={{ alignItems: 'flex-end', flexShrink: 0 }}>
                         <Text style={[
                             styles.totalAmount,
                             activeTab === 'deudas' ? styles.textDebt : styles.textLoan
                         ]}>
                             ${item.total.toFixed(2)}
                         </Text>
-                        <Text style={[styles.expandIcon, { color: theme.subText }]}>{isExpanded ? '▲' : '▼'}</Text>
+                        <Text style={[styles.expandIcon, { color: theme.muted }]}>{isExpanded ? '▲' : '▼'}</Text>
                     </View>
                 </TouchableOpacity>
 
                 {isExpanded && (
-                    <View style={[styles.historyList, { backgroundColor: theme.inputBackground, borderTopColor: theme.border }]}>
+                    <View style={[styles.historyList, { backgroundColor: theme.raised, borderTopColor: theme.line }]}>
                         {item.transactions.map((t) => (
-                            <View key={t.id} style={[styles.transactionRow, { borderBottomColor: theme.border }]}>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={[styles.date, { color: theme.subText }]}>
+                            <View key={t.id} style={[styles.transactionRow, { borderBottomColor: theme.line }]}>
+                                <View style={{ flex: 1, minWidth: 0 }}>
+                                    <Text style={[styles.date, { color: theme.muted }]} numberOfLines={1}>
                                         {parseDbTimestamp(t.created_at).toLocaleDateString('es-ES', { timeZone: 'America/Guayaquil' })} • {parseDbTimestamp(t.created_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/Guayaquil' })}
                                     </Text>
                                     {t.description ? (
-                                        <Text style={[styles.desc, { color: theme.text }]}>{t.description}</Text>
+                                        <Text style={[styles.desc, { color: theme.ink }]} numberOfLines={2} ellipsizeMode="tail">{t.description}</Text>
                                     ) : null}
                                 </View>
                                 <Text style={[styles.transAmount, activeTab === 'deudas' ? styles.textDebt : styles.textLoan]}>
@@ -179,15 +166,14 @@ export default function DeudasPrestamosScreen({ user, onBack }) {
     };
 
     return (
-        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-            <StatusBar style={isDarkMode ? "light" : "dark"} />
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
 
             {/* Header */}
-            <View style={[styles.header, { backgroundColor: theme.header, borderBottomWidth: 1, borderBottomColor: theme.border }]}>
+            <View style={[styles.header, { backgroundColor: theme.surface, borderBottomWidth: 1, borderBottomColor: theme.line }]}>
                 <TouchableOpacity onPress={onBack} style={styles.backButton}>
                     <Text style={[styles.backText, { color: theme.accent }]}>← Volver</Text>
                 </TouchableOpacity>
-                <Text style={[styles.title, { color: theme.text }]}>Deudas y Préstamos</Text>
+                <Text style={[styles.title, { color: theme.ink }]} numberOfLines={1}>Deudas y Préstamos</Text>
                 <TouchableOpacity onPress={handleAddStart} style={styles.addButton}>
                     <Text style={styles.addBtnText}>+</Text>
                 </TouchableOpacity>
@@ -198,24 +184,22 @@ export default function DeudasPrestamosScreen({ user, onBack }) {
                 <TouchableOpacity
                     style={[
                         styles.tab,
-                        activeTab === 'deudas' && styles.activeTabDebt,
-                        activeTab === 'deudas' && isDarkMode && { backgroundColor: '#331b1b', borderColor: '#c62828' }
+                        activeTab === 'deudas' && styles.activeTabDebt
                     ]}
                     onPress={() => setActiveTab('deudas')}
                 >
-                    <Text style={[styles.tabText, activeTab === 'deudas' && { color: theme.text, fontWeight: 'bold' }]}>
+                    <Text style={[styles.tabText, activeTab === 'deudas' && { color: theme.ink, fontFamily: FONT.bold }]}>
                         Préstamos
                     </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                     style={[
                         styles.tab,
-                        activeTab === 'prestamos' && styles.activeTabLoan,
-                        activeTab === 'prestamos' && isDarkMode && { backgroundColor: '#1b2c33', borderColor: '#2196f3' }
+                        activeTab === 'prestamos' && styles.activeTabLoan
                     ]}
                     onPress={() => setActiveTab('prestamos')}
                 >
-                    <Text style={[styles.tabText, activeTab === 'prestamos' && { color: theme.text, fontWeight: 'bold' }]}>
+                    <Text style={[styles.tabText, activeTab === 'prestamos' && { color: theme.ink, fontFamily: FONT.bold }]}>
                         Me deben
                     </Text>
                 </TouchableOpacity>
@@ -227,7 +211,7 @@ export default function DeudasPrestamosScreen({ user, onBack }) {
                 keyExtractor={item => item.id.toString()}
                 contentContainerStyle={styles.listContent}
                 ListEmptyComponent={
-                    <Text style={[styles.emptyText, { color: theme.subText }]}>No hay registros aún.</Text>
+                    <Text style={[styles.emptyText, { color: theme.muted }]}>No hay registros aún.</Text>
                 }
             />
 
@@ -238,14 +222,14 @@ export default function DeudasPrestamosScreen({ user, onBack }) {
                 transparent={true}
                 onRequestClose={() => setShowAddModal(false)}
             >
-                <View style={[styles.modalOverlay, { backgroundColor: theme.modalOverlay }]}>
-                    <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-                        <Text style={[styles.modalTitle, { color: theme.text }]}>
+                <View style={[styles.modalOverlay, { backgroundColor: theme.overlay }]}>
+                    <View style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+                        <Text style={[styles.modalTitle, { color: theme.ink }]} numberOfLines={1}>
                             Agregar {activeTab === 'deudas' ? 'Préstamo' : 'Deuda'}
                         </Text>
 
                         {/* Contact Selector */}
-                        <View style={[styles.switchRow, { borderColor: theme.border, backgroundColor: theme.inputBackground }]}>
+                        <View style={[styles.switchRow, { borderColor: theme.lineStrong, backgroundColor: theme.raised }]}>
                             <TouchableOpacity
                                 style={[
                                     styles.switchBtn,
@@ -255,7 +239,7 @@ export default function DeudasPrestamosScreen({ user, onBack }) {
                             >
                                 <Text style={[
                                     styles.switchText,
-                                    { color: !isNewContact ? '#fff' : theme.subText, fontWeight: !isNewContact ? 'bold' : 'normal' }
+                                    { color: !isNewContact ? theme.onAccent : theme.muted, fontFamily: !isNewContact ? FONT.bold : FONT.regular }
                                 ]}>Existente</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
@@ -267,41 +251,40 @@ export default function DeudasPrestamosScreen({ user, onBack }) {
                             >
                                 <Text style={[
                                     styles.switchText,
-                                    { color: isNewContact ? '#fff' : theme.subText, fontWeight: isNewContact ? 'bold' : 'normal' }
+                                    { color: isNewContact ? theme.onAccent : theme.muted, fontFamily: isNewContact ? FONT.bold : FONT.regular }
                                 ]}>Nuevo</Text>
                             </TouchableOpacity>
                         </View>
 
                         {isNewContact ? (
                             <TextInput
-                                style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                                 placeholder="Nombre Persona"
-                                placeholderTextColor={theme.subText}
+                                placeholderTextColor={theme.muted}
                                 value={contactName}
                                 onChangeText={setContactName}
                             />
                         ) : (
-                            <View style={[styles.pickerContainer, { borderColor: theme.border }]}>
-                                <Text style={[styles.label, { color: theme.subText }]}>Selecciona Persona:</Text>
+                            <View style={[styles.pickerContainer, { borderColor: theme.lineStrong }]}>
+                                <Text style={[styles.label, { color: theme.muted }]}>Selecciona Persona:</Text>
                                 <ScrollView style={{ maxHeight: 100 }}>
                                     {data.length === 0 ? (
-                                        <Text style={[styles.noContactText, { color: theme.subText }]}>No hay personas registradas.</Text>
+                                        <Text style={[styles.noContactText, { color: theme.muted }]}>No hay personas registradas.</Text>
                                     ) : (
                                         data.map(c => (
                                             <TouchableOpacity
                                                 key={c.id}
                                                 style={[
                                                     styles.contactOption,
-                                                    selectedContactId === c.id && styles.contactOptionSelected,
-                                                    selectedContactId === c.id && { backgroundColor: theme.accent + '33' }
+                                                    selectedContactId === c.id && styles.contactOptionSelected
                                                 ]}
                                                 onPress={() => setSelectedContactId(c.id)}
                                             >
                                                 <Text style={[
                                                     styles.contactText,
-                                                    { color: theme.text },
-                                                    selectedContactId === c.id && { fontWeight: 'bold', color: theme.accent }
-                                                ]}>
+                                                    { color: theme.ink },
+                                                    selectedContactId === c.id && { fontFamily: FONT.bold, color: theme.accent }
+                                                ]} numberOfLines={1} ellipsizeMode="tail">
                                                     {c.name}
                                                 </Text>
                                             </TouchableOpacity>
@@ -312,28 +295,28 @@ export default function DeudasPrestamosScreen({ user, onBack }) {
                         )}
 
                         <TextInput
-                            style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                            style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                             placeholder="Cantidad ($)"
-                            placeholderTextColor={theme.subText}
+                            placeholderTextColor={theme.muted}
                             keyboardType="numeric"
                             value={amount}
                             onChangeText={setAmount}
                         />
 
                         <TextInput
-                            style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                            style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                             placeholder="Descripción (Opcional)"
-                            placeholderTextColor={theme.subText}
+                            placeholderTextColor={theme.muted}
                             value={description}
                             onChangeText={setDescription}
                         />
 
                         <View style={styles.modalButtons}>
                             <TouchableOpacity
-                                style={[styles.modalBtn, styles.cancelBtn, { backgroundColor: theme.inputBackground }]}
+                                style={[styles.modalBtn, styles.cancelBtn, { backgroundColor: theme.raised }]}
                                 onPress={() => setShowAddModal(false)}
                             >
-                                <Text style={[styles.cancelText, { color: theme.text }]}>Cancelar</Text>
+                                <Text style={[styles.cancelText, { color: theme.ink }]}>Cancelar</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
                                 style={[styles.modalBtn, styles.saveBtn, { backgroundColor: theme.accent }]}
@@ -349,7 +332,8 @@ export default function DeudasPrestamosScreen({ user, onBack }) {
     );
 }
 
-const styles = StyleSheet.create({
+// Estilos en función del tema (dirección visual): ningún color fijo.
+const makeStyles = (t) => StyleSheet.create({
     container: {
         flex: 1,
     },
@@ -361,25 +345,26 @@ const styles = StyleSheet.create({
     },
     backButton: { padding: 5 },
     backText: { fontSize: 16 },
-    title: { fontSize: 18, fontWeight: 'bold' },
+    title: { fontSize: 18, fontFamily: FONT.bold, flex: 1, minWidth: 0, textAlign: 'center', marginHorizontal: 8 },
     addButton: {
-        backgroundColor: '#007AFF',
+        backgroundColor: t.accent,
         width: 30, height: 30,
         borderRadius: 15,
         alignItems: 'center',
         justifyContent: 'center'
     },
-    addBtnText: { color: '#fff', fontSize: 20, fontWeight: 'bold', marginTop: -2 },
+    addBtnText: { color: t.onAccent, fontSize: 20, fontFamily: FONT.bold, marginTop: -2 },
 
     tabs: { flexDirection: 'row', padding: 15, gap: 10 },
-    tab: { flex: 1, padding: 12, borderRadius: 10, alignItems: 'center', borderWidth: 1, borderColor: '#eee' },
-    activeTabDebt: { backgroundColor: '#FFF0F0', borderColor: '#FF5252' },
-    activeTabLoan: { backgroundColor: '#F0F9FF', borderColor: '#2196F3' },
-    tabText: { color: '#888' },
+    tab: { flex: 1, padding: 12, borderRadius: RADIUS.sm, alignItems: 'center', borderWidth: 1, borderColor: t.lineStrong },
+    // Lo que debo = tono rojo; lo que me deben = tono azul.
+    activeTabDebt: { backgroundColor: t.tones.rojo.bg, borderColor: t.tones.rojo.fg },
+    activeTabLoan: { backgroundColor: t.tones.azul.bg, borderColor: t.tones.azul.fg },
+    tabText: { color: t.muted },
 
     listContent: { padding: 15 },
     card: {
-        borderRadius: 15,
+        borderRadius: RADIUS.base,
         marginBottom: 15,
         overflow: 'hidden',
         elevation: 2,
@@ -390,11 +375,11 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         alignItems: 'center',
     },
-    contactName: { fontSize: 16, fontWeight: 'bold' },
+    contactName: { fontSize: 16, fontFamily: FONT.bold },
     transCount: { fontSize: 12 },
-    totalAmount: { fontSize: 18, fontWeight: 'bold' },
-    textDebt: { color: '#FF5252' },
-    textLoan: { color: '#2196F3' },
+    totalAmount: { fontSize: 18, fontFamily: FONT.bold },
+    textDebt: { color: t.tones.rojo.fg },
+    textLoan: { color: t.tones.azul.fg },
     expandIcon: { fontSize: 12, marginTop: 5 },
 
     historyList: {
@@ -409,38 +394,37 @@ const styles = StyleSheet.create({
     },
     date: { fontSize: 12, marginBottom: 2 },
     desc: { fontSize: 14 },
-    transAmount: { fontSize: 15, fontWeight: 'bold', marginHorizontal: 10 },
-    deleteBtn: { padding: 5 },
+    transAmount: { fontSize: 15, fontFamily: FONT.bold, marginHorizontal: 10, flexShrink: 0 },
+    deleteBtn: { padding: 5, flexShrink: 0 },
     deleteText: { fontSize: 16 },
 
     emptyText: { textAlign: 'center', marginTop: 30 },
 
     modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    modalContent: { width: '90%', padding: 20, borderRadius: 20 },
-    modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
+    modalContent: { width: '90%', padding: 20, borderRadius: RADIUS.base },
+    modalTitle: { fontSize: 20, fontFamily: FONT.bold, marginBottom: 20, textAlign: 'center' },
 
-    switchRow: { flexDirection: 'row', marginBottom: 15, borderWidth: 1, borderRadius: 8 },
+    switchRow: { flexDirection: 'row', marginBottom: 15, borderWidth: 1, borderRadius: RADIUS.sm, overflow: 'hidden' },
     switchBtn: { flex: 1, padding: 10, alignItems: 'center' },
-    switchActive: { backgroundColor: '#f0f0f0' },
-    switchText: { color: '#888' },
+    switchText: { color: t.muted },
 
     input: {
-        borderWidth: 1, borderRadius: 8,
+        borderWidth: 1, borderRadius: RADIUS.sm,
         padding: 12, marginBottom: 15, fontSize: 16
     },
     pickerContainer: {
-        maxHeight: 150, borderWidth: 1, borderRadius: 8, marginBottom: 15, padding: 5
+        maxHeight: 150, borderWidth: 1, borderRadius: RADIUS.sm, marginBottom: 15, padding: 5
     },
     label: { fontSize: 12, marginBottom: 5, paddingLeft: 5 },
-    contactOption: { padding: 10, borderBottomWidth: 1, borderBottomColor: '#f9f9f9' },
-    contactOptionSelected: { backgroundColor: '#E3F2FD' },
-    contactText: { color: '#333' },
+    contactOption: { padding: 10, borderBottomWidth: 1, borderBottomColor: t.line },
+    contactOptionSelected: { backgroundColor: t.soft },
+    contactText: { color: t.ink },
     noContactText: { padding: 10, fontStyle: 'italic' },
 
     modalButtons: { flexDirection: 'row', gap: 10 },
-    modalBtn: { flex: 1, padding: 15, borderRadius: 10, alignItems: 'center' },
-    cancelBtn: { backgroundColor: '#f5f5f5' },
-    saveBtn: { backgroundColor: '#2196F3' },
-    cancelText: { color: '#333' },
-    saveText: { color: '#fff', fontWeight: 'bold' },
+    modalBtn: { flex: 1, padding: 15, borderRadius: RADIUS.sm, alignItems: 'center', minHeight: 52, justifyContent: 'center' },
+    cancelBtn: { backgroundColor: t.raised },
+    saveBtn: { backgroundColor: t.accent },
+    cancelText: { color: t.ink },
+    saveText: { color: t.onAccent, fontFamily: FONT.bold },
 });

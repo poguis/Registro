@@ -1,25 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import {
-    View,
-    Text,
-    TouchableOpacity,
-    StyleSheet,
-    FlatList,
-    ActivityIndicator,
-    Alert
-} from 'react-native';
+import { View, TouchableOpacity, StyleSheet, FlatList, ActivityIndicator } from 'react-native';
+import { useSheet } from '../hooks/useSheet';
+import { Text } from '../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
 import db from '../services/db';
 import { useSyncRefresh } from '../sync/useSyncRefresh';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme, FONT, RADIUS } from '../contexts/ThemeContext';
 import { calculateBacklog, calculateBacklogV2, getLocalDateString, isDatePaused, getAbsoluteEpisodeCount, getWatchedCountSinceStart } from '../services/backlogUtils';
 // Fase 7.3: la cola y la decisión de "marcar visto" viven en el motor puro (src/entertainment/).
 // Fase 7.4a: los vistos salen del historial; la cabecera relee el total de la categoría de la BD.
 import { buildQueue, decideMarkWatched, statusAfterUnmark, watchedCount } from '../entertainment/queue';
 
 export default function ChapterRegistryScreen({ user, category, onBack }) {
-    const { theme, isDarkMode } = useTheme();
+    const { theme } = useTheme();
+    const { confirm, informar } = useSheet();
     const [loading, setLoading] = useState(true);
     const [items, setItems] = useState([]);
     const [tab, setTab] = useState('pending');
@@ -93,7 +87,7 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
     const onMarkWatched = async (item) => {
         const decision = decideMarkWatched(item, items, rawSeries);
         if (decision.kind === 'noSeries') return;
-        if (decision.kind === 'outOfOrder') return Alert.alert('Orden incorrecto', `Mira primero T${decision.first.season}-E${decision.first.episode}`);
+        if (decision.kind === 'outOfOrder') { informar('Orden incorrecto', `Mira primero T${decision.first.season}-E${decision.first.episode}`); return; }
         const { next, isFinal } = decision;
 
         const performUpdate = async (newStatus = 'Mirando') => {
@@ -103,11 +97,17 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
         };
 
         if (isFinal) {
-            Alert.alert('¡Completada!', 'Mover a:', [
-                { text: 'En espera', onPress: () => performUpdate('En espera') },
-                { text: 'Terminado', onPress: () => performUpdate('Terminado') },
-                { text: 'Cancelar', style: 'cancel' }
-            ]);
+            const clave = await confirm({
+                titulo: '¡Completada!',
+                mensaje: 'Mover a:',
+                acciones: [
+                    { clave: 'espera', texto: 'En espera', variante: 'secundaria' },
+                    { clave: 'terminado', texto: 'Terminado', variante: 'primaria' },
+                    { clave: 'cancelar', texto: 'Cancelar', variante: 'cancelar' },
+                ],
+            });
+            if (clave === 'espera') await performUpdate('En espera');
+            else if (clave === 'terminado') await performUpdate('Terminado');
         } else performUpdate('Mirando');
     };
 
@@ -124,50 +124,52 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
         const isW = item.status === 'watched';
         const isB = !isW && headerBacklog && index < headerBacklog.items;
         return (
-            <View style={[styles.card, { backgroundColor: theme.card, borderLeftColor: isB ? '#EF6C00' : 'transparent', paddingVertical: 12 }, isB && { backgroundColor: isDarkMode ? '#3e2723' : '#FFFDE7' }]}>
+            <View style={[styles.card, { backgroundColor: theme.surface, shadowColor: theme.shadow, borderLeftColor: isB ? theme.behindFg : 'transparent', paddingVertical: 12 }, isB && { backgroundColor: theme.behindBg }]}>
                 <View style={styles.cardContent}>
                     {/* Series Name - Top Row */}
                     <Text
-                        style={[styles.seriesName, { color: theme.text, fontSize: 17, marginBottom: 4 }]}
+                        style={[styles.seriesName, { color: theme.ink, fontSize: 17, marginBottom: 4 }]}
+                        numberOfLines={2}
+                        ellipsizeMode="tail"
                     >
                         {item.seriesName}
                     </Text>
 
                     {/* Metadata Row */}
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Text style={[styles.episodeInfo, { color: theme.subText, marginTop: 0 }]}>
+                        <Text style={[styles.episodeInfo, { color: theme.muted, marginTop: 0, flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">
                             T{item.season} - E{item.episode}
                         </Text>
                         {isB && (
-                            <View style={[styles.backlogBadge, { marginLeft: 10, marginTop: 0 }]}>
-                                <Text style={styles.backlogBadgeText}>ATRASO</Text>
+                            <View style={[styles.backlogBadge, { backgroundColor: theme.behindFg, marginLeft: 10, marginTop: 0 }]}>
+                                <Text style={[styles.backlogBadgeText, { color: theme.onDanger }]}>ATRASO</Text>
                             </View>
                         )}
                     </View>
 
                     {isW && (
-                        <Text style={[styles.watchedLabel, { marginTop: 4 }]}>
+                        <Text style={[styles.watchedLabel, { color: theme.tones.verde.fg, marginTop: 4 }]} numberOfLines={1}>
                             Visto el {new Date(item.watchedAt).toLocaleDateString()}
                         </Text>
                     )}
                 </View>
 
                 {/* Action Button */}
-                <View style={{ marginLeft: 10 }}>
+                <View style={{ marginLeft: 10, flexShrink: 0 }}>
                     {!isW ? (
                         <TouchableOpacity
-                            style={[styles.checkButton, { backgroundColor: isB ? (isDarkMode ? '#5d4037' : '#FFF3E0') : theme.inputBackground }]}
+                            style={[styles.checkButton, { backgroundColor: isB ? theme.surface : theme.raised }]}
                             onPress={() => onMarkWatched(item)}
                         >
-                            <Text style={[styles.checkText, isB && { color: '#EF6C00' }]}>✓</Text>
+                            <Text style={[styles.checkText, { color: isB ? theme.behindFg : theme.tones.verde.fg }]}>✓</Text>
                         </TouchableOpacity>
                     ) : (
                         index === 0 ? (
                             <TouchableOpacity
-                                style={[styles.checkButton, { backgroundColor: '#FFEBEE' }]}
+                                style={[styles.checkButton, { backgroundColor: theme.tones.rojo.bg }]}
                                 onPress={() => onUnmarkWatched(item)}
                             >
-                                <Text style={[styles.checkText, { color: '#F44336' }]}>✕</Text>
+                                <Text style={[styles.checkText, { color: theme.tones.rojo.fg }]}>✕</Text>
                             </TouchableOpacity>
                         ) : <View style={{ width: 40 }} />
                     )}
@@ -177,15 +179,14 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
     };
 
     return (
-        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-            <StatusBar style={isDarkMode ? "light" : "dark"} />
-            <View style={[styles.header, { backgroundColor: theme.header, borderBottomColor: theme.border }]}>
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+            <View style={[styles.header, { backgroundColor: theme.surface, borderBottomColor: theme.line }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <TouchableOpacity onPress={onBack} style={styles.backButton}><Text style={[styles.backButtonText, { color: theme.text }]}>←</Text></TouchableOpacity>
-                    <View style={{ marginLeft: 10 }}>
-                        <Text style={[styles.headerTitle, { color: theme.text }]}>Registro - {currentCategory?.name || category?.name || 'Global'}</Text>
+                    <TouchableOpacity onPress={onBack} style={styles.backButton}><Text style={[styles.backButtonText, { color: theme.ink }]}>←</Text></TouchableOpacity>
+                    <View style={{ marginLeft: 10, flex: 1, minWidth: 0 }}>
+                        <Text style={[styles.headerTitle, { color: theme.ink }]} numberOfLines={2} ellipsizeMode="tail">Registro - {currentCategory?.name || category?.name || 'Global'}</Text>
                         {headerBacklog && (
-                            <Text style={[styles.headerSubtitle, (headerBacklog.days <= 0 && headerBacklog.items <= 0 && headerBacklog.adelantoItems <= 0) && { color: '#4CAF50' }, headerBacklog.adelantoItems > 0 && { color: '#2E7D32' }]}>
+                            <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.headerSubtitle, { color: theme.behindFg }, (headerBacklog.days <= 0 && headerBacklog.items <= 0 && headerBacklog.adelantoItems <= 0) && { color: theme.okFg }, headerBacklog.adelantoItems > 0 && { color: theme.aheadFg }]}>
                                 {headerBacklog.adelantoItems > 0 
                                     ? `Adelantado: ${headerBacklog.adelantoDays}d, ${headerBacklog.adelantoItems} Caps`
                                     : (headerBacklog.days <= 0 && headerBacklog.items <= 0) 
@@ -196,18 +197,18 @@ export default function ChapterRegistryScreen({ user, category, onBack }) {
                     </View>
                 </View>
             </View>
-            <View style={[styles.tabContainer, { backgroundColor: theme.card }]}>
-                <TouchableOpacity style={[styles.tab, tab === 'pending' && { backgroundColor: theme.accent + '22' }]} onPress={() => setTab('pending')}>
-                    <Text style={[styles.tabText, { color: theme.subText }, tab === 'pending' && { color: theme.accent, fontWeight: 'bold' }]}>Pendientes ({counts.pending})</Text>
+            <View style={[styles.tabContainer, { backgroundColor: theme.surface }]}>
+                <TouchableOpacity style={[styles.tab, tab === 'pending' && { backgroundColor: theme.soft }]} onPress={() => setTab('pending')}>
+                    <Text style={[styles.tabText, { color: theme.muted }, tab === 'pending' && { color: theme.accent, fontFamily: FONT.bold }]}>Pendientes ({counts.pending})</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.tab, tab === 'watched' && { backgroundColor: theme.accent + '22' }]} onPress={() => setTab('watched')}>
-                    <Text style={[styles.tabText, { color: theme.subText }, tab === 'watched' && { color: theme.accent, fontWeight: 'bold' }]}>Vistos ({counts.watched})</Text>
+                <TouchableOpacity style={[styles.tab, tab === 'watched' && { backgroundColor: theme.soft }]} onPress={() => setTab('watched')}>
+                    <Text style={[styles.tabText, { color: theme.muted }, tab === 'watched' && { color: theme.accent, fontFamily: FONT.bold }]}>Vistos ({counts.watched})</Text>
                 </TouchableOpacity>
             </View>
             {loading ? <ActivityIndicator size="large" color={theme.accent} style={{ marginTop: 50 }} /> : (
                 <FlatList data={items} renderItem={renderItem} keyExtractor={it => it.uniqueId} contentContainerStyle={{ padding: 15 }} ListEmptyComponent={
                     <View style={styles.emptyContainer}>
-                        <Text style={[styles.emptyText, { color: theme.subText }]}>{tab === 'pending' ? 'No hay pendientes.' : 'No has visto nada.'}</Text>
+                        <Text style={[styles.emptyText, { color: theme.muted }]}>{tab === 'pending' ? 'No hay pendientes.' : 'No has visto nada.'}</Text>
                     </View>
                 } />
             )}
@@ -219,21 +220,21 @@ const styles = StyleSheet.create({
     container: { flex: 1 },
     header: { paddingHorizontal: 15, paddingVertical: 15, borderBottomWidth: 1 },
     backButton: { padding: 5 },
-    backButtonText: { fontSize: 24, fontWeight: 'bold' },
-    headerTitle: { fontSize: 18, fontWeight: 'bold' },
-    headerSubtitle: { fontSize: 13, color: '#EF6C00', fontWeight: 'bold', marginTop: 2 },
-    tabContainer: { flexDirection: 'row', padding: 5, margin: 15, borderRadius: 10 },
-    tab: { flex: 1, padding: 10, alignItems: 'center', borderRadius: 8 },
-    tabText: { fontWeight: '600' },
-    card: { padding: 15, borderRadius: 12, marginBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2.22, elevation: 2, borderLeftWidth: 5 },
-    backlogBadge: { backgroundColor: '#EF6C00', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginLeft: 8 },
-    backlogBadgeText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
-    cardContent: { flex: 1 },
-    seriesName: { fontSize: 16, fontWeight: 'bold' },
+    backButtonText: { fontSize: 24, fontFamily: FONT.bold },
+    headerTitle: { fontSize: 18, fontFamily: FONT.bold },
+    headerSubtitle: { fontSize: 13, fontFamily: FONT.bold, marginTop: 2 },
+    tabContainer: { flexDirection: 'row', padding: 5, margin: 15, borderRadius: RADIUS.sm },
+    tab: { flex: 1, padding: 10, alignItems: 'center', borderRadius: RADIUS.sm },
+    tabText: { fontFamily: FONT.semibold },
+    card: { padding: 15, borderRadius: RADIUS.base, marginBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2.22, elevation: 2, borderLeftWidth: 5 },
+    backlogBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginLeft: 8, flexShrink: 0 },
+    backlogBadgeText: { fontSize: 10, fontFamily: FONT.bold },
+    cardContent: { flex: 1, minWidth: 0 },
+    seriesName: { fontSize: 16, fontFamily: FONT.bold },
     episodeInfo: { fontSize: 14, marginTop: 4 },
-    watchedLabel: { fontSize: 12, color: '#4CAF50', fontWeight: 'bold', marginTop: 2 },
+    watchedLabel: { fontSize: 12, fontFamily: FONT.bold, marginTop: 2 },
     checkButton: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-    checkText: { fontSize: 20, color: '#4CAF50', fontWeight: 'bold' },
+    checkText: { fontSize: 20, fontFamily: FONT.bold },
     emptyText: { textAlign: 'center', marginTop: 50 },
     emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' }
 });

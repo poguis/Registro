@@ -1,24 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    TouchableOpacity,
-    Modal,
-    TextInput,
-    Alert,
-    ScrollView,
-    KeyboardAvoidingView,
-    Platform
-} from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Modal, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { useSheet } from '../hooks/useSheet';
+import { Text, TextInput } from '../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme, FONT, RADIUS } from '../contexts/ThemeContext';
 import db from '../services/db';
 import { useSyncRefresh } from '../sync/useSyncRefresh';
 
 export default function CardsScreen({ user, onBack }) {
-    const { theme, isDarkMode } = useTheme();
+    const { theme } = useTheme();
+    const { confirm, informar } = useSheet();
+    // Identidad de cada tipo: crédito = tono azul, débito = tono verde.
+    const toneFor = (type) => (type === 'credit' ? theme.tones.azul : theme.tones.verde);
     const [cards, setCards] = useState([]);
     
     // Modal state
@@ -82,7 +75,7 @@ export default function CardsScreen({ user, onBack }) {
 
     const handleSave = async () => {
         if (!cardName.trim()) {
-            Alert.alert('Error', 'El nombre es obligatorio');
+            informar('Error', 'El nombre es obligatorio');
             return;
         }
 
@@ -96,11 +89,11 @@ export default function CardsScreen({ user, onBack }) {
             const payDate = parseInt(paymentDueDate);
             
             if (isNaN(cutDate) || cutDate < 1 || cutDate > 31) {
-                Alert.alert('Error', 'Día de corte inválido (1-31)');
+                informar('Error', 'Día de corte inválido (1-31)');
                 return;
             }
             if (isNaN(payDate) || payDate < 1 || payDate > 31) {
-                Alert.alert('Error', 'Día límite de pago inválido (1-31)');
+                informar('Error', 'Día límite de pago inválido (1-31)');
                 return;
             }
             
@@ -112,7 +105,7 @@ export default function CardsScreen({ user, onBack }) {
             } else {
                 const limit = parseFloat(limitAmount);
                 if (isNaN(limit) || limit < 0) {
-                    Alert.alert('Error', 'Límite de crédito inválido');
+                    informar('Error', 'Límite de crédito inválido');
                     return;
                 }
                 data.limit_amount = limit;
@@ -135,61 +128,59 @@ export default function CardsScreen({ user, onBack }) {
             setShowModal(false);
             loadCards();
         } else {
-            Alert.alert('Error', result.error || 'No se pudo guardar la tarjeta');
+            informar('Error', result.error || 'No se pudo guardar la tarjeta');
         }
     };
 
     const handleDelete = (id) => {
-        Alert.alert(
-            'Eliminar Tarjeta',
-            '¿Estás seguro de que deseas eliminar esta tarjeta?',
-            [
-                { text: 'Cancelar', style: 'cancel' },
-                {
-                    text: 'Eliminar',
-                    style: 'destructive',
-                    onPress: async () => {
-                        const res = await db.deleteCard(id);
-                        if (res.success) loadCards();
-                    }
-                }
-            ]
-        );
+        confirm({
+            titulo: 'Eliminar Tarjeta',
+            mensaje: '¿Estás seguro de que deseas eliminar esta tarjeta?',
+            acciones: [
+                { clave: 'cancelar', texto: 'Cancelar', variante: 'cancelar' },
+                { clave: 'eliminar', texto: 'Eliminar', variante: 'destructiva' },
+            ],
+        }).then(async (clave) => {
+            if (clave !== 'eliminar') return;
+            const res = await db.deleteCard(id);
+            if (res.success) loadCards();
+        });
     };
 
     const renderCard = (card) => {
         const isCredit = card.type === 'credit';
-        const cardColor = isCredit ? (isDarkMode ? '#311b92' : '#E8EAF6') : (isDarkMode ? '#004d40' : '#E0F2F1');
-        const borderColor = isCredit ? '#3f51b5' : '#009688';
+        const tone = toneFor(card.type);
+        const cardColor = tone.bg;
+        const borderColor = tone.fg;
         const icon = isCredit ? '💳' : '🏦';
 
         return (
             <TouchableOpacity 
                 key={card.id} 
-                style={[styles.cardContainer, { backgroundColor: cardColor, borderColor: borderColor, borderWidth: 1 }]}
+                style={[styles.cardContainer, { backgroundColor: cardColor, borderColor: borderColor, borderWidth: 1, shadowColor: theme.shadow }]}
                 onPress={() => openEditModal(card)}
                 onLongPress={() => handleDelete(card.id)}
             >
                 <View style={styles.cardHeader}>
-                    <Text style={[styles.cardName, { color: isDarkMode ? '#fff' : '#000' }]}>{icon} {card.name}</Text>
-                    <View style={[styles.typeBadge, { backgroundColor: borderColor }]}>
-                        <Text style={styles.typeText}>{isCredit ? 'CRÉDITO' : 'DÉBITO'}</Text>
+                    <Text style={[styles.cardName, { color: theme.ink }]} numberOfLines={2} ellipsizeMode="tail">{icon} {card.name}</Text>
+                    <View style={[styles.typeBadge, { borderColor: borderColor }]}>
+                        <Text style={[styles.typeText, { color: tone.fg }]} numberOfLines={1}>{isCredit ? 'CRÉDITO' : 'DÉBITO'}</Text>
                     </View>
                 </View>
 
                 {isCredit && (
-                    <View style={styles.creditDetails}>
+                    <View style={[styles.creditDetails, { borderTopColor: theme.line }]}>
                         <View style={styles.detailRow}>
-                            <Text style={[styles.detailLabel, { color: isDarkMode ? '#b3e5fc' : '#5c6bc0' }]}>Día de corte:</Text>
-                            <Text style={[styles.detailValue, { color: isDarkMode ? '#fff' : '#000' }]}>{card.cutoff_date}</Text>
+                            <Text numberOfLines={1} style={[styles.detailLabel, { color: tone.fg }]}>Día de corte:</Text>
+                            <Text numberOfLines={1} style={[styles.detailValue, { color: theme.ink }]}>{card.cutoff_date}</Text>
                         </View>
                         <View style={styles.detailRow}>
-                            <Text style={[styles.detailLabel, { color: isDarkMode ? '#b3e5fc' : '#5c6bc0' }]}>Día de pago:</Text>
-                            <Text style={[styles.detailValue, { color: isDarkMode ? '#fff' : '#000' }]}>{card.payment_due_date}</Text>
+                            <Text numberOfLines={1} style={[styles.detailLabel, { color: tone.fg }]}>Día de pago:</Text>
+                            <Text numberOfLines={1} style={[styles.detailValue, { color: theme.ink }]}>{card.payment_due_date}</Text>
                         </View>
                         <View style={styles.detailRow}>
-                            <Text style={[styles.detailLabel, { color: isDarkMode ? '#b3e5fc' : '#5c6bc0' }]}>Límite:</Text>
-                            <Text style={[styles.detailValue, { color: isDarkMode ? '#fff' : '#000', fontWeight: 'bold' }]}>
+                            <Text numberOfLines={1} style={[styles.detailLabel, { color: tone.fg }]}>Límite:</Text>
+                            <Text numberOfLines={1} style={[styles.detailValue, { color: theme.ink, fontFamily: FONT.bold }]}>
                                 {card.limit_amount === null ? 'Sin Límite' : `$${card.limit_amount.toFixed(2)}`}
                             </Text>
                         </View>
@@ -200,52 +191,51 @@ export default function CardsScreen({ user, onBack }) {
     };
 
     return (
-        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-            <StatusBar style={isDarkMode ? "light" : "dark"} />
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
 
-            <View style={[styles.header, { backgroundColor: theme.header, borderBottomColor: theme.border }]}>
+            <View style={[styles.header, { backgroundColor: theme.surface, borderBottomColor: theme.line }]}>
                 <TouchableOpacity onPress={onBack} style={styles.backButton}>
-                    <Text style={{ fontSize: 24, color: theme.text }}>←</Text>
+                    <Text style={{ fontSize: 24, color: theme.ink }}>←</Text>
                 </TouchableOpacity>
-                <Text style={[styles.headerTitle, { color: theme.text }]}>Mis Tarjetas</Text>
+                <Text style={[styles.headerTitle, { color: theme.ink }]} numberOfLines={1}>Mis Tarjetas</Text>
                 <View style={{ width: 24 }} />
             </View>
 
             <View style={styles.actionStrip}>
                 <TouchableOpacity 
-                    style={[styles.actionBtn, { backgroundColor: isDarkMode ? '#004d40' : '#E0F2F1', borderColor: '#009688', borderWidth: 1 }]} 
+                    style={[styles.actionBtn, { backgroundColor: theme.tones.verde.bg, borderColor: theme.tones.verde.fg, borderWidth: 1 }]} 
                     onPress={() => openAddModal('debit')}
                 >
-                    <Text style={{ color: isDarkMode ? '#fff' : '#00695c', fontWeight: 'bold' }}>+ Nueva Débito</Text>
+                    <Text style={{ color: theme.tones.verde.fg, fontFamily: FONT.bold }} numberOfLines={1}>+ Nueva Débito</Text>
                 </TouchableOpacity>
                 <TouchableOpacity 
-                    style={[styles.actionBtn, { backgroundColor: isDarkMode ? '#311b92' : '#E8EAF6', borderColor: '#3f51b5', borderWidth: 1 }]} 
+                    style={[styles.actionBtn, { backgroundColor: theme.tones.azul.bg, borderColor: theme.tones.azul.fg, borderWidth: 1 }]} 
                     onPress={() => openAddModal('credit')}
                 >
-                    <Text style={{ color: isDarkMode ? '#fff' : '#283593', fontWeight: 'bold' }}>+ Nueva Crédito</Text>
+                    <Text style={{ color: theme.tones.azul.fg, fontFamily: FONT.bold }} numberOfLines={1}>+ Nueva Crédito</Text>
                 </TouchableOpacity>
             </View>
 
             <ScrollView contentContainerStyle={styles.listContainer}>
                 {cards.length === 0 ? (
-                    <Text style={[styles.emptyText, { color: theme.subText }]}>No tienes tarjetas registradas.</Text>
+                    <Text style={[styles.emptyText, { color: theme.muted }]}>No tienes tarjetas registradas.</Text>
                 ) : (
                     cards.map(renderCard)
                 )}
             </ScrollView>
 
             <Modal visible={showModal} transparent animationType="slide" onRequestClose={() => setShowModal(false)}>
-                <View style={[styles.overlay, { backgroundColor: theme.modalOverlay }]}>
-                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[styles.modalContent, { backgroundColor: theme.card }]}>
-                        <Text style={[styles.modalTitle, { color: theme.text }]}>
+                <View style={[styles.overlay, { backgroundColor: theme.overlay }]}>
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+                        <Text style={[styles.modalTitle, { color: theme.ink }]} numberOfLines={1} ellipsizeMode="tail">
                             {editMode ? 'Editar Tarjeta' : `Añadir Tarjeta de ${cardType === 'credit' ? 'Crédito' : 'Débito'}`}
                         </Text>
 
-                        <Text style={[styles.label, { color: theme.subText }]}>Nombre (Ej. Banco / Color):</Text>
+                        <Text style={[styles.label, { color: theme.muted }]}>Nombre (Ej. Banco / Color):</Text>
                         <TextInput
-                            style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                            style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                             placeholder="Nombre de la tarjeta"
-                            placeholderTextColor={theme.subText}
+                            placeholderTextColor={theme.muted}
                             value={cardName}
                             onChangeText={setCardName}
                         />
@@ -254,11 +244,11 @@ export default function CardsScreen({ user, onBack }) {
                             <>
                                 <View style={styles.rowInputs}>
                                     <View style={{ flex: 1, marginRight: 5 }}>
-                                        <Text style={[styles.label, { color: theme.subText }]}>Día de corte:</Text>
+                                        <Text style={[styles.label, { color: theme.muted }]}>Día de corte:</Text>
                                         <TextInput
-                                            style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                            style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                                             placeholder="1-31"
-                                            placeholderTextColor={theme.subText}
+                                            placeholderTextColor={theme.muted}
                                             keyboardType="numeric"
                                             maxLength={2}
                                             value={cutoffDate}
@@ -266,11 +256,11 @@ export default function CardsScreen({ user, onBack }) {
                                         />
                                     </View>
                                     <View style={{ flex: 1, marginLeft: 5 }}>
-                                        <Text style={[styles.label, { color: theme.subText }]}>Día pago:</Text>
+                                        <Text style={[styles.label, { color: theme.muted }]}>Día pago:</Text>
                                         <TextInput
-                                            style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                            style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                                             placeholder="1-31"
-                                            placeholderTextColor={theme.subText}
+                                            placeholderTextColor={theme.muted}
                                             keyboardType="numeric"
                                             maxLength={2}
                                             value={paymentDueDate}
@@ -279,33 +269,33 @@ export default function CardsScreen({ user, onBack }) {
                                     </View>
                                 </View>
 
-                                <Text style={[styles.label, { color: theme.subText, marginTop: 10 }]}>Límite de Crédito:</Text>
+                                <Text style={[styles.label, { color: theme.muted, marginTop: 10 }]}>Límite de Crédito:</Text>
                                 <View style={styles.limitContainer}>
                                     <TextInput
-                                        style={[styles.input, { flex: 1, backgroundColor: noLimit ? (isDarkMode ? '#333' : '#e0e0e0') : theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                        style={[styles.input, { flex: 1, backgroundColor: noLimit ? theme.bg : theme.raised, color: noLimit ? theme.muted : theme.ink, borderColor: theme.lineStrong }]}
                                         placeholder="Monto ($)"
-                                        placeholderTextColor={theme.subText}
+                                        placeholderTextColor={theme.muted}
                                         keyboardType="numeric"
                                         value={limitAmount}
                                         onChangeText={setLimitAmount}
                                         editable={!noLimit}
                                     />
                                     <TouchableOpacity 
-                                        style={[styles.noLimitBtn, noLimit ? { backgroundColor: theme.accent } : { backgroundColor: theme.inputBackground, borderColor: theme.border, borderWidth: 1 }]}
+                                        style={[styles.noLimitBtn, noLimit ? { backgroundColor: theme.accent } : { backgroundColor: theme.raised, borderColor: theme.lineStrong, borderWidth: 1 }]}
                                         onPress={() => setNoLimit(!noLimit)}
                                     >
-                                        <Text style={{ color: noLimit ? '#fff' : theme.text, fontSize: 12 }}>Sin Límite</Text>
+                                        <Text style={{ color: noLimit ? theme.onAccent : theme.ink, fontSize: 12 }}>Sin Límite</Text>
                                     </TouchableOpacity>
                                 </View>
                             </>
                         )}
 
                         <View style={styles.btnsRow}>
-                            <TouchableOpacity style={[styles.cancelBtn, { backgroundColor: theme.inputBackground }]} onPress={() => setShowModal(false)}>
-                                <Text style={{ color: theme.text }}>Cancelar</Text>
+                            <TouchableOpacity style={[styles.cancelBtn, { backgroundColor: theme.raised }]} onPress={() => setShowModal(false)}>
+                                <Text style={{ color: theme.ink }}>Cancelar</Text>
                             </TouchableOpacity>
                             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: theme.accent }]} onPress={handleSave}>
-                                <Text style={{ color: '#fff', fontWeight: 'bold' }}>Guardar</Text>
+                                <Text style={{ color: theme.onAccent, fontFamily: FONT.bold }}>Guardar</Text>
                             </TouchableOpacity>
                         </View>
                     </KeyboardAvoidingView>
@@ -326,7 +316,7 @@ const styles = StyleSheet.create({
         borderBottomWidth: 1,
     },
     backButton: { padding: 5 },
-    headerTitle: { fontSize: 20, fontWeight: 'bold' },
+    headerTitle: { fontSize: 20, fontFamily: FONT.bold, flexShrink: 1, minWidth: 0 },
     actionStrip: {
         flexDirection: 'row',
         padding: 15,
@@ -335,7 +325,9 @@ const styles = StyleSheet.create({
     actionBtn: {
         flex: 1,
         paddingVertical: 12,
-        borderRadius: 10,
+        minWidth: 0,
+        minHeight: 48,
+        borderRadius: RADIUS.sm,
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -350,10 +342,9 @@ const styles = StyleSheet.create({
     },
     cardContainer: {
         padding: 15,
-        borderRadius: 15,
+        borderRadius: RADIUS.base,
         marginBottom: 15,
         elevation: 2,
-        shadowColor: '#000',
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,
         shadowRadius: 4,
@@ -365,23 +356,26 @@ const styles = StyleSheet.create({
     },
     cardName: {
         fontSize: 18,
-        fontWeight: 'bold',
+        fontFamily: FONT.bold,
+        flex: 1,
+        minWidth: 0,
+        marginRight: 10,
     },
     typeBadge: {
         paddingHorizontal: 8,
         paddingVertical: 4,
         borderRadius: 5,
+        borderWidth: 1,
+        flexShrink: 0,
     },
     typeText: {
-        color: '#fff',
         fontSize: 10,
-        fontWeight: 'bold',
+        fontFamily: FONT.bold,
     },
     creditDetails: {
         marginTop: 15,
         paddingTop: 15,
         borderTopWidth: 1,
-        borderTopColor: 'rgba(0,0,0,0.1)',
         gap: 8,
     },
     detailRow: {
@@ -400,13 +394,13 @@ const styles = StyleSheet.create({
     },
     modalContent: {
         padding: 20,
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
+        borderTopLeftRadius: RADIUS.sheet,
+        borderTopRightRadius: RADIUS.sheet,
         minHeight: 300,
     },
     modalTitle: {
         fontSize: 18,
-        fontWeight: 'bold',
+        fontFamily: FONT.bold,
         marginBottom: 15,
         textAlign: 'center',
     },
@@ -417,7 +411,7 @@ const styles = StyleSheet.create({
     },
     input: {
         borderWidth: 1,
-        borderRadius: 8,
+        borderRadius: RADIUS.sm,
         padding: 12,
         fontSize: 16,
     },
@@ -433,7 +427,8 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         paddingHorizontal: 15,
-        borderRadius: 8,
+        borderRadius: RADIUS.sm,
+        flexShrink: 0,
     },
     btnsRow: {
         flexDirection: 'row',
@@ -443,13 +438,17 @@ const styles = StyleSheet.create({
     cancelBtn: {
         flex: 1,
         padding: 15,
-        borderRadius: 10,
+        minHeight: 52,
+        justifyContent: 'center',
+        borderRadius: RADIUS.sm,
         alignItems: 'center',
     },
     saveBtn: {
         flex: 1,
         padding: 15,
-        borderRadius: 10,
+        minHeight: 52,
+        justifyContent: 'center',
+        borderRadius: RADIUS.sm,
         alignItems: 'center',
     },
 });

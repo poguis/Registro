@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
+import { View, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
+import { Text } from '../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme, FONT, RADIUS } from '../contexts/ThemeContext';
 import { runRlsProbe } from '../auth/rlsProbe';
 
 // SOLO variante dev (Home no la muestra en producción y runRlsProbe se niega fuera de dev).
@@ -25,21 +26,21 @@ export default function RlsTestScreen({ onBack }) {
     };
 
     return (
-        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
             <View style={styles.header}>
                 <TouchableOpacity onPress={onBack}><Text style={[styles.back, { color: theme.accent }]}>‹ Volver</Text></TouchableOpacity>
-                <Text style={[styles.title, { color: theme.text }]}>Prueba de RLS (dev)</Text>
+                <Text style={[styles.title, { color: theme.ink }]}>Prueba de RLS (dev)</Text>
             </View>
             <ScrollView contentContainerStyle={{ padding: 20 }}>
                 <TouchableOpacity style={[styles.button, { backgroundColor: theme.accent }]} onPress={run} disabled={running}>
-                    {running ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Ejecutar prueba</Text>}
+                    {running ? <ActivityIndicator color={theme.onAccent} /> : <Text style={[styles.buttonText, { color: theme.onAccent }]}>Ejecutar prueba</Text>}
                 </TouchableOpacity>
-                {error && <Text style={[styles.error]}>{error}</Text>}
+                {error && <Text style={[styles.error, { color: theme.danger }]}>{error}</Text>}
                 {steps && steps.map((s) => (
-                    <View key={s.step} style={[styles.step, { borderColor: s.pass ? '#4CAF50' : '#e94560', backgroundColor: theme.card }]}>
-                        <Text style={[styles.stepTitle, { color: theme.text }]}>{s.pass ? '✅' : '❌'} {s.step}</Text>
-                        <Text style={{ color: theme.subText }}>esperado: {s.expected} · HTTP {String(s.status)} · código {String(s.code)}</Text>
-                        <Text style={{ color: theme.subText }}>{s.message}</Text>
+                    <View key={s.step} style={[styles.step, { borderColor: s.pass ? theme.tones.verde.fg : theme.danger, backgroundColor: theme.surface }]}>
+                        <Text style={[styles.stepTitle, { color: theme.ink }]} numberOfLines={2}>{s.pass ? '✅' : '❌'} {s.step}</Text>
+                        <Text style={{ color: theme.muted }}>esperado: {s.expected} · HTTP {String(s.status)} · código {String(s.code)}</Text>
+                        <Text style={{ color: theme.muted }}>{s.message}</Text>
                     </View>
                 ))}
             </ScrollView>
@@ -50,11 +51,11 @@ export default function RlsTestScreen({ onBack }) {
 const styles = StyleSheet.create({
     container: { flex: 1 },
     header: { padding: 20, paddingBottom: 0 },
-    back: { fontSize: 16, fontWeight: '600', marginBottom: 10 },
-    title: { fontSize: 22, fontWeight: 'bold' },
-    button: { padding: 16, borderRadius: 15, alignItems: 'center', marginBottom: 20 },
-    buttonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
-    error: { color: '#e94560', marginBottom: 15 },
-    step: { borderLeftWidth: 5, borderRadius: 10, padding: 12, marginBottom: 12 },
-    stepTitle: { fontWeight: 'bold', marginBottom: 4 },
+    back: { fontSize: 16, fontFamily: FONT.semibold, marginBottom: 10 },
+    title: { fontSize: 22, fontFamily: FONT.bold },
+    button: { padding: 16, borderRadius: RADIUS.sm, alignItems: 'center', marginBottom: 20, minHeight: 52, justifyContent: 'center' },
+    buttonText: { fontSize: 16, fontFamily: FONT.bold },
+    error: { marginBottom: 15 },
+    step: { borderLeftWidth: 5, borderRadius: RADIUS.sm, padding: 12, marginBottom: 12 },
+    stepTitle: { fontFamily: FONT.bold, marginBottom: 4 },
 });

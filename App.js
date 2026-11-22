@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, ActivityIndicator, Alert, BackHandler } from 'react-native';
+import { View, ActivityIndicator, BackHandler } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import LoginScreen from './src/screens/LoginScreen';
 import HomeScreen from './src/screens/HomeScreen';
@@ -24,7 +24,10 @@ import { useAuth } from './src/auth/useAuth';
 import { getVariant } from './src/auth/redirect';
 import { afterGoogleLogin, confirmLink, resolveStartupIdentity, chooseLocalUser } from './src/auth/accountFlow';
 import { startSyncTriggers } from './src/sync/controller';
-import { ThemeProvider } from './src/contexts/ThemeContext';
+import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
+import { SheetProvider } from './src/contexts/SheetContext';
+import { useSheet } from './src/hooks/useSheet';
+import SystemBars from './src/components/SystemBars';
 
 // Variante dev (app.config.js): habilita herramientas de prueba que nunca van en producción.
 const IS_DEV_VARIANT = getVariant() === 'development';
@@ -40,7 +43,35 @@ const formatMigrationSummary = (summary) => {
   return `Tus datos se actualizaron al nuevo formato. Filas por tabla (antes → después):\n${lines.join('\n')}${adjustments}`;
 };
 
+// Raíz (dirección visual): tema → insets → hojas y avisos → barras del sistema → contenido. Todo
+// (también la pantalla de error de la BD, el login y la vinculación) queda dentro de los
+// proveedores, así que ninguna alerta usa el diálogo del sistema. Hasta leer la preferencia de tema se
+// pinta solo el fondo, para no mostrar un instante el modo equivocado.
 export default function App() {
+  return (
+    <ThemeProvider>
+      <SafeAreaProvider>
+        <SheetProvider>
+          <Root />
+        </SheetProvider>
+      </SafeAreaProvider>
+    </ThemeProvider>
+  );
+}
+
+function Root() {
+  const { theme, ready } = useTheme();
+  return (
+    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+      <SystemBars />
+      {ready ? <AppContent /> : null}
+    </View>
+  );
+}
+
+function AppContent() {
+  const { theme } = useTheme();
+  const { confirm, informar, avisar } = useSheet();
   const [isReady, setIsReady] = useState(false);
   const [user, setUser] = useState(null);
   const [currentView, setCurrentView] = useState('LOGIN'); // LOGIN, HOME, DINERO, DEUDAS_PRESTAMOS, PENDIENTE
@@ -72,7 +103,7 @@ export default function App() {
         const res = await db.getLatestMigrationSummary();
         const hadData = res.success && res.summary && Object.values(res.summary.before).some((n) => n > 0);
         if (hadData) {
-          Alert.alert('Actualización de datos completada', formatMigrationSummary(res.summary));
+          informar('Actualización de datos completada', formatMigrationSummary(res.summary));
         }
       }
 
@@ -114,20 +145,20 @@ export default function App() {
     }
 
     if (currentView === 'HOME') {
-      Alert.alert(
-        'Salir',
-        '¿Estás seguro de que quieres salir de la aplicación?',
-        [
-          { text: 'Cancelar', style: 'cancel', onPress: () => { } },
-          { text: 'Salir', style: 'destructive', onPress: () => BackHandler.exitApp() }
-        ]
-      );
+      confirm({
+        titulo: 'Salir',
+        mensaje: '¿Estás seguro de que quieres salir de la aplicación?',
+        acciones: [
+          { clave: 'cancelar', texto: 'Cancelar', variante: 'cancelar' },
+          { clave: 'salir', texto: 'Salir', variante: 'destructiva' },
+        ],
+      }).then((clave) => { if (clave === 'salir') BackHandler.exitApp(); });
       return true;
     }
 
     // Default: if no history and not in HOME (e.g. LOGIN), let system handle it
     return false;
-  }, [navigationHistory, currentView]);
+  }, [navigationHistory, currentView, confirm]);
 
   useEffect(() => {
     const backHandler = BackHandler.addEventListener('hardwareBackPress', handleBack);
@@ -147,11 +178,11 @@ export default function App() {
     // Sin callback (pestaña cerrada, retorno a otra URL o sin code): no se tocó nada y se
     // puede reintentar.
     if (r.status === 'cancel') {
-      Alert.alert('Inicio de sesión', 'No se completó el inicio de sesión, inténtalo de nuevo.');
+      informar('Inicio de sesión', 'No se completó el inicio de sesión, inténtalo de nuevo.');
       return;
     }
     if (r.status === 'error') {
-      Alert.alert('No se completó el inicio de sesión', `${r.message}
+      informar('No se completó el inicio de sesión', `${r.message}
 
 Inténtalo de nuevo.`);
       return;
@@ -162,14 +193,14 @@ Inténtalo de nuevo.`);
     } else if (next.kind === 'confirm-link') {
       setPendingLink({ email: next.email, localUsername: next.localUser.username, session: r.session });
     } else if (next.kind === 'blocked') {
-      Alert.alert(
+      informar(
         'Cuenta no permitida',
         next.reason === 'other-account'
           ? `Los datos de este dispositivo pertenecen a ${next.linkedEmail || 'otra cuenta'}. No se cambió nada.`
           : 'Hay varias cuentas locales en este dispositivo; la vinculación necesita una sola. No se cambió nada.'
       );
     } else {
-      Alert.alert('Error', next.message);
+      informar('Error', next.message);
     }
   };
 
@@ -181,10 +212,10 @@ Inténtalo de nuevo.`);
       if (res.ok) {
         setPendingLink(null);
         enterApp(res.user);
-        Alert.alert('Cuenta vinculada', `Tus datos ahora están vinculados a ${res.user.email}.`);
+        avisar({ titulo: 'Cuenta vinculada', mensaje: `Tus datos ahora están vinculados a ${res.user.email}.` });
       } else {
         setPendingLink(null);
-        Alert.alert('No se vinculó', `${res.message}
+        informar('No se vinculó', `${res.message}
 
 Tus datos no se modificaron.`);
       }
@@ -200,14 +231,14 @@ Tus datos no se modificaron.`);
 
   // Cerrar sesión de Google: los datos locales se quedan y la app sigue abierta.
   const handleLogout = () => {
-    Alert.alert(
-      'Cerrar sesión de Google',
-      'Tus datos se quedan en este dispositivo y la app sigue funcionando sin conexión. Podrás volver a iniciar sesión cuando quieras.',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Cerrar sesión', style: 'destructive', onPress: () => auth.signOut() },
-      ]
-    );
+    confirm({
+      titulo: 'Cerrar sesión de Google',
+      mensaje: 'Tus datos se quedan en este dispositivo y la app sigue funcionando sin conexión. Podrás volver a iniciar sesión cuando quieras.',
+      acciones: [
+        { clave: 'cancelar', texto: 'Cancelar', variante: 'cancelar' },
+        { clave: 'cerrar', texto: 'Cerrar sesión', variante: 'destructiva' },
+      ],
+    }).then((clave) => { if (clave === 'cerrar') auth.signOut(); });
   };
 
   const handleChooseLocal = async (localUser) => {
@@ -231,26 +262,19 @@ Tus datos no se modificaron.`);
 
   if (!isReady) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#e94560" />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.bg }}>
+        <ActivityIndicator size="large" color={theme.accent} />
       </View>
     );
   }
 
   if (dbError) {
-    return (
-      <ThemeProvider>
-        <SafeAreaProvider>
-          <DatabaseErrorScreen errorMessage={dbError} onRetry={initialize} />
-        </SafeAreaProvider>
-      </ThemeProvider>
-    );
+    return <DatabaseErrorScreen errorMessage={dbError} onRetry={initialize} />;
   }
 
   // Router simple basado en estado
   return (
-    <ThemeProvider>
-      <SafeAreaProvider>
+    <>
         {pendingLink ? (
           <LinkAccountScreen
             email={pendingLink.email}
@@ -385,7 +409,6 @@ Tus datos no se modificaron.`);
               );
           }
         })()}
-      </SafeAreaProvider>
-    </ThemeProvider>
+    </>
   );
 }

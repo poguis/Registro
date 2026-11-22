@@ -1,26 +1,17 @@
-import React, { useState, useEffect } from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    TouchableOpacity,
-    Modal,
-    TextInput,
-    Alert,
-    ScrollView,
-    SectionList,
-    KeyboardAvoidingView,
-    Platform
-} from 'react-native';
+import React, { useState, useEffect, useMemo } from 'react';
+import { View, StyleSheet, TouchableOpacity, Modal, ScrollView, SectionList, KeyboardAvoidingView, Platform } from 'react-native';
+import { useSheet } from '../hooks/useSheet';
+import { Text, TextInput } from '../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme, FONT, RADIUS } from '../contexts/ThemeContext';
 import db from '../services/db';
 import { useSyncRefresh } from '../sync/useSyncRefresh';
 import { getUtcRange, parseDbTimestamp } from '../services/dateRange';
 
 export default function DineroScreen({ user, onBack, onNavigate }) {
-    const { theme, isDarkMode } = useTheme();
+    const { theme } = useTheme();
+    const styles = useMemo(() => makeStyles(theme), [theme]);
+    const { informar } = useSheet();
     const [balance, setBalance] = useState(0);
     const [historyGroups, setHistoryGroups] = useState([]);
     const [expandedSections, setExpandedSections] = useState({}); // { "Title": true/false }
@@ -134,7 +125,7 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
     const handleUpdateBalance = async () => {
         const amount = parseFloat(inputBalance);
         if (isNaN(amount)) {
-            Alert.alert('Error', 'Número inválido');
+            informar('Error', 'Número inválido');
             return;
         }
         await db.updateUserBalance(user.id, amount);
@@ -215,10 +206,10 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
     };
 
     const executeTransaction = async () => {
-        if (!transAmount) { Alert.alert('Error', 'Falta el monto'); return; }
+        if (!transAmount) { informar('Error', 'Falta el monto'); return; }
         const val = parseFloat(transAmount);
-        if (isNaN(val) || val <= 0) { Alert.alert('Error', 'Monto inválido'); return; }
-        if (!transCategory.trim()) { Alert.alert('Error', 'Falta categoría'); return; }
+        if (isNaN(val) || val <= 0) { informar('Error', 'Monto inválido'); return; }
+        if (!transCategory.trim()) { informar('Error', 'Falta categoría'); return; }
 
         let finalAmount = actionType === 'add' ? val : -val;
 
@@ -238,7 +229,7 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                     if (!isNewContact) {
                         const contact = linkedContacts.find(x => x.id === selectedContactId);
                         if (contact && val > contact.total) {
-                            Alert.alert('Error', `El monto ($${val}) supera lo que te deben ($${contact.total.toFixed(2)})`);
+                            informar('Error', `El monto ($${val}) supera lo que te deben ($${contact.total.toFixed(2)})`);
                             return;
                         }
                     }
@@ -256,7 +247,7 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                     if (!isNewContact) {
                         const contact = linkedContacts.find(x => x.id === selectedContactId);
                         if (contact && val > contact.total) {
-                            Alert.alert('Error', `El monto ($${val}) supera tu deuda actual ($${contact.total.toFixed(2)})`);
+                            informar('Error', `El monto ($${val}) supera tu deuda actual ($${contact.total.toFixed(2)})`);
                             return;
                         }
                     }
@@ -268,10 +259,10 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
             let finalName = contactName;
 
             if (isNewContact) {
-                if (!contactName.trim()) { Alert.alert('Error', 'Nombre obligatorio'); return; }
+                if (!contactName.trim()) { informar('Error', 'Nombre obligatorio'); return; }
                 finalId = null;
             } else {
-                if (!finalId) { Alert.alert('Error', 'Selecciona persona'); return; }
+                if (!finalId) { informar('Error', 'Selecciona persona'); return; }
                 const c = linkedContacts.find(x => x.id === finalId);
                 finalName = c ? c.name : '';
             }
@@ -287,7 +278,7 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
             linked,
         });
         if (!res.success) {
-            Alert.alert('Error', 'No se pudo registrar el movimiento. No se guardó ningún cambio.');
+            informar('Error', 'No se pudo registrar el movimiento. No se guardó ningún cambio.');
             return;
         }
 
@@ -312,10 +303,10 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
             <View style={styles.historyRow}>
                 <View style={styles.historyLeft}>
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Text style={styles.histCat}>{item.category}</Text>
-                        <Text style={styles.histTime}> • {timeStr}</Text>
+                        <Text style={styles.histCat} numberOfLines={1} ellipsizeMode="tail">{item.category}</Text>
+                        <Text style={styles.histTime} numberOfLines={1}> • {timeStr}</Text>
                     </View>
-                    {item.description ? <Text style={styles.histDesc}>{item.description}</Text> : null}
+                    {item.description ? <Text style={styles.histDesc} numberOfLines={2} ellipsizeMode="tail">{item.description}</Text> : null}
                 </View>
                 <Text style={[styles.histAmount, item.amount >= 0 ? styles.green : styles.red]}>
                     {item.amount >= 0 ? '+' : ''}{item.amount.toFixed(2)}
@@ -330,7 +321,7 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
             <TouchableOpacity style={styles.sectionHeader} onPress={() => toggleSection(title)} activeOpacity={0.7}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <Text style={[styles.sectionTitle, { marginRight: 10 }]}>{isExpanded ? '▼' : '▶'}</Text>
-                    <Text style={styles.sectionTitle}>{title}</Text>
+                    <Text style={styles.sectionTitle} numberOfLines={1}>{title}</Text>
                 </View>
                 <Text style={[styles.sectionTotal, total >= 0 ? styles.green : styles.red]}>
                     {total >= 0 ? '+' : ''}{total.toFixed(2)}
@@ -348,21 +339,20 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
     }, [historyGroups, expandedSections]);
 
     return (
-        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-            <StatusBar style={isDarkMode ? "light" : "dark"} />
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
 
             {/* Header */}
-            <View style={[styles.header, { backgroundColor: theme.header, borderBottomWidth: 1, borderBottomColor: theme.border }]}>
+            <View style={[styles.header, { backgroundColor: theme.surface, borderBottomWidth: 1, borderBottomColor: theme.line }]}>
                 <TouchableOpacity onPress={onBack}>
-                    <Text style={{ fontSize: 24, color: theme.text }}>←</Text>
+                    <Text style={{ fontSize: 24, color: theme.ink }}>←</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity onPress={() => {
                     setInputBalance(balance.toString());
                     setEditMode(true);
                 }}>
-                    <Text style={[styles.labelSmall, { color: theme.subText }]}>Dinero Actual</Text>
-                    <Text style={[styles.balanceSmall, { color: theme.text }]}>${balance.toFixed(2)}</Text>
+                    <Text style={[styles.labelSmall, { color: theme.muted }]}>Dinero Actual</Text>
+                    <Text style={[styles.balanceSmall, { color: theme.ink }]}>${balance.toFixed(2)}</Text>
                 </TouchableOpacity>
 
                 <View style={{ flexDirection: 'row', gap: 15 }}>
@@ -382,17 +372,17 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
             </View>
 
             <View style={styles.actionStrip}>
-                <TouchableOpacity style={[styles.btnSmall, styles.btnIn, isDarkMode && { backgroundColor: '#1b3320', borderColor: '#2e7d32' }]} onPress={() => openTransactionModal('add')}>
-                    <Text style={[styles.btnTextSmall, { color: isDarkMode ? '#81c784' : '#2e7d32' }]}>+$ Ingreso</Text>
+                <TouchableOpacity style={[styles.btnSmall, styles.btnIn]} onPress={() => openTransactionModal('add')}>
+                    <Text style={[styles.btnTextSmall, { color: theme.tones.verde.fg }]}>+$ Ingreso</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.btnSmall, styles.btnOut, isDarkMode && { backgroundColor: '#331b1b', borderColor: '#c62828' }]} onPress={() => openTransactionModal('subtract')}>
-                    <Text style={[styles.btnTextSmall, { color: isDarkMode ? '#e57373' : '#c62828' }]}>-$ Gasto</Text>
+                <TouchableOpacity style={[styles.btnSmall, styles.btnOut]} onPress={() => openTransactionModal('subtract')}>
+                    <Text style={[styles.btnTextSmall, { color: theme.tones.rojo.fg }]}>-$ Gasto</Text>
                 </TouchableOpacity>
             </View>
 
             <View style={{ flex: 1, paddingHorizontal: 15 }}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                    <Text style={[styles.histTitle, { color: theme.text, marginBottom: 0 }]}>Historial</Text>
+                    <Text style={[styles.histTitle, { color: theme.ink, marginBottom: 0 }]}>Historial</Text>
                     <View style={{ flexDirection: 'row', gap: 5 }}>
                         {['today', 'week', 'month', 'custom', 'all'].map(f => (
                             <TouchableOpacity
@@ -400,13 +390,13 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                                 onPress={() => f === 'custom' ? setShowDatePicker(true) : setDateFilter(f)}
                                 style={[
                                     styles.filterPill,
-                                    { backgroundColor: dateFilter === f ? theme.accent : theme.inputBackground }
+                                    { backgroundColor: dateFilter === f ? theme.accent : theme.raised }
                                 ]}
                             >
                                 <Text style={{
                                     fontSize: 10,
-                                    color: dateFilter === f ? '#fff' : theme.subText,
-                                    fontWeight: 'bold'
+                                    color: dateFilter === f ? theme.onAccent : theme.muted,
+                                    fontFamily: FONT.bold
                                 }}>
                                     {f === 'today' ? 'Hoy' : f === 'week' ? 'Sem' : f === 'month' ? 'Mes' : f === 'custom' ? '📅' : 'Todo'}
                                 </Text>
@@ -423,13 +413,13 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
 
                         return (
                             <TouchableOpacity
-                                style={[styles.sectionHeader, { backgroundColor: theme.inputBackground }]}
+                                style={[styles.sectionHeader, { backgroundColor: theme.raised }]}
                                 onPress={() => toggleSection(title)}
                             >
-                                <Text style={[styles.sectionTitle, { color: theme.subText }]}>
+                                <Text style={[styles.sectionTitle, { color: theme.muted }]} numberOfLines={1}>
                                     {isExpanded ? '▼ ' : '▶ '} {title}
                                 </Text>
-                                <Text style={[styles.sectionTotal, { color: total >= 0 ? '#4CAF50' : '#F44336' }]}>
+                                <Text style={[styles.sectionTotal, { color: total >= 0 ? theme.money.ingreso : theme.money.gasto }]}>
                                     {total >= 0 ? '+' : ''}{total.toFixed(2)}
                                 </Text>
                             </TouchableOpacity>
@@ -447,13 +437,13 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                         });
 
                         return (
-                            <View style={[styles.historyRow, { borderBottomColor: theme.border }]}>
+                            <View style={[styles.historyRow, { borderBottomColor: theme.line }]}>
                                 <View style={styles.historyLeft}>
                                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                        <Text style={[styles.histCat, { color: theme.text }]}>{item.category}</Text>
-                                        <Text style={[styles.histTime, { color: theme.subText }]}> • {timeStr}</Text>
+                                        <Text style={[styles.histCat, { color: theme.ink }]} numberOfLines={1} ellipsizeMode="tail">{item.category}</Text>
+                                        <Text style={[styles.histTime, { color: theme.muted }]} numberOfLines={1}> • {timeStr}</Text>
                                     </View>
-                                    {item.description ? <Text style={[styles.histDesc, { color: theme.subText }]}>{item.description}</Text> : null}
+                                    {item.description ? <Text style={[styles.histDesc, { color: theme.muted }]} numberOfLines={2} ellipsizeMode="tail">{item.description}</Text> : null}
                                 </View>
                                 <Text style={[styles.histAmount, item.amount >= 0 ? styles.green : styles.red]}>
                                     {item.amount >= 0 ? '+' : ''}${item.amount.toFixed(2)}
@@ -461,30 +451,30 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                             </View>
                         );
                     }}
-                    ListEmptyComponent={<Text style={[styles.empty, { color: theme.subText }]}>No hay movimientos aún</Text>}
+                    ListEmptyComponent={<Text style={[styles.empty, { color: theme.muted }]}>No hay movimientos aún</Text>}
                     contentContainerStyle={{ paddingBottom: 20 }}
                 />
             </View>
 
             {/* Transaction Modal */}
             <Modal visible={showTransModal} transparent animationType="slide" onRequestClose={() => setShowTransModal(false)}>
-                <View style={[styles.overlay, { backgroundColor: theme.modalOverlay }]}>
-                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[styles.modalContent, { backgroundColor: theme.card, maxHeight: '90%' }]}>
+                <View style={[styles.overlay, { backgroundColor: theme.overlay }]}>
+                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={[styles.modalContent, { backgroundColor: theme.surface, maxHeight: '90%' }]}>
                         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1, paddingBottom: 20 }}>
-                            <Text style={[styles.modalTitle, { color: theme.text }]}>{actionType === 'add' ? 'Nuevo Ingreso' : 'Nuevo Gasto'}</Text>
+                            <Text style={[styles.modalTitle, { color: theme.ink }]} numberOfLines={1}>{actionType === 'add' ? 'Nuevo Ingreso' : 'Nuevo Gasto'}</Text>
 
                         <TextInput
-                            style={[styles.inputBig, { color: theme.text, borderColor: theme.border }]}
+                            style={[styles.inputBig, { color: theme.ink, borderColor: theme.lineStrong }]}
                             autoFocus
                             placeholder="0.00"
-                            placeholderTextColor={theme.subText}
+                            placeholderTextColor={theme.muted}
                             keyboardType="numeric"
                             value={transAmount}
                             onChangeText={setTransAmount}
                         />
 
                         <View style={styles.catPickerWrapper}>
-                            <Text style={[styles.label, { color: theme.subText, marginBottom: 10 }]}>Categoría:</Text>
+                            <Text style={[styles.label, { color: theme.muted, marginBottom: 10 }]}>Categoría:</Text>
                             <View style={styles.catGrid}>
                                 {availableCategories.filter(cat => {
                                     const baseIngresos = ['Sueldo', 'Interés'];
@@ -507,19 +497,19 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                                         key={cat}
                                         style={[
                                             styles.catPill,
-                                            { backgroundColor: theme.inputBackground },
+                                            { backgroundColor: theme.raised },
                                             transCategory === cat && { backgroundColor: theme.accent, borderColor: theme.accent }
                                         ]}
                                         onPress={() => selectCategory(cat)}
                                     >
-                                        <Text style={[styles.catPillText, { color: transCategory === cat ? '#fff' : theme.text }]}>{cat}</Text>
+                                        <Text style={[styles.catPillText, { color: transCategory === cat ? theme.onAccent : theme.ink }]} numberOfLines={1} ellipsizeMode="tail">{cat}</Text>
                                     </TouchableOpacity>
                                 ))}
                                 <TouchableOpacity
-                                    style={[styles.catPill, { backgroundColor: 'rgba(76, 175, 80, 0.1)', borderStyle: 'dashed', borderWidth: 1, borderColor: '#4CAF50' }]}
+                                    style={[styles.catPill, { backgroundColor: theme.tones.verde.bg, borderStyle: 'dashed', borderWidth: 1, borderColor: theme.tones.verde.fg }]}
                                     onPress={() => setIsAddingCategory(true)}
                                 >
-                                    <Text style={[styles.catPillText, { color: '#4CAF50', fontWeight: 'bold' }]}>+ Nueva</Text>
+                                    <Text style={[styles.catPillText, { color: theme.tones.verde.fg, fontFamily: FONT.bold }]}>+ Nueva</Text>
                                 </TouchableOpacity>
                             </View>
                         </View>
@@ -527,53 +517,53 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                         {isAddingCategory && (
                             <View style={styles.newCatRow}>
                                 <TextInput
-                                    style={[styles.inputSmall, { flex: 1, backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                    style={[styles.inputSmall, { flex: 1, minWidth: 0, backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                                     placeholder="Nombre de categoría"
-                                    placeholderTextColor={theme.subText}
+                                    placeholderTextColor={theme.muted}
                                     value={newCatName}
                                     onChangeText={setNewCatName}
                                     autoFocus
                                 />
                                 <TouchableOpacity style={[styles.addBtnSmall, { backgroundColor: theme.accent }]} onPress={handleAddCategory}>
-                                    <Text style={{ color: '#fff', fontWeight: 'bold' }}>Añadir</Text>
+                                    <Text style={{ color: theme.onAccent, fontFamily: FONT.bold }}>Añadir</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity style={[styles.cancelBtnSmall]} onPress={() => setIsAddingCategory(false)}>
-                                    <Text style={{ color: theme.subText }}>✕</Text>
+                                    <Text style={{ color: theme.muted }}>✕</Text>
                                 </TouchableOpacity>
                             </View>
                         )}
 
                         {(transCategory === 'Me deben' || transCategory === 'Préstamos') && (
-                            <View style={[styles.linkedBox, { backgroundColor: theme.inputBackground }]}>
-                                <Text style={[styles.label, { color: theme.subText }]}>Vincular Contacto:</Text>
+                            <View style={[styles.linkedBox, { backgroundColor: theme.raised }]}>
+                                <Text style={[styles.label, { color: theme.muted }]}>Vincular Contacto:</Text>
                                 <View style={styles.btnsRow}>
                                     <TouchableOpacity
                                         style={[
                                             styles.tab,
-                                            !isNewContact ? { backgroundColor: theme.accent, borderColor: theme.accent } : { backgroundColor: theme.inputBackground, borderColor: theme.border }
+                                            !isNewContact ? { backgroundColor: theme.accent, borderColor: theme.accent } : { backgroundColor: theme.surface, borderColor: theme.lineStrong }
                                         ]}
                                         onPress={() => setIsNewContact(false)}
                                     >
-                                        <Text style={{ fontSize: 12, fontWeight: 'bold', color: !isNewContact ? '#fff' : theme.subText }}>Existente</Text>
+                                        <Text style={{ fontSize: 12, fontFamily: FONT.bold, color: !isNewContact ? theme.onAccent : theme.muted }}>Existente</Text>
                                     </TouchableOpacity>
                                     {!((actionType === 'add' && transCategory === 'Me deben') || (actionType === 'subtract' && transCategory === 'Préstamos')) && (
                                         <TouchableOpacity
                                             style={[
                                                 styles.tab,
-                                                isNewContact ? { backgroundColor: theme.accent, borderColor: theme.accent } : { backgroundColor: theme.inputBackground, borderColor: theme.border }
+                                                isNewContact ? { backgroundColor: theme.accent, borderColor: theme.accent } : { backgroundColor: theme.surface, borderColor: theme.lineStrong }
                                             ]}
                                             onPress={() => setIsNewContact(true)}
                                         >
-                                            <Text style={{ fontSize: 12, fontWeight: 'bold', color: isNewContact ? '#fff' : theme.subText }}>Nuevo</Text>
+                                            <Text style={{ fontSize: 12, fontFamily: FONT.bold, color: isNewContact ? theme.onAccent : theme.muted }}>Nuevo</Text>
                                         </TouchableOpacity>
                                     )}
                                 </View>
 
                                 {isNewContact ? (
                                     <TextInput
-                                        style={[styles.input, { marginTop: 10, backgroundColor: theme.card, color: theme.text, borderColor: theme.border }]}
+                                        style={[styles.input, { marginTop: 10, backgroundColor: theme.surface, color: theme.ink, borderColor: theme.lineStrong }]}
                                         placeholder="Nombre del contacto"
-                                        placeholderTextColor={theme.subText}
+                                        placeholderTextColor={theme.muted}
                                         value={contactName}
                                         onChangeText={setContactName}
                                     />
@@ -584,19 +574,19 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                                                 {linkedContacts.map(c => (
                                                     <TouchableOpacity
                                                         key={c.id}
-                                                        style={[styles.pItem, selectedContactId === c.id && styles.pItemSel, selectedContactId === c.id && { backgroundColor: theme.accent + '33' }]}
+                                                        style={[styles.pItem, selectedContactId === c.id && styles.pItemSel]}
                                                         onPress={() => setSelectedContactId(c.id)}
                                                     >
-                                                        <Text style={{ fontSize: 13, color: theme.text }}>{c.name}</Text>
-                                                        <Text style={{ fontSize: 10, color: theme.subText }}>Bal: ${c.total.toFixed(2)}</Text>
+                                                        <Text style={{ fontSize: 13, color: theme.ink }} numberOfLines={1} ellipsizeMode="tail">{c.name}</Text>
+                                                        <Text style={{ fontSize: 10, color: theme.muted }} numberOfLines={1}>Bal: ${c.total.toFixed(2)}</Text>
                                                     </TouchableOpacity>
                                                 ))}
-                                                {linkedContacts.length === 0 && <Text style={{ color: theme.subText, fontStyle: 'italic', fontSize: 12 }}>No hay contactos aún</Text>}
+                                                {linkedContacts.length === 0 && <Text style={{ color: theme.muted, fontStyle: 'italic', fontSize: 12 }}>No hay contactos aún</Text>}
                                             </View>
                                         </ScrollView>
 
                                         {selectedContactId && (
-                                            <View style={[styles.infoBox, { marginTop: 10, backgroundColor: isDarkMode ? '#1a237e' : '#E3F2FD' }]}>
+                                            <View style={[styles.infoBox, { marginTop: 10 }]}>
                                                 {(() => {
                                                     const contact = linkedContacts.find(c => c.id === selectedContactId);
                                                     const current = contact?.total || 0;
@@ -620,8 +610,8 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
 
                                                     return (
                                                         <>
-                                                            <Text style={[styles.infoTitle, { color: theme.infoText }]}>Actual: ${current.toFixed(2)}</Text>
-                                                            <Text style={[styles.infoMsg, { color: theme.infoText }]}>{msg}</Text>
+                                                            <Text style={[styles.infoTitle, { color: theme.accent }]}>Actual: ${current.toFixed(2)}</Text>
+                                                            <Text style={[styles.infoMsg, { color: theme.accent }]}>{msg}</Text>
                                                         </>
                                                     );
                                                 })()}
@@ -633,19 +623,19 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                         )}
 
                         <TextInput
-                            style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                            style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                             placeholder="Descripción (Opcional)"
-                            placeholderTextColor={theme.subText}
+                            placeholderTextColor={theme.muted}
                             value={transDesc}
                             onChangeText={setTransDesc}
                         />
 
                         <View style={styles.btnsRow}>
-                            <TouchableOpacity style={[styles.cancelBtn, { backgroundColor: theme.inputBackground }]} onPress={() => setShowTransModal(false)}>
-                                <Text style={{ color: theme.text }}>Cancelar</Text>
+                            <TouchableOpacity style={[styles.cancelBtn, { backgroundColor: theme.raised }]} onPress={() => setShowTransModal(false)}>
+                                <Text style={{ color: theme.ink }}>Cancelar</Text>
                             </TouchableOpacity>
                             <TouchableOpacity style={[styles.saveBtn, actionType === 'add' ? styles.bgGreen : styles.bgRed]} onPress={executeTransaction}>
-                                <Text style={{ color: '#fff', fontWeight: 'bold' }}>Guardar</Text>
+                                <Text style={{ color: theme.surface, fontFamily: FONT.bold }}>Guardar</Text>
                             </TouchableOpacity>
                         </View>
 
@@ -656,22 +646,22 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
 
             {/* Manual Balance Edit Modal */}
             <Modal visible={editMode} transparent animationType="fade">
-                <View style={[styles.overlay, { backgroundColor: theme.modalOverlay }]}>
-                    <View style={[styles.modalContent, { height: 200, backgroundColor: theme.card }]}>
-                        <Text style={[styles.modalTitle, { color: theme.text }]}>Ajuste Manual</Text>
+                <View style={[styles.overlay, { backgroundColor: theme.overlay }]}>
+                    <View style={[styles.modalContent, { minHeight: 200, backgroundColor: theme.surface }]}>
+                        <Text style={[styles.modalTitle, { color: theme.ink }]} numberOfLines={1}>Ajuste Manual</Text>
                         <TextInput
-                            style={[styles.inputBig, { color: theme.text, borderColor: theme.border }]}
+                            style={[styles.inputBig, { color: theme.ink, borderColor: theme.lineStrong }]}
                             value={inputBalance}
                             onChangeText={setInputBalance}
                             keyboardType="numeric"
-                            placeholderTextColor={theme.subText}
+                            placeholderTextColor={theme.muted}
                         />
                         <View style={styles.btnsRow}>
-                            <TouchableOpacity style={[styles.cancelBtn, { backgroundColor: theme.inputBackground }]} onPress={() => setEditMode(false)}>
-                                <Text style={{ color: theme.text }}>Cancelar</Text>
+                            <TouchableOpacity style={[styles.cancelBtn, { backgroundColor: theme.raised }]} onPress={() => setEditMode(false)}>
+                                <Text style={{ color: theme.ink }}>Cancelar</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity style={[styles.saveBtn, { backgroundColor: theme.text }]} onPress={handleUpdateBalance}>
-                                <Text style={{ color: theme.card }}>Actualizar</Text>
+                            <TouchableOpacity style={[styles.saveBtn, { backgroundColor: theme.ink }]} onPress={handleUpdateBalance}>
+                                <Text style={{ color: theme.surface }}>Actualizar</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -680,16 +670,16 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
 
             {/* Custom Date Picker Modal */}
             <Modal visible={showDatePicker} transparent animationType="fade">
-                <View style={[styles.overlay, { backgroundColor: 'rgba(0,0,0,0.7)' }]}>
-                    <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
-                        <Text style={[styles.modalTitle, { color: theme.text }]}>Seleccionar Rango</Text>
+                <View style={[styles.overlay, { backgroundColor: theme.overlay }]}>
+                    <View style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+                        <Text style={[styles.modalTitle, { color: theme.ink }]} numberOfLines={1}>Seleccionar Rango</Text>
 
                         <View style={styles.datePickerContainer}>
                             <View style={styles.dateBlock}>
-                                <Text style={[styles.dateLabel, { color: theme.subText }]}>Desde:</Text>
+                                <Text style={[styles.dateLabel, { color: theme.muted }]}>Desde:</Text>
                                 <View style={styles.dateInputsRow}>
                                     <TextInput
-                                        style={[styles.dateInput, { backgroundColor: theme.inputBackground, color: theme.text }]}
+                                        style={[styles.dateInput, { backgroundColor: theme.raised, color: theme.ink }]}
                                         placeholder="Año"
                                         keyboardType="numeric"
                                         maxLength={4}
@@ -701,7 +691,7 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                                         }}
                                     />
                                     <TextInput
-                                        style={[styles.dateInput, { backgroundColor: theme.inputBackground, color: theme.text }]}
+                                        style={[styles.dateInput, { backgroundColor: theme.raised, color: theme.ink }]}
                                         placeholder="Mes"
                                         keyboardType="numeric"
                                         maxLength={2}
@@ -713,7 +703,7 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                                         }}
                                     />
                                     <TextInput
-                                        style={[styles.dateInput, { backgroundColor: theme.inputBackground, color: theme.text }]}
+                                        style={[styles.dateInput, { backgroundColor: theme.raised, color: theme.ink }]}
                                         placeholder="Día"
                                         keyboardType="numeric"
                                         maxLength={2}
@@ -728,10 +718,10 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                             </View>
 
                             <View style={[styles.dateBlock, { marginTop: 20 }]}>
-                                <Text style={[styles.dateLabel, { color: theme.subText }]}>Hasta:</Text>
+                                <Text style={[styles.dateLabel, { color: theme.muted }]}>Hasta:</Text>
                                 <View style={styles.dateInputsRow}>
                                     <TextInput
-                                        style={[styles.dateInput, { backgroundColor: theme.inputBackground, color: theme.text }]}
+                                        style={[styles.dateInput, { backgroundColor: theme.raised, color: theme.ink }]}
                                         placeholder="Año"
                                         keyboardType="numeric"
                                         maxLength={4}
@@ -743,7 +733,7 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                                         }}
                                     />
                                     <TextInput
-                                        style={[styles.dateInput, { backgroundColor: theme.inputBackground, color: theme.text }]}
+                                        style={[styles.dateInput, { backgroundColor: theme.raised, color: theme.ink }]}
                                         placeholder="Mes"
                                         keyboardType="numeric"
                                         maxLength={2}
@@ -755,7 +745,7 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                                         }}
                                     />
                                     <TextInput
-                                        style={[styles.dateInput, { backgroundColor: theme.inputBackground, color: theme.text }]}
+                                        style={[styles.dateInput, { backgroundColor: theme.raised, color: theme.ink }]}
                                         placeholder="Día"
                                         keyboardType="numeric"
                                         maxLength={2}
@@ -771,14 +761,14 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
                         </View>
 
                         <View style={styles.btnsRow}>
-                            <TouchableOpacity style={[styles.cancelBtn, { backgroundColor: theme.inputBackground }]} onPress={() => setShowDatePicker(false)}>
-                                <Text style={{ color: theme.text }}>Cancelar</Text>
+                            <TouchableOpacity style={[styles.cancelBtn, { backgroundColor: theme.raised }]} onPress={() => setShowDatePicker(false)}>
+                                <Text style={{ color: theme.ink }}>Cancelar</Text>
                             </TouchableOpacity>
                             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: theme.accent }]} onPress={() => {
                                 setDateFilter('custom');
                                 setShowDatePicker(false);
                             }}>
-                                <Text style={{ color: '#fff', fontWeight: 'bold' }}>Filtrar</Text>
+                                <Text style={{ color: theme.onAccent, fontFamily: FONT.bold }}>Filtrar</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -788,63 +778,65 @@ export default function DineroScreen({ user, onBack, onNavigate }) {
     );
 }
 
-const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#F5F7FA' },
+// Estilos en función del tema (dirección visual): ningún color fijo.
+const makeStyles = (t) => StyleSheet.create({
+    container: { flex: 1, backgroundColor: t.bg },
     header: {
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-        paddingHorizontal: 15, paddingVertical: 10, backgroundColor: '#fff'
+        paddingHorizontal: 15, paddingVertical: 10, backgroundColor: t.surface
     },
     compactBalance: { alignItems: 'center' },
-    labelSmall: { fontSize: 12, color: '#888' },
-    balanceSmall: { fontSize: 24, fontWeight: 'bold', color: '#333' },
+    labelSmall: { fontSize: 12, color: t.muted },
+    balanceSmall: { fontSize: 24, fontFamily: FONT.bold, color: t.ink },
 
     actionStrip: { flexDirection: 'row', gap: 10, padding: 15 },
     btnSmall: {
-        flex: 1, padding: 12, borderRadius: 10,
-        alignItems: 'center', justifyContent: 'center', elevation: 1
+        flex: 1, padding: 12, borderRadius: RADIUS.sm, minHeight: 48,
+        alignItems: 'center', justifyContent: 'center'
     },
-    btnIn: { backgroundColor: '#E8F5E9', borderWidth: 1, borderColor: '#C8E6C9' },
-    btnOut: { backgroundColor: '#FFEBEE', borderWidth: 1, borderColor: '#FFCDD2' },
-    btnTextSmall: { fontWeight: 'bold', fontSize: 16, color: '#333' },
+    // Ingreso = tono verde; gasto = tono rojo (fondo suave, borde y texto del tono).
+    btnIn: { backgroundColor: t.tones.verde.bg, borderWidth: 1, borderColor: t.tones.verde.fg },
+    btnOut: { backgroundColor: t.tones.rojo.bg, borderWidth: 1, borderColor: t.tones.rojo.fg },
+    btnTextSmall: { fontFamily: FONT.bold, fontSize: 16, color: t.ink },
 
-    histTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 10, color: '#444' },
+    histTitle: { fontSize: 18, fontFamily: FONT.bold, marginBottom: 10, color: t.ink },
     sectionHeader: {
         flexDirection: 'row', justifyContent: 'space-between',
-        backgroundColor: '#f0f0f0', padding: 8, borderRadius: 5, marginTop: 10
+        backgroundColor: t.raised, padding: 8, borderRadius: 5, marginTop: 10
     },
-    sectionTitle: { fontWeight: 'bold', color: '#555', fontSize: 13 },
-    sectionTotal: { fontWeight: 'bold', fontSize: 13 },
+    sectionTitle: { fontFamily: FONT.bold, color: t.muted, fontSize: 13, flexShrink: 1, minWidth: 0, marginRight: 8 },
+    sectionTotal: { fontFamily: FONT.bold, fontSize: 13, flexShrink: 0 },
 
     historyRow: {
         flexDirection: 'row', justifyContent: 'space-between',
-        paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#eee'
+        paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: t.line
     },
-    historyLeft: { flex: 1 },
-    histCat: { fontSize: 15, fontWeight: 'bold', color: '#1A237E' },
-    histTime: { fontSize: 12, color: '#7986CB', fontWeight: '500' },
-    histDesc: { fontSize: 13, color: '#5C6BC0', marginTop: 2 },
-    histAmount: { fontSize: 15, fontWeight: 'bold' },
-    green: { color: '#4CAF50' },
-    red: { color: '#F44336' },
-    empty: { textAlign: 'center', marginTop: 20, color: '#aaa' },
+    historyLeft: { flex: 1, minWidth: 0, marginRight: 10 },
+    histCat: { fontSize: 15, fontFamily: FONT.bold, color: t.ink, flexShrink: 1, minWidth: 0 },
+    histTime: { fontSize: 12, color: t.muted, fontFamily: FONT.medium, flexShrink: 0 },
+    histDesc: { fontSize: 13, color: t.muted, marginTop: 2 },
+    histAmount: { fontSize: 15, fontFamily: FONT.bold, flexShrink: 0 },
+    green: { color: t.money.ingreso },
+    red: { color: t.money.gasto },
+    empty: { textAlign: 'center', marginTop: 20, color: t.muted },
 
     // Modal
-    overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 20 },
-    modalContent: { backgroundColor: '#fff', borderRadius: 15, padding: 20 },
-    modalTitle: { fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 15, color: '#000' },
-    inputBig: { fontSize: 30, textAlign: 'center', fontWeight: 'bold', marginBottom: 20, borderBottomWidth: 1, borderColor: '#eee', color: '#000' },
-    input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, padding: 10, marginBottom: 10, color: '#000' },
+    overlay: { flex: 1, backgroundColor: t.overlay, justifyContent: 'center', padding: 20 },
+    modalContent: { backgroundColor: t.surface, borderRadius: RADIUS.base, padding: 20 },
+    modalTitle: { fontSize: 18, fontFamily: FONT.bold, textAlign: 'center', marginBottom: 15, color: t.ink },
+    inputBig: { fontSize: 30, textAlign: 'center', fontFamily: FONT.bold, marginBottom: 20, borderBottomWidth: 1, borderColor: t.lineStrong, color: t.ink },
+    input: { borderWidth: 1, borderColor: t.lineStrong, borderRadius: RADIUS.sm, padding: 10, marginBottom: 10, color: t.ink },
 
-    linkedBox: { backgroundColor: '#f9f9f9', padding: 10, borderRadius: 8, marginBottom: 10 },
-    label: { marginBottom: 5, color: '#666', fontSize: 12 },
-    tab: { flex: 1, padding: 8, alignItems: 'center', borderRadius: 5, backgroundColor: '#eee', marginRight: 5 },
-    activeTab: { backgroundColor: '#ddd' },
-    pItem: { padding: 8, borderBottomWidth: 1, borderBottomColor: '#eee' },
-    pItemSel: { backgroundColor: '#E3F2FD' },
+    linkedBox: { backgroundColor: t.raised, padding: 10, borderRadius: RADIUS.sm, marginBottom: 10 },
+    label: { marginBottom: 5, color: t.muted, fontSize: 12 },
+    tab: { flex: 1, padding: 8, alignItems: 'center', borderRadius: 5, borderWidth: 1, backgroundColor: t.raised, marginRight: 5 },
+    activeTab: { backgroundColor: t.soft },
+    pItem: { padding: 8, borderBottomWidth: 1, borderBottomColor: t.line, maxWidth: 200 },
+    pItemSel: { backgroundColor: t.soft },
 
-    infoBox: { backgroundColor: '#E3F2FD', padding: 10, borderRadius: 8, borderLeftWidth: 4, borderLeftColor: '#2196F3' },
-    infoTitle: { fontWeight: 'bold', color: '#1565C0', fontSize: 13, marginBottom: 2 },
-    infoMsg: { color: '#0D47A1', fontSize: 12 },
+    infoBox: { backgroundColor: t.soft, padding: 10, borderRadius: RADIUS.sm, borderLeftWidth: 4, borderLeftColor: t.accent },
+    infoTitle: { fontFamily: FONT.bold, color: t.accent, fontSize: 13, marginBottom: 2 },
+    infoMsg: { color: t.accent, fontSize: 12 },
 
     btnsRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
     catPickerWrapper: { marginVertical: 15 },
@@ -856,9 +848,10 @@ const styles = StyleSheet.create({
     catPill: {
         paddingHorizontal: 12,
         paddingVertical: 8,
-        borderRadius: 12,
+        borderRadius: RADIUS.sm,
         borderWidth: 1,
-        borderColor: 'transparent'
+        borderColor: 'transparent',
+        maxWidth: '100%'
     },
     catPillText: { fontSize: 13 },
     newCatRow: {
@@ -870,39 +863,42 @@ const styles = StyleSheet.create({
     },
     inputSmall: {
         padding: 10,
-        borderRadius: 10,
+        borderRadius: RADIUS.sm,
         borderWidth: 1,
         fontSize: 14
     },
     addBtnSmall: {
         paddingVertical: 10,
         paddingHorizontal: 15,
-        borderRadius: 10,
+        borderRadius: RADIUS.sm,
+        flexShrink: 0,
     },
     cancelBtnSmall: {
-        padding: 10
+        padding: 10,
+        flexShrink: 0,
     },
-    cancelBtn: { flex: 1, padding: 12, alignItems: 'center', backgroundColor: '#f5f5f5', borderRadius: 8 },
-    saveBtn: { flex: 1, padding: 12, alignItems: 'center', borderRadius: 8 },
-    bgGreen: { backgroundColor: '#4CAF50' },
-    bgRed: { backgroundColor: '#F44336' },
+    cancelBtn: { flex: 1, padding: 12, alignItems: 'center', justifyContent: 'center', minHeight: 52, backgroundColor: t.raised, borderRadius: RADIUS.sm },
+    saveBtn: { flex: 1, padding: 12, alignItems: 'center', justifyContent: 'center', minHeight: 52, borderRadius: RADIUS.sm },
+    // Botón Guardar: fondo del color de dinero y texto en surface (mismo contraste que money sobre surface).
+    bgGreen: { backgroundColor: t.money.ingreso },
+    bgRed: { backgroundColor: t.money.gasto },
     filterPill: {
         paddingHorizontal: 8,
         paddingVertical: 4,
-        borderRadius: 12,
+        borderRadius: RADIUS.sm,
         borderWidth: 1,
         borderColor: 'transparent'
     },
     datePickerContainer: { paddingVertical: 10 },
     dateBlock: { width: '100%' },
-    dateLabel: { fontSize: 13, fontWeight: 'bold', marginBottom: 5 },
+    dateLabel: { fontSize: 13, fontFamily: FONT.bold, marginBottom: 5 },
     dateInputsRow: { flexDirection: 'row', gap: 10 },
     dateInput: {
         flex: 1,
         padding: 10,
-        borderRadius: 8,
+        borderRadius: RADIUS.sm,
         textAlign: 'center',
         fontSize: 16,
-        fontWeight: 'bold'
+        fontFamily: FONT.bold
     }
 });

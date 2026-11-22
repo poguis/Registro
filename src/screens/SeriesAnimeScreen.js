@@ -1,20 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-    View,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    StyleSheet,
-    FlatList,
-    Modal,
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView
-} from 'react-native';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { View, TouchableOpacity, StyleSheet, FlatList, Modal, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { useSheet } from '../hooks/useSheet';
+import { Text, TextInput } from '../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme, FONT, RADIUS } from '../contexts/ThemeContext';
 import db from '../services/db';
 import { useSyncRefresh } from '../sync/useSyncRefresh';
 import { calculateBacklog, getLocalDateString } from '../services/backlogUtils';
@@ -34,6 +23,7 @@ const DAYS = [
 // --- Custom Calendar Component ---
 const CustomCalendar = ({ visible, onClose, onSelectDate, initialDate }) => {
     const { theme } = useTheme();
+    const styles = useMemo(() => makeStyles(theme), [theme]);
     // Helper to parse date string "YYYY-MM-DD" safely as local date
     const parseDate = (dateStr) => {
         if (!dateStr) return new Date();
@@ -102,7 +92,7 @@ const CustomCalendar = ({ visible, onClose, onSelectDate, initialDate }) => {
                     style={[styles.calendarDay, isSelected && styles.calendarDaySelected]}
                     onPress={() => handleSelect(i)}
                 >
-                    <Text style={[styles.calendarDayText, { color: theme.text }, isSelected && styles.calendarDayTextSelected]}>{i}</Text>
+                    <Text style={[styles.calendarDayText, { color: theme.ink }, isSelected && styles.calendarDayTextSelected]}>{i}</Text>
                 </TouchableOpacity>
             );
         }
@@ -112,14 +102,14 @@ const CustomCalendar = ({ visible, onClose, onSelectDate, initialDate }) => {
     return (
         <Modal animationType="fade" transparent={true} visible={visible} onRequestClose={onClose}>
             <View style={styles.modalOverlay}>
-                <View style={[styles.modalContent, { height: 'auto', paddingBottom: 30, backgroundColor: theme.card }]}>
+                <View style={[styles.modalContent, { height: 'auto', paddingBottom: 30, backgroundColor: theme.surface }]}>
                     <View style={styles.calendarHeader}>
                         <TouchableOpacity onPress={() => changeMonth(-1)} style={styles.navButton}><Text style={styles.navButtonText}>‹</Text></TouchableOpacity>
-                        <Text style={[styles.monthTitle, { color: theme.text }]}>{monthNames[viewDate.getMonth()]} {viewDate.getFullYear()}</Text>
+                        <Text style={[styles.monthTitle, { color: theme.ink }]}>{monthNames[viewDate.getMonth()]} {viewDate.getFullYear()}</Text>
                         <TouchableOpacity onPress={() => changeMonth(1)} style={styles.navButton}><Text style={styles.navButtonText}>›</Text></TouchableOpacity>
                     </View>
                     <View style={styles.weekDays}>
-                        {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((d, i) => <Text key={i} style={[styles.weekDayText, { color: theme.subText }]}>{d}</Text>)}
+                        {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((d, i) => <Text key={i} style={[styles.weekDayText, { color: theme.muted }]}>{d}</Text>)}
                     </View>
                     <View style={styles.daysGrid}>{renderCalendar()}</View>
 
@@ -138,7 +128,9 @@ const CustomCalendar = ({ visible, onClose, onSelectDate, initialDate }) => {
 };
 
 export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNavigateRegistry }) {
-    const { theme, isDarkMode } = useTheme();
+    const { theme } = useTheme();
+    const styles = useMemo(() => makeStyles(theme), [theme]);
+    const { confirm, informar, avisar } = useSheet();
     const [categories, setCategories] = useState([]);
     const [modalVisible, setModalVisible] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
@@ -233,11 +225,11 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
     const handleSave = async () => {
         const validation = validateCategoryForm({ name, seriesCount });
         if (validation.error === 'nombre') {
-            Alert.alert('Error', 'Por favor ingresa un nombre para la categoría.');
+            informar('Error', 'Por favor ingresa un nombre para la categoría.');
             return;
         }
         if (validation.error === 'limite') {
-            Alert.alert('Error', 'El límite de series activas es obligatorio (mínimo 1).');
+            informar('Error', 'El límite de series activas es obligatorio (mínimo 1).');
             return;
         }
 
@@ -261,9 +253,9 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
         if (result.success) {
             setModalVisible(false);
             fetchCategories();
-            Alert.alert('Éxito', isEditing ? 'Actualizado correctamente' : 'Guardado correctamente');
+            avisar({ titulo: 'Éxito', mensaje: isEditing ? 'Actualizado correctamente' : 'Guardado correctamente' });
         } else {
-            Alert.alert('Error', result.error || 'No se pudo guardar la información');
+            informar('Error', result.error || 'No se pudo guardar la información');
         }
     };
 
@@ -283,26 +275,23 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
         if (result.success) {
             fetchCategories();
         } else {
-            Alert.alert('Error', 'No se pudo cambiar el estado de pausa');
+            informar('Error', 'No se pudo cambiar el estado de pausa');
         }
     };
 
     const handleDelete = (id) => {
-        Alert.alert(
-            'Eliminar',
-            '¿Estás seguro de que quieres eliminar esta categoría?',
-            [
-                { text: 'Cancelar', style: 'cancel' },
-                {
-                    text: 'Eliminar',
-                    style: 'destructive',
-                    onPress: async () => {
-                        const result = await db.deleteEntertainmentCategory(id);
-                        if (result.success) fetchCategories();
-                    }
-                }
-            ]
-        );
+        confirm({
+            titulo: 'Eliminar',
+            mensaje: '¿Estás seguro de que quieres eliminar esta categoría?',
+            acciones: [
+                { clave: 'cancelar', texto: 'Cancelar', variante: 'cancelar' },
+                { clave: 'eliminar', texto: 'Eliminar', variante: 'destructiva' },
+            ],
+        }).then(async (clave) => {
+            if (clave !== 'eliminar') return;
+            const result = await db.deleteEntertainmentCategory(id);
+            if (result.success) fetchCategories();
+        });
     };
 
     // isDatePaused removed
@@ -330,17 +319,17 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
 
         return (
             <TouchableOpacity
-                style={[styles.card, { backgroundColor: theme.card }]}
+                style={[styles.card, { backgroundColor: theme.surface }]}
                 onPress={() => onNavigateDetail(item)}
             >
                 <View style={styles.cardHeader}>
                     <View style={styles.cardIcon}>
                         <Text style={{ fontSize: 20 }}>{item.type === 'video' ? '🎬' : '📚'}</Text>
                     </View>
-                    <View style={{ flex: 1, marginLeft: 12 }}>
+                    <View style={{ flex: 1, minWidth: 0, marginLeft: 12 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, flexWrap: 'wrap' }}>
-                                <Text style={[styles.cardTitle, { color: theme.text }]}>{item.name}</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0, flexWrap: 'wrap' }}>
+                                <Text style={[styles.cardTitle, { color: theme.ink, flexShrink: 1, minWidth: 0 }]} numberOfLines={2} ellipsizeMode="tail">{item.name}</Text>
                                 {item.is_paused && (
                                     <View style={styles.pausedBadge}>
                                         <Text style={styles.pausedBadgeText}>PAUSADO</Text>
@@ -383,29 +372,29 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
 
                         {/* Info Badges */}
                         <View style={styles.badgesContainer}>
-                            <View style={[styles.badge, { backgroundColor: isDarkMode ? '#2C2C2E' : '#E3F2FD' }]}>
+                            <View style={[styles.badge, { backgroundColor: theme.soft }]}>
                                 <Text style={styles.badgeIcon}>📅</Text>
-                                <Text style={[styles.badgeText, { color: isDarkMode ? '#A0A0A0' : '#1565C0' }]}>
+                                <Text style={[styles.badgeText, { color: theme.accent }]} numberOfLines={1}>
                                     {item.start_date}
                                 </Text>
                             </View>
                             
                             {item.type === 'video' && item._quotaBadges && item._quotaBadges.length > 0 ? (
                                 <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 4, marginRight: 6, marginBottom: 6 }}>
-                                    <View style={[styles.badge, { backgroundColor: isDarkMode ? '#2C2C2E' : '#E8F5E9', marginRight: 0, marginBottom: 0 }]}>
+                                    <View style={[styles.badge, { backgroundColor: theme.tones.verde.bg, marginRight: 0, marginBottom: 0 }]}>
                                         <Text style={styles.badgeIcon}>📺</Text>
-                                        <Text style={[styles.badgeText, { color: isDarkMode ? '#A0A0A0' : '#2E7D32' }]}>Cuotas:</Text>
+                                        <Text style={[styles.badgeText, { color: theme.tones.verde.fg }]}>Cuotas:</Text>
                                     </View>
                                     {item._quotaBadges.map((qb, i) => (
-                                        <View key={i} style={[styles.miniQuotaBadge, { backgroundColor: theme.accent + '22' }]}>
-                                            <Text style={{ fontSize: 11, color: theme.accent, fontWeight: 'bold' }}>{qb.label}: {qb.amount}</Text>
+                                        <View key={i} style={[styles.miniQuotaBadge, { backgroundColor: theme.soft }]}>
+                                            <Text style={{ fontSize: 11, color: theme.accent, fontFamily: FONT.bold }}>{qb.label}: {qb.amount}</Text>
                                         </View>
                                     ))}
                                 </View>
                             ) : (
-                                <View style={[styles.badge, { backgroundColor: isDarkMode ? '#2C2C2E' : '#E8F5E9' }]}>
+                                <View style={[styles.badge, { backgroundColor: theme.tones.verde.bg }]}>
                                     <Text style={styles.badgeIcon}>{item.type === 'video' ? '📺' : '📆'}</Text>
-                                    <Text style={[styles.badgeText, { color: isDarkMode ? '#A0A0A0' : '#2E7D32' }]}>
+                                    <Text style={[styles.badgeText, { color: theme.tones.verde.fg }]} numberOfLines={1}>
                                         {item.type === 'video' ? 'Cuotas:' : 'Días:'} {item._displayDays || 'No definido'}
                                     </Text>
                                 </View>
@@ -413,16 +402,16 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
 
                             {/* Límite Viendo Badge */}
                             {(item.series_count !== null && item.series_count > 0) ? (
-                                <View style={[styles.badge, { backgroundColor: isDarkMode ? '#2C2C2E' : '#FFF3E0' }]}>
+                                <View style={[styles.badge, { backgroundColor: theme.tones.naranja.bg }]}>
                                     <Text style={styles.badgeIcon}>👀</Text>
-                                    <Text style={[styles.badgeText, { color: isDarkMode ? '#A0A0A0' : '#EF6C00' }]}>
+                                    <Text style={[styles.badgeText, { color: theme.tones.naranja.fg }]} numberOfLines={1}>
                                         Límite: {item.series_count}
                                     </Text>
                                 </View>
                             ) : (
-                                <View style={[styles.badge, { backgroundColor: isDarkMode ? '#2C2C2E' : '#FFF3E0' }]}>
+                                <View style={[styles.badge, { backgroundColor: theme.tones.naranja.bg }]}>
                                     <Text style={styles.badgeIcon}>👀</Text>
-                                    <Text style={[styles.badgeText, { color: isDarkMode ? '#A0A0A0' : '#EF6C00' }]}>
+                                    <Text style={[styles.badgeText, { color: theme.tones.naranja.fg }]} numberOfLines={1}>
                                         Sin límite
                                     </Text>
                                 </View>
@@ -430,9 +419,9 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
 
                             {/* Frecuencia Lectura Badge */}
                             {item.type === 'reading' && (
-                                <View style={[styles.badge, { backgroundColor: isDarkMode ? '#2C2C2E' : '#F3E5F5' }]}>
+                                <View style={[styles.badge, { backgroundColor: theme.tones.morado.bg }]}>
                                     <Text style={styles.badgeIcon}>⏱️</Text>
-                                    <Text style={[styles.badgeText, { color: isDarkMode ? '#A0A0A0' : '#7B1FA2' }]}>
+                                    <Text style={[styles.badgeText, { color: theme.tones.morado.fg }]} numberOfLines={1}>
                                         {item.frequency < 0 ? `1 cada ${Math.abs(item.frequency)} d` : `${item.frequency} / día`}
                                     </Text>
                                 </View>
@@ -441,8 +430,8 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
 
                         {/* Calculation Result */}
                         {calc && (
-                            <View style={[styles.calcResult, { backgroundColor: isDarkMode ? '#332b21' : (calc.adelantoItems > 0 ? '#E8F5E9' : '#FFF3E0') }]}>
-                                <Text style={[styles.calcText, (calc.diffDays <= 0 && calc.backlogItems <= 0 && calc.adelantoItems <= 0) && { color: '#4CAF50', fontWeight: 'bold' }, calc.adelantoItems > 0 && { color: '#2E7D32', fontWeight: 'bold' }]}>
+                            <View style={[styles.calcResult, { backgroundColor: calc.adelantoItems > 0 ? theme.aheadBg : (calc.diffDays <= 0 && calc.backlogItems <= 0) ? theme.okBg : theme.behindBg }]}>
+                                <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.calcText, (calc.diffDays <= 0 && calc.backlogItems <= 0 && calc.adelantoItems <= 0) && { color: theme.okFg, fontFamily: FONT.bold }, calc.adelantoItems > 0 && { color: theme.aheadFg, fontFamily: FONT.bold }]}>
                                     {calc.adelantoItems > 0
                                         ? `Adelantado: ${calc.adelantoDays} días, ${calc.adelantoItems} ${calc.unit}`
                                         : (calc.diffDays <= 0 && calc.backlogItems <= 0)
@@ -458,15 +447,14 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
     };
 
     return (
-        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-            <StatusBar style={isDarkMode ? "light" : "dark"} />
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
 
             {/* Header */}
-            <View style={[styles.header, { backgroundColor: theme.header, borderBottomColor: theme.border }]}>
+            <View style={[styles.header, { backgroundColor: theme.surface, borderBottomColor: theme.line }]}>
                 <TouchableOpacity onPress={onBack} style={styles.backButton}>
-                    <Text style={[styles.backButtonText, { color: theme.text }]}>←</Text>
+                    <Text style={[styles.backButtonText, { color: theme.ink }]}>←</Text>
                 </TouchableOpacity>
-                <Text style={[styles.headerTitle, { color: theme.text }]}>Mis Listas</Text>
+                <Text style={[styles.headerTitle, { color: theme.ink }]}>Mis Listas</Text>
                 <TouchableOpacity onPress={() => openModal(null)} style={styles.addButton}>
                     <Text style={styles.addButtonText}>+</Text>
                 </TouchableOpacity>
@@ -475,7 +463,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
             <ScrollView contentContainerStyle={styles.scrollContent}>
                 {/* VIDEO SECTION */}
                 <View style={styles.sectionHeaderContainer}>
-                    <Text style={[styles.sectionHeaderTitle, { color: theme.text }]}>🎬 Video</Text>
+                    <Text style={[styles.sectionHeaderTitle, { color: theme.ink }]}>🎬 Video</Text>
                 </View>
                 {categories.filter(c => c.type === 'video').length > 0 ? (
                     categories.filter(c => c.type === 'video').map(item => (
@@ -487,7 +475,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
 
                 {/* READING SECTION */}
                 <View style={[styles.sectionHeaderContainer, { marginTop: 25 }]}>
-                    <Text style={[styles.sectionHeaderTitle, { color: theme.text }]}>📚 Lectura</Text>
+                    <Text style={[styles.sectionHeaderTitle, { color: theme.ink }]}>📚 Lectura</Text>
                 </View>
                 {categories.filter(c => c.type === 'reading').length > 0 ? (
                     categories.filter(c => c.type === 'reading').map(item => (
@@ -508,9 +496,9 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                 onRequestClose={() => setModalVisible(false)}
             >
                 <View style={styles.modalOverlay}>
-                    <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+                    <View style={[styles.modalContent, { backgroundColor: theme.surface }]}>
                         <View style={styles.modalHeader}>
-                            <Text style={[styles.modalTitle, { color: theme.text }]}>
+                            <Text style={[styles.modalTitle, { color: theme.ink }]}>
                                 {isEditing ? 'Editar Categoría' : 'Nueva Categoría'}
                             </Text>
                             <TouchableOpacity onPress={() => setModalVisible(false)}>
@@ -520,17 +508,17 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
 
                         <ScrollView>
                             {/* Name */}
-                            <Text style={[styles.label, { color: theme.text }]}>Nombre</Text>
+                            <Text style={[styles.label, { color: theme.ink }]}>Nombre</Text>
                             <TextInput
-                                style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.line }]}
                                 placeholder="Ej. Anime 2024"
-                                placeholderTextColor={theme.subText}
+                                placeholderTextColor={theme.muted}
                                 value={name}
                                 onChangeText={setName}
                             />
 
                             {/* Type Selector */}
-                            <Text style={[styles.label, { color: theme.text }]}>Tipo</Text>
+                            <Text style={[styles.label, { color: theme.ink }]}>Tipo</Text>
                             <View style={styles.typeContainer}>
                                 <TouchableOpacity
                                     style={[styles.typeButton, type === 'video' && styles.typeButtonActive]}
@@ -547,31 +535,31 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                             </View>
 
                             {/* Start Date - Custom Calendar Trigger */}
-                            <Text style={[styles.label, { color: theme.text }]}>Fecha de Inicio</Text>
+                            <Text style={[styles.label, { color: theme.ink }]}>Fecha de Inicio</Text>
                             {startDateLocked ? (
-                                <View style={[styles.dateButton, { backgroundColor: theme.inputBackground, borderColor: theme.border }]}>
-                                    <Text style={[styles.dateButtonText, { color: theme.subText }]}>📅 {startDate}</Text>
-                                    <Text style={[styles.dateLockedText, { color: theme.subText }]}>La fecha de inicio no se puede cambiar porque ya hay registros.</Text>
+                                <View style={[styles.dateButton, { backgroundColor: theme.raised, borderColor: theme.line }]}>
+                                    <Text style={[styles.dateButtonText, { color: theme.muted }]}>📅 {startDate}</Text>
+                                    <Text style={[styles.dateLockedText, { color: theme.muted }]}>La fecha de inicio no se puede cambiar porque ya hay registros.</Text>
                                 </View>
                             ) : (
                                 <TouchableOpacity
-                                    style={[styles.dateButton, { backgroundColor: theme.inputBackground, borderColor: theme.border }]}
+                                    style={[styles.dateButton, { backgroundColor: theme.raised, borderColor: theme.line }]}
                                     onPress={() => setCalendarVisible(true)}
                                 >
-                                    <Text style={[styles.dateButtonText, { color: theme.text }]}>📅 {startDate || 'Seleccionar Fecha'}</Text>
+                                    <Text style={[styles.dateButtonText, { color: theme.ink }]}>📅 {startDate || 'Seleccionar Fecha'}</Text>
                                 </TouchableOpacity>
                             )}
 
                             {/* Days Selection logic based on type */}
                             {type === 'video' ? (
                                 <>
-                                    <Text style={[styles.label, { color: theme.text }]}>Cuota por Día (Capítulos)</Text>
+                                    <Text style={[styles.label, { color: theme.ink }]}>Cuota por Día (Capítulos)</Text>
                                     <View style={styles.daysQuotasContainer}>
                                         {DAYS.map((day) => (
                                             <View key={day.key} style={styles.dayQuotaItem}>
-                                                <Text style={[styles.dayLabelShort, { color: theme.text }]}>{day.label}</Text>
+                                                <Text style={[styles.dayLabelShort, { color: theme.ink }]}>{day.label}</Text>
                                                 <TextInput
-                                                    style={[styles.dayQuotaInput, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                                    style={[styles.dayQuotaInput, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.line }]}
                                                     keyboardType="numeric"
                                                     value={String(selectedDays[day.key] || 0)}
                                                     onChangeText={(val) => updateDayQuota(day.key, val)}
@@ -583,7 +571,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                                 </>
                             ) : (
                                 <>
-                                    <Text style={[styles.label, { color: theme.text }]}>Días</Text>
+                                    <Text style={[styles.label, { color: theme.ink }]}>Días</Text>
                                     <View style={styles.daysContainer}>
                                         {DAYS.map((day) => (
                                             <TouchableOpacity
@@ -596,7 +584,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                                             >
                                                 <Text style={[
                                                     styles.dayText,
-                                                    { color: theme.text },
+                                                    { color: theme.ink },
                                                     selectedDays[day.key] > 0 && styles.dayTextActive
                                                 ]}>
                                                     {day.label}
@@ -611,11 +599,11 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                             {type === 'reading' && (
                                 <View style={styles.row}>
                                     <View style={styles.halfInput}>
-                                        <Text style={[styles.label, { color: theme.text }]}>Frecuencia Lectura</Text>
+                                        <Text style={[styles.label, { color: theme.ink }]}>Frecuencia Lectura</Text>
                                         <TextInput
-                                            style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                            style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.line }]}
                                             placeholder="Ej: -3 (1 cada 3 días)"
-                                            placeholderTextColor={theme.subText}
+                                            placeholderTextColor={theme.muted}
                                             keyboardType="numbers-and-punctuation"
                                             value={frequency}
                                             onChangeText={setFrequency}
@@ -623,11 +611,11 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                                         <Text style={styles.hintText}>Usa negativo (ej -3) para leer cada X días.</Text>
                                     </View>
                                     <View style={styles.halfInput}>
-                                        <Text style={[styles.label, { color: theme.text }]}>Límite (Viendo)</Text>
+                                        <Text style={[styles.label, { color: theme.ink }]}>Límite (Viendo)</Text>
                                         <TextInput
-                                            style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                            style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.line }]}
                                             placeholder="0"
-                                            placeholderTextColor={theme.subText}
+                                            placeholderTextColor={theme.muted}
                                             keyboardType="numeric"
                                             value={seriesCount}
                                             onChangeText={setSeriesCount}
@@ -639,11 +627,11 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                             {/* O1 (7.4a): obligatorio en video y en lectura, mínimo 1. */}
                             <View style={styles.row}>
                                 <View style={styles.fullWidth}>
-                                    <Text style={[styles.label, { color: theme.text }]}>Límite Simultáneo (Viendo)</Text>
+                                    <Text style={[styles.label, { color: theme.ink }]}>Límite Simultáneo (Viendo)</Text>
                                     <TextInput
-                                        style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                        style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.line }]}
                                         placeholder={type === 'video' ? 'Cuántas series puedes ver a la vez (mínimo 1)' : 'Cuántas obras puedes leer a la vez (mínimo 1)'}
-                                        placeholderTextColor={theme.subText}
+                                        placeholderTextColor={theme.muted}
                                         keyboardType="numeric"
                                         value={seriesCount}
                                         onChangeText={setSeriesCount}
@@ -652,11 +640,11 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                             </View>
 
                             {/* Description */}
-                            <Text style={[styles.label, { color: theme.text }]}>Descripción</Text>
+                            <Text style={[styles.label, { color: theme.ink }]}>Descripción</Text>
                             <TextInput
-                                style={[styles.input, styles.textArea, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                style={[styles.input, styles.textArea, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.line }]}
                                 placeholder="Notas..."
-                                placeholderTextColor={theme.subText}
+                                placeholderTextColor={theme.muted}
                                 multiline
                                 numberOfLines={3}
                                 value={description}
@@ -686,10 +674,11 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
     );
 }
 
-const styles = StyleSheet.create({
+// Estilos en función del tema (dirección visual): ningún color fijo.
+const makeStyles = (t) => StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#F7F7F7',
+        backgroundColor: t.bg,
     },
     header: {
         flexDirection: 'row',
@@ -697,25 +686,25 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         paddingHorizontal: 20,
         paddingVertical: 15,
-        backgroundColor: '#fff',
+        backgroundColor: t.surface,
         borderBottomWidth: 1,
-        borderBottomColor: '#eee',
+        borderBottomColor: t.line,
     },
     backButton: {
         padding: 5,
     },
     backButtonText: {
         fontSize: 24,
-        color: '#333',
+        color: t.ink,
     },
     headerTitle: {
         fontSize: 18,
-        fontWeight: 'bold',
-        color: '#333',
+        fontFamily: FONT.bold,
+        color: t.ink,
     },
     addButton: {
         padding: 5,
-        backgroundColor: '#E3F2FD',
+        backgroundColor: t.soft,
         borderRadius: 20,
         width: 35,
         height: 35,
@@ -724,18 +713,18 @@ const styles = StyleSheet.create({
     },
     addButtonText: {
         fontSize: 24,
-        color: '#2196F3',
+        color: t.accent,
         lineHeight: 26,
     },
     listContent: {
         padding: 20,
     },
     card: {
-        backgroundColor: '#fff',
+        backgroundColor: t.surface,
         borderRadius: 15,
         padding: 15,
         marginBottom: 15,
-        shadowColor: '#000',
+        shadowColor: t.shadow,
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.05,
         shadowRadius: 5,
@@ -747,17 +736,17 @@ const styles = StyleSheet.create({
     sectionHeaderContainer: {
         marginBottom: 10,
         borderBottomWidth: 1,
-        borderBottomColor: '#eee',
+        borderBottomColor: t.line,
         paddingBottom: 5
     },
     sectionHeaderTitle: {
         fontSize: 18,
-        fontWeight: 'bold',
-        color: '#555',
+        fontFamily: FONT.bold,
+        color: t.muted,
     },
     emptySectionText: {
         textAlign: 'center',
-        color: '#999',
+        color: t.muted,
         fontStyle: 'italic',
         marginBottom: 10,
         marginTop: 5
@@ -770,29 +759,29 @@ const styles = StyleSheet.create({
         width: 40,
         height: 40,
         borderRadius: 20,
-        backgroundColor: '#F5F5F5',
+        backgroundColor: t.raised,
         justifyContent: 'center',
         alignItems: 'center',
     },
     cardTitle: {
         fontSize: 16,
-        fontWeight: 'bold',
-        color: '#333',
+        fontFamily: FONT.bold,
+        color: t.ink,
     },
     cardSubtitle: {
         fontSize: 12,
-        color: '#888',
+        color: t.muted,
         marginTop: 2,
     },
     cardDesc: {
         marginTop: 10,
         fontSize: 12,
-        color: '#666',
+        color: t.muted,
         fontStyle: 'italic',
     },
     arrow: {
         fontSize: 20,
-        color: '#ccc',
+        color: t.muted,
     },
     emptyContainer: {
         alignItems: 'center',
@@ -800,21 +789,21 @@ const styles = StyleSheet.create({
     },
     emptyText: {
         fontSize: 16,
-        color: '#888',
-        fontWeight: 'bold',
+        color: t.muted,
+        fontFamily: FONT.bold,
     },
     emptySubText: {
         fontSize: 14,
-        color: '#aaa',
+        color: t.muted,
         marginTop: 5,
     },
     modalOverlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.5)',
+        backgroundColor: t.overlay,
         justifyContent: 'flex-end',
     },
     modalContent: {
-        backgroundColor: '#fff',
+        backgroundColor: t.surface,
         borderTopLeftRadius: 25,
         borderTopRightRadius: 25,
         padding: 20,
@@ -826,39 +815,39 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginBottom: 20,
         borderBottomWidth: 1,
-        borderBottomColor: '#eee',
+        borderBottomColor: t.line,
         paddingBottom: 15,
     },
     modalTitle: {
         fontSize: 20,
-        fontWeight: 'bold',
-        color: '#333',
+        fontFamily: FONT.bold,
+        color: t.ink,
     },
     closeText: {
         fontSize: 24,
-        color: '#888',
+        color: t.muted,
         padding: 5,
     },
     label: {
         fontSize: 14,
-        fontWeight: '600',
-        color: '#555',
+        fontFamily: FONT.semibold,
+        color: t.muted,
         marginBottom: 8,
         marginTop: 10,
     },
     input: {
-        backgroundColor: '#F9F9F9',
+        backgroundColor: t.raised,
         padding: 12,
         borderRadius: 10,
         fontSize: 16,
         borderWidth: 1,
-        borderColor: '#eee',
+        borderColor: t.lineStrong,
         marginBottom: 5,
-        color: '#333'
+        color: t.ink
     },
     hintText: {
         fontSize: 11,
-        color: '#999',
+        color: t.muted,
         marginBottom: 10,
         marginLeft: 2,
     },
@@ -870,23 +859,23 @@ const styles = StyleSheet.create({
         flex: 1,
         paddingVertical: 10,
         alignItems: 'center',
-        backgroundColor: '#fff',
+        backgroundColor: t.surface,
         borderWidth: 1,
-        borderColor: '#ddd',
+        borderColor: t.lineStrong,
         marginHorizontal: 5,
         borderRadius: 10,
     },
     typeButtonActive: {
-        backgroundColor: '#E3F2FD',
-        borderColor: '#2196F3',
+        backgroundColor: t.soft,
+        borderColor: t.accent,
     },
     typeText: {
         fontSize: 14,
-        color: '#555',
+        color: t.muted,
     },
     typeTextActive: {
-        color: '#2196F3',
-        fontWeight: 'bold',
+        color: t.accent,
+        fontFamily: FONT.bold,
     },
     daysContainer: {
         flexDirection: 'row',
@@ -906,7 +895,7 @@ const styles = StyleSheet.create({
     },
     dayLabelShort: {
         fontSize: 12,
-        fontWeight: 'bold',
+        fontFamily: FONT.bold,
         marginBottom: 5,
     },
     dayQuotaInput: {
@@ -924,20 +913,20 @@ const styles = StyleSheet.create({
         width: 35,
         height: 35,
         borderRadius: 17.5,
-        backgroundColor: '#eee',
+        backgroundColor: t.raised,
         justifyContent: 'center',
         alignItems: 'center',
     },
     dayButtonActive: {
-        backgroundColor: '#2196F3',
+        backgroundColor: t.accent,
     },
     dayText: {
         fontSize: 12,
-        fontWeight: 'bold',
-        color: '#555',
+        fontFamily: FONT.bold,
+        color: t.muted,
     },
     dayTextActive: {
-        color: '#fff',
+        color: t.onAccent,
     },
     row: {
         flexDirection: 'row',
@@ -951,29 +940,29 @@ const styles = StyleSheet.create({
         textAlignVertical: 'top',
     },
     saveButton: {
-        backgroundColor: '#2196F3',
+        backgroundColor: t.accent,
         paddingVertical: 15,
         borderRadius: 12,
         alignItems: 'center',
         marginTop: 20,
-        shadowColor: '#000',
+        shadowColor: t.shadow,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.2,
         shadowRadius: 5,
         elevation: 5,
     },
     saveButtonText: {
-        color: '#fff',
+        color: t.onAccent,
         fontSize: 18,
-        fontWeight: 'bold',
+        fontFamily: FONT.bold,
     },
     // Calendar Styles
     dateButton: {
-        backgroundColor: '#F9F9F9',
+        backgroundColor: t.raised,
         padding: 15,
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: '#ddd',
+        borderColor: t.lineStrong,
         marginBottom: 10,
         alignItems: 'center',
     },
@@ -983,8 +972,8 @@ const styles = StyleSheet.create({
     },
     dateButtonText: {
         fontSize: 16,
-        color: '#333',
-        fontWeight: '500',
+        color: t.ink,
+        fontFamily: FONT.medium,
     },
     calendarHeader: {
         flexDirection: 'row',
@@ -995,15 +984,15 @@ const styles = StyleSheet.create({
     },
     monthTitle: {
         fontSize: 18,
-        fontWeight: 'bold',
-        color: '#333',
+        fontFamily: FONT.bold,
+        color: t.ink,
     },
     navButton: {
         padding: 10,
     },
     navButtonText: {
         fontSize: 24,
-        color: '#2196F3',
+        color: t.accent,
     },
     weekDays: {
         flexDirection: 'row',
@@ -1012,8 +1001,8 @@ const styles = StyleSheet.create({
     },
     weekDayText: {
         fontSize: 14,
-        fontWeight: 'bold',
-        color: '#888',
+        fontFamily: FONT.bold,
+        color: t.muted,
         width: 30,
         textAlign: 'center',
     },
@@ -1030,24 +1019,24 @@ const styles = StyleSheet.create({
     },
     calendarDayText: {
         fontSize: 16,
-        color: '#333',
+        color: t.ink,
     },
     calendarDaySelected: {
-        backgroundColor: '#2196F3',
+        backgroundColor: t.accent,
         borderRadius: 20,
     },
     calendarDayTextSelected: {
-        color: '#fff',
-        fontWeight: 'bold',
+        color: t.onAccent,
+        fontFamily: FONT.bold,
     },
     calendarDayToday: {
         borderWidth: 1,
-        borderColor: '#2196F3',
+        borderColor: t.accent,
         borderRadius: 20,
     },
     calendarDayTextToday: {
-        color: '#2196F3',
-        fontWeight: 'bold',
+        color: t.accent,
+        fontFamily: FONT.bold,
     },
     closeButton: {
         marginTop: 20,
@@ -1055,7 +1044,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     closeButtonText: {
-        color: '#FF5252',
+        color: t.danger,
         fontSize: 16,
     },
     calendarActions: {
@@ -1070,20 +1059,20 @@ const styles = StyleSheet.create({
         borderRadius: 10,
     },
     cancelButton: {
-        backgroundColor: '#FFF',
+        backgroundColor: t.raised,
         borderWidth: 1,
-        borderColor: '#ddd',
+        borderColor: t.raised,
     },
     confirmButton: {
-        backgroundColor: '#2196F3',
+        backgroundColor: t.accent,
     },
     cancelButtonText: {
-        color: '#666',
-        fontWeight: 'bold',
+        color: t.ink,
+        fontFamily: FONT.bold,
     },
     confirmButtonText: {
-        color: '#FFF',
-        fontWeight: 'bold',
+        color: t.onAccent,
+        fontFamily: FONT.bold,
     },
     // New Card Styles
     badgesContainer: {
@@ -1105,7 +1094,7 @@ const styles = StyleSheet.create({
     },
     badgeText: {
         fontSize: 12,
-        fontWeight: '600',
+        fontFamily: FONT.semibold,
         marginLeft: 4,
     },
     miniQuotaBadge: {
@@ -1115,20 +1104,20 @@ const styles = StyleSheet.create({
     },
     cardInfoRow: {
         fontSize: 13,
-        color: '#555',
+        color: t.muted,
         marginTop: 2,
     },
     calcResult: {
         marginTop: 5,
-        backgroundColor: '#FFF3E0',
+        backgroundColor: t.behindBg,
         padding: 5,
         borderRadius: 5,
         alignSelf: 'flex-start',
     },
     calcText: {
-        color: '#EF6C00',
+        color: t.behindFg,
         fontSize: 12,
-        fontWeight: 'bold',
+        fontFamily: FONT.bold,
     },
     actionButtonsContainer: {
         flexDirection: 'row',
@@ -1143,15 +1132,15 @@ const styles = StyleSheet.create({
         fontSize: 18,
     },
     pausedBadge: {
-        backgroundColor: '#FF5252',
+        backgroundColor: t.behindFg,
         paddingHorizontal: 6,
         paddingVertical: 2,
         borderRadius: 4,
         marginLeft: 8,
     },
     pausedBadgeText: {
-        color: '#fff',
+        color: t.onDanger,
         fontSize: 10,
-        fontWeight: 'bold',
+        fontFamily: FONT.bold,
     },
 });

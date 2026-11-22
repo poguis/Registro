@@ -29,6 +29,7 @@
 //
 // Uso: node scripts/probar-fase7-4b.mjs
 import { extraer, instanciar as instanciarPantalla } from './lib/extraer-pantalla.mjs'; // antes que test-hooks
+import { hojasDesdeAlert } from './lib/hojas-stub.mjs'; // dirección visual: confirm/informar/avisar → el mismo registro que Alert
 import './lib/test-hooks.mjs';
 import { rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync, copyFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -126,7 +127,7 @@ async function entorno(uid = UID) {
             frequency: cat.type === 'reading' ? String(cat.frequency) : '', seriesCount: String(cat.series_count), description: cat.description || '', ...cambios,
         };
         const handleSave = instanciar(extraer(CATEGORIAS, 'handleSave'), {
-            ...datos, isEditing: true, editingId: cat.id, db, user, Alert: A.Alert, setModalVisible: () => {}, fetchCategories: () => {},
+            ...datos, isEditing: true, editingId: cat.id, db, user, Alert: A.Alert, ...hojasDesdeAlert(A.Alert), setModalVisible: () => {}, fetchCategories: () => {},
         });
         await quiet(() => handleSave());
         const error = A.registro.find((a) => a.titulo === 'Error');
@@ -297,7 +298,7 @@ seccion('5. R12: pausar y reanudar el mismo día');
     const toggle = async (item) => {
         E.usar();
         const A = crearAlert();
-        const handleTogglePause = instanciar(extraer(CATEGORIAS, 'handleTogglePause'), { db: E.db, fetchCategories: () => {}, Alert: A.Alert });
+        const handleTogglePause = instanciar(extraer(CATEGORIAS, 'handleTogglePause'), { db: E.db, fetchCategories: () => {}, Alert: A.Alert, ...hojasDesdeAlert(A.Alert) });
         await quiet(() => handleTogglePause(item));
     };
     await toggle(c);

@@ -1,18 +1,9 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    TouchableOpacity,
-    Modal,
-    TextInput,
-    Alert,
-    ScrollView,
-    Dimensions
-} from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Modal, ScrollView, Dimensions } from 'react-native';
+import { useSheet } from '../hooks/useSheet';
+import { Text, TextInput } from '../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme, FONT, RADIUS } from '../contexts/ThemeContext';
 import db from '../services/db';
 import { useSyncRefresh } from '../sync/useSyncRefresh';
 
@@ -45,10 +36,11 @@ const getStatusForDate = (date, startDateStr, cycle) => {
     return 'Error';
 };
 
+// Cada tipo de turno tiene un tono del tema (theme.tones) como color de identidad.
 const CYCLE_TYPES = [
-    { label: 'Día', value: 'dia', icon: '☀️', color: '#FFEB3B' },
-    { label: 'Noche', value: 'noche', icon: '🌙', color: '#9C27B0' },
-    { label: 'Libre', value: 'libre', icon: '✅', color: '#4CAF50' },
+    { label: 'Día', value: 'dia', icon: '☀️', tono: 'naranja' },
+    { label: 'Noche', value: 'noche', icon: '🌙', tono: 'morado' },
+    { label: 'Libre', value: 'libre', icon: '✅', tono: 'verde' },
 ];
 
 const MONTHS = [
@@ -59,7 +51,9 @@ const MONTHS = [
 const WEEKDAYS = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
 export default function TrabajoScreen({ user, onBack }) {
-    const { theme, isDarkMode } = useTheme();
+    const { theme } = useTheme();
+    const styles = useMemo(() => makeStyles(theme), [theme]);
+    const { confirm, informar } = useSheet();
     const [people, setPeople] = useState([]);
     const [showModal, setShowModal] = useState(false);
     const [editingPerson, setEditingPerson] = useState(null);
@@ -87,7 +81,7 @@ export default function TrabajoScreen({ user, onBack }) {
     };
 
     const handleSave = async () => {
-        if (!name.trim()) return Alert.alert('Error', 'El nombre es obligatorio');
+        if (!name.trim()) { informar('Error', 'El nombre es obligatorio'); return; }
         const cycleStr = JSON.stringify(cycle);
         let res = editingPerson 
             ? await db.updateWorkPerson(editingPerson.id, name, startDate, cycleStr)
@@ -108,13 +102,18 @@ export default function TrabajoScreen({ user, onBack }) {
     };
 
     const deletePerson = (id) => {
-        Alert.alert('Eliminar', '¿Eliminar a esta persona?', [
-            { text: 'Cancelar', style: 'cancel' },
-            { text: 'Eliminar', style: 'destructive', onPress: async () => {
-                await db.deleteWorkPerson(id);
-                loadPeople();
-            }}
-        ]);
+        confirm({
+            titulo: 'Eliminar',
+            mensaje: '¿Eliminar a esta persona?',
+            acciones: [
+                { clave: 'cancelar', texto: 'Cancelar', variante: 'cancelar' },
+                { clave: 'eliminar', texto: 'Eliminar', variante: 'destructiva' },
+            ],
+        }).then(async (clave) => {
+            if (clave !== 'eliminar') return;
+            await db.deleteWorkPerson(id);
+            loadPeople();
+        });
     };
 
     const movePerson = async (index, direction) => {
@@ -183,14 +182,13 @@ export default function TrabajoScreen({ user, onBack }) {
     };
 
     return (
-        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-            <StatusBar style={isDarkMode ? "light" : "dark"} />
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
             
-            <View style={[styles.header, { backgroundColor: theme.header, borderBottomColor: theme.border }]}>
+            <View style={[styles.header, { backgroundColor: theme.surface, borderBottomColor: theme.line }]}>
                 <TouchableOpacity onPress={onBack} style={styles.backButton}>
-                    <Text style={{ fontSize: 24, color: theme.text }}>←</Text>
+                    <Text style={{ fontSize: 24, color: theme.ink }}>←</Text>
                 </TouchableOpacity>
-                <Text style={[styles.headerTitle, { color: theme.text }]}>Control de Turnos</Text>
+                <Text style={[styles.headerTitle, { color: theme.ink }]} numberOfLines={1}>Control de Turnos</Text>
                 <TouchableOpacity onPress={() => setShowModal(true)} style={styles.addButton}>
                     <Text style={{ fontSize: 24, color: theme.accent }}>+</Text>
                 </TouchableOpacity>
@@ -204,10 +202,10 @@ export default function TrabajoScreen({ user, onBack }) {
                             <Text style={[styles.navBtn, { color: theme.accent }]}>◀</Text>
                         </TouchableOpacity>
                         <View style={styles.monthContainer}>
-                            <Text style={[styles.monthTitle, { color: theme.text }]}>
+                            <Text style={[styles.monthTitle, { color: theme.ink }]}>
                                 {MONTHS[currentDate.getMonth()]} {currentDate.getFullYear()}
                             </Text>
-                            <TouchableOpacity onPress={() => setCurrentDate(new Date())} style={[styles.todayBtn, { backgroundColor: theme.accent + '20' }]}>
+                            <TouchableOpacity onPress={() => setCurrentDate(new Date())} style={[styles.todayBtn, { backgroundColor: theme.soft }]}>
                                 <Text style={[styles.todayBtnText, { color: theme.accent }]}>Hoy</Text>
                             </TouchableOpacity>
                         </View>
@@ -219,7 +217,7 @@ export default function TrabajoScreen({ user, onBack }) {
                     {/* Weekdays */}
                     <View style={styles.weekdaysRow}>
                         {WEEKDAYS.map(d => (
-                            <Text key={d} style={[styles.weekdayText, { color: theme.subText }]}>{d}</Text>
+                            <Text key={d} style={[styles.weekdayText, { color: theme.muted }]}>{d}</Text>
                         ))}
                     </View>
 
@@ -238,9 +236,9 @@ export default function TrabajoScreen({ user, onBack }) {
                             let highlightStyle = null;
                             if (totalPeople > 0) {
                                 if (freeCount === totalPeople) {
-                                    highlightStyle = { backgroundColor: '#4CAF5080' }; // All free: Strong Green
+                                    highlightStyle = { backgroundColor: theme.tones.verde.bg }; // Todos libres
                                 } else if (freeCount >= 2) {
-                                    highlightStyle = { backgroundColor: '#FFD70060' }; // 2+ free: Golden
+                                    highlightStyle = { backgroundColor: theme.tones.naranja.bg }; // 2 o más libres
                                 }
                             }
                             
@@ -255,8 +253,8 @@ export default function TrabajoScreen({ user, onBack }) {
                                     <View style={[styles.dayHeader, highlightStyle]}>
                                         <Text style={[
                                             styles.dayText, 
-                                            { color: item.isCurrentMonth ? theme.text : theme.subText },
-                                            today && { fontWeight: 'bold', color: theme.accent }
+                                            { color: item.isCurrentMonth ? theme.ink : theme.muted },
+                                            today && { fontFamily: FONT.bold, color: theme.accent }
                                         ]}>
                                             {item.date.getDate()}
                                         </Text>
@@ -267,7 +265,7 @@ export default function TrabajoScreen({ user, onBack }) {
                                         {statuses.map((s, idx) => (
                                             <View 
                                                 key={idx} 
-                                                style={[styles.miniDot, { backgroundColor: CYCLE_TYPES.find(t => t.value === s.status)?.color || '#ccc' }]} 
+                                                style={[styles.miniDot, { backgroundColor: (() => { const tipo = CYCLE_TYPES.find(t => t.value === s.status); return tipo ? theme.tones[tipo.tono].fg : theme.lineStrong; })() }]} 
                                             />
                                         ))}
                                     </View>
@@ -281,27 +279,27 @@ export default function TrabajoScreen({ user, onBack }) {
                 <View style={styles.legend}>
                     {CYCLE_TYPES.map(t => (
                         <View key={t.value} style={styles.legendItem}>
-                            <View style={[styles.legendDot, { backgroundColor: t.color }]} />
-                            <Text style={[styles.legendText, { color: theme.subText }]}>{t.label}</Text>
+                            <View style={[styles.legendDot, { backgroundColor: theme.tones[t.tono].fg }]} />
+                            <Text style={[styles.legendText, { color: theme.muted }]}>{t.label}</Text>
                         </View>
                     ))}
                     <View style={styles.legendItem}>
-                        <View style={[styles.legendDot, { backgroundColor: '#FFD700', borderRadius: 2 }]} />
-                        <Text style={[styles.legendText, { color: theme.subText }]}>Parcial (2+ 🟢)</Text>
+                        <View style={[styles.legendDot, { backgroundColor: theme.tones.naranja.bg, borderColor: theme.tones.naranja.fg, borderWidth: 1, borderRadius: 2 }]} />
+                        <Text style={[styles.legendText, { color: theme.muted }]}>Parcial (2+ 🟢)</Text>
                     </View>
                     <View style={styles.legendItem}>
-                        <View style={[styles.legendDot, { backgroundColor: '#4CAF50', borderRadius: 2 }]} />
-                        <Text style={[styles.legendText, { color: theme.subText }]}>TODOS Libres 🎉</Text>
+                        <View style={[styles.legendDot, { backgroundColor: theme.tones.verde.bg, borderColor: theme.tones.verde.fg, borderWidth: 1, borderRadius: 2 }]} />
+                        <Text style={[styles.legendText, { color: theme.muted }]}>TODOS Libres 🎉</Text>
                     </View>
                 </View>
 
                 {/* People Management */}
                 <View style={styles.managementSection}>
-                    <Text style={[styles.sectionTitle, { color: theme.text }]}>Personas y Ciclos</Text>
+                    <Text style={[styles.sectionTitle, { color: theme.ink }]}>Personas y Ciclos</Text>
                     {people.map((p, index) => (
                         <TouchableOpacity 
                             key={p.id} 
-                            style={[styles.personCard, { backgroundColor: theme.card }]}
+                            style={[styles.personCard, { backgroundColor: theme.surface }]}
                             onPress={() => {
                                 setEditingPerson(p);
                                 setName(p.name);
@@ -310,9 +308,9 @@ export default function TrabajoScreen({ user, onBack }) {
                                 setShowModal(true);
                             }}
                         >
-                            <View style={{ flex: 1 }}>
-                                <Text style={[styles.pName, { color: theme.text }]}>{p.name}</Text>
-                                <Text style={[styles.pCycle, { color: theme.subText }]}>
+                            <View style={{ flex: 1, minWidth: 0, marginRight: 10 }}>
+                                <Text style={[styles.pName, { color: theme.ink }]} numberOfLines={2} ellipsizeMode="tail">{p.name}</Text>
+                                <Text style={[styles.pCycle, { color: theme.muted }]} numberOfLines={1} ellipsizeMode="tail">
                                     {p.cycle.map(ph => `${ph.days}${ph.type.charAt(0)}`).join(' - ')}
                                 </Text>
                             </View>
@@ -336,22 +334,22 @@ export default function TrabajoScreen({ user, onBack }) {
 
             {/* Same Edit Modal Logic */}
             <Modal visible={showModal} transparent animationType="slide">
-                <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-                    <View style={[styles.modalContent, { backgroundColor: theme.background }]}>
-                        <Text style={[styles.modalTitle, { color: theme.text }]}>{editingPerson ? 'Editar Turno' : 'Añadir Persona'}</Text>
+                <View style={[styles.modalOverlay, { backgroundColor: theme.overlay }]}>
+                    <View style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+                        <Text style={[styles.modalTitle, { color: theme.ink }]} numberOfLines={1}>{editingPerson ? 'Editar Turno' : 'Añadir Persona'}</Text>
                         
                         <ScrollView style={{ maxHeight: 400 }}>
                             <TextInput
-                                style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                                 placeholder="Nombre"
                                 value={name}
                                 onChangeText={setName}
-                                placeholderTextColor={theme.subText}
+                                placeholderTextColor={theme.muted}
                             />
                             
                             <Text style={styles.label}>Fecha inicio (YYYY-MM-DD):</Text>
                             <TextInput
-                                style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                                 value={startDate}
                                 onChangeText={setStartDate}
                             />
@@ -359,7 +357,7 @@ export default function TrabajoScreen({ user, onBack }) {
                             <View style={styles.cycleHeader}>
                                 <Text style={styles.label}>Definir Ciclo:</Text>
                                 <TouchableOpacity onPress={() => setCycle([...cycle, { type: 'dia', days: 1 }])}>
-                                    <Text style={{ color: theme.accent, fontWeight: 'bold' }}>+ Fase</Text>
+                                    <Text style={{ color: theme.accent, fontFamily: FONT.bold }}>+ Fase</Text>
                                 </TouchableOpacity>
                             </View>
 
@@ -381,7 +379,7 @@ export default function TrabajoScreen({ user, onBack }) {
                                         ))}
                                     </View>
                                     <TextInput
-                                        style={[styles.countInput, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                        style={[styles.countInput, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                                         keyboardType="numeric"
                                         value={ph.days.toString()}
                                         onChangeText={v => {
@@ -391,7 +389,7 @@ export default function TrabajoScreen({ user, onBack }) {
                                         }}
                                     />
                                     <TouchableOpacity onPress={() => setCycle(cycle.filter((_, idx) => idx !== i))}>
-                                        <Text style={{ color: 'red', fontSize: 18 }}>✕</Text>
+                                        <Text style={{ color: theme.danger, fontSize: 18 }}>✕</Text>
                                     </TouchableOpacity>
                                 </View>
                             ))}
@@ -399,10 +397,10 @@ export default function TrabajoScreen({ user, onBack }) {
 
                         <View style={styles.modalBtns}>
                             <TouchableOpacity style={styles.cancelBtn} onPress={() => { setShowModal(false); resetForm(); }}>
-                                <Text style={{ color: theme.subText }}>Cancelar</Text>
+                                <Text style={{ color: theme.muted }}>Cancelar</Text>
                             </TouchableOpacity>
                             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: theme.accent }]} onPress={handleSave}>
-                                <Text style={{ color: '#fff', fontWeight: 'bold' }}>Guardar</Text>
+                                <Text style={{ color: theme.onAccent, fontFamily: FONT.bold }}>Guardar</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
@@ -412,27 +410,28 @@ export default function TrabajoScreen({ user, onBack }) {
     );
 }
 
-const styles = StyleSheet.create({
+// Estilos en función del tema (dirección visual): ningún color fijo.
+const makeStyles = (t) => StyleSheet.create({
     container: { flex: 1 },
     header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 15, borderBottomWidth: 1 },
-    headerTitle: { fontSize: 18, fontWeight: 'bold' },
+    headerTitle: { fontSize: 18, fontFamily: FONT.bold, flex: 1, minWidth: 0, textAlign: 'center' },
     backButton: { width: 40 },
     addButton: { width: 40, alignItems: 'flex-end' },
     calendarContainer: { padding: 10 },
     calendarHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, paddingHorizontal: 10 },
     monthContainer: { alignItems: 'center', gap: 4 },
-    monthTitle: { fontSize: 18, fontWeight: 'bold' },
+    monthTitle: { fontSize: 18, fontFamily: FONT.bold },
     todayBtn: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 10 },
-    todayBtnText: { fontSize: 12, fontWeight: 'bold' },
+    todayBtnText: { fontSize: 12, fontFamily: FONT.bold },
     navBtn: { fontSize: 22, padding: 5 },
-    weekdaysRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#eee', paddingBottom: 5 },
-    weekdayText: { flex: 1, textAlign: 'center', fontSize: 12, fontWeight: 'bold' },
+    weekdaysRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: t.line, paddingBottom: 5 },
+    weekdayText: { flex: 1, textAlign: 'center', fontSize: 12, fontFamily: FONT.bold },
     calendarGrid: { flexDirection: 'row', flexWrap: 'wrap' },
     dayCell: { 
         width: (width - 20) / 7, 
         height: 65, 
         borderWidth: 0.5, 
-        borderColor: '#eee', 
+        borderColor: t.line, 
         alignItems: 'center', 
         paddingTop: 5 
     },
@@ -446,25 +445,25 @@ const styles = StyleSheet.create({
     legendDot: { width: 10, height: 10, borderRadius: 5 },
     legendText: { fontSize: 11 },
     managementSection: { padding: 15 },
-    sectionTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 15 },
-    personCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 15, borderRadius: 15, marginBottom: 10 },
-    pName: { fontSize: 16, fontWeight: 'bold' },
+    sectionTitle: { fontSize: 16, fontFamily: FONT.bold, marginBottom: 15 },
+    personCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 15, borderRadius: RADIUS.base, marginBottom: 10 },
+    pName: { fontSize: 16, fontFamily: FONT.bold },
     pCycle: { fontSize: 12, marginTop: 4 },
-    cardActions: { flexDirection: 'row', alignItems: 'center', gap: 15 },
+    cardActions: { flexDirection: 'row', alignItems: 'center', gap: 15, flexShrink: 0 },
     orderCtrls: { flexDirection: 'row', gap: 5 },
-    orderBtn: { padding: 5, backgroundColor: '#f0f0f0', borderRadius: 5 },
+    orderBtn: { padding: 5, backgroundColor: t.raised, borderRadius: 5 },
     deleteBtn: { padding: 5 },
     modalOverlay: { flex: 1, justifyContent: 'center', padding: 20 },
-    modalContent: { borderRadius: 25, padding: 20 },
-    modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 20 },
-    input: { padding: 12, borderRadius: 12, borderWidth: 1, marginBottom: 15 },
-    label: { fontSize: 14, marginBottom: 8 },
+    modalContent: { borderRadius: RADIUS.base, padding: 20 },
+    modalTitle: { fontSize: 20, fontFamily: FONT.bold, marginBottom: 20 },
+    input: { padding: 12, borderRadius: RADIUS.sm, borderWidth: 1, marginBottom: 15 },
+    label: { fontSize: 14, marginBottom: 8, color: t.ink },
     cycleHeader: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 },
     phRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
     typeSelector: { flexDirection: 'row', gap: 5 },
-    typeBtn: { width: 35, height: 35, borderRadius: 8, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f0f0f0' },
+    typeBtn: { width: 35, height: 35, borderRadius: 8, justifyContent: 'center', alignItems: 'center', backgroundColor: t.raised },
     countInput: { width: 50, padding: 5, borderRadius: 8, borderWidth: 1, textAlign: 'center' },
     modalBtns: { flexDirection: 'row', gap: 10, marginTop: 30 },
-    cancelBtn: { flex: 1, padding: 15, alignItems: 'center' },
-    saveBtn: { flex: 1, padding: 15, borderRadius: 12, alignItems: 'center' },
+    cancelBtn: { flex: 1, padding: 15, alignItems: 'center', minHeight: 52, justifyContent: 'center', borderRadius: RADIUS.sm, backgroundColor: t.raised },
+    saveBtn: { flex: 1, padding: 15, borderRadius: RADIUS.sm, alignItems: 'center', minHeight: 52, justifyContent: 'center' },
 });

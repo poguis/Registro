@@ -1,40 +1,34 @@
-import React, { useState, useEffect } from 'react';
-import {
-    View,
-    Text,
-    StyleSheet,
-    TouchableOpacity,
-    FlatList,
-    Modal,
-    TextInput,
-    Alert,
-    Dimensions,
-    ScrollView,
-} from 'react-native';
+import React, { useState, useEffect, useMemo } from 'react';
+import { View, StyleSheet, TouchableOpacity, FlatList, Modal, Dimensions, ScrollView } from 'react-native';
+import { useSheet } from '../hooks/useSheet';
+import { Text, TextInput } from '../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
 import db from '../services/db';
 import { useSyncRefresh } from '../sync/useSyncRefresh';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme, FONT, RADIUS } from '../contexts/ThemeContext';
 
 const { width } = Dimensions.get('window');
 
+// Cada tipo tiene un tono del tema (theme.tones) como color de identidad.
 const CATEGORIES = [
-    { id: 'movie', label: 'Películas', icon: '🎬', color: '#E94560' },
-    { id: 'series', label: 'Series', icon: '📺', color: '#4CAF50' },
-    { id: 'anime', label: 'Anime', icon: '🎋', color: '#2196F3' },
-    { id: 'reading', label: 'Lectura', icon: '📚', color: '#FF9800' },
+    { id: 'movie', label: 'Películas', icon: '🎬', tono: 'rojo' },
+    { id: 'series', label: 'Series', icon: '📺', tono: 'verde' },
+    { id: 'anime', label: 'Anime', icon: '🎋', tono: 'azul' },
+    { id: 'reading', label: 'Lectura', icon: '📚', tono: 'naranja' },
 ];
 
-const STATUS_COLORS = {
-    'Pendiente': '#9E9E9E',
-    'Mirando': '#2196F3',
-    'Terminado': '#4CAF50',
-    'Total': '#673AB7',
+const STATUS_TONES = {
+    'Pendiente': 'pizarra',
+    'Mirando': 'azul',
+    'Terminado': 'verde',
+    'Total': 'morado',
 };
 
 export default function BacklogScreen({ user, onBack }) {
-    const { theme, isDarkMode } = useTheme();
+    const { theme } = useTheme();
+    const styles = useMemo(() => makeStyles(theme), [theme]);
+    const { confirm, informar } = useSheet();
+    const statusTone = (status) => theme.tones[STATUS_TONES[status]];
     const [activeTab, setActiveTab] = useState('movie');
     const [activeStatus, setActiveStatus] = useState('Pendiente');
     const [items, setItems] = useState([]);
@@ -86,7 +80,7 @@ export default function BacklogScreen({ user, onBack }) {
 
     const handleAddItem = async () => {
         if (!formData.title.trim()) {
-            Alert.alert('Error', 'El título es obligatorio');
+            informar('Error', 'El título es obligatorio');
             return;
         }
 
@@ -106,7 +100,7 @@ export default function BacklogScreen({ user, onBack }) {
                 setFormData({ title: '', year: '', format: '24 min', start_year: '', end_year: '', franchise: 'Otros' });
                 loadItems();
             } else {
-                Alert.alert('Error', 'No se pudo actualizar');
+                informar('Error', 'No se pudo actualizar');
             }
         } else {
             const res = await db.addBacklogItem(user.id, data);
@@ -116,7 +110,7 @@ export default function BacklogScreen({ user, onBack }) {
                 setActiveStatus('Pendiente');
                 loadItems();
             } else {
-                Alert.alert('Error', 'No se pudo guardar');
+                informar('Error', 'No se pudo guardar');
             }
         }
     };
@@ -146,67 +140,64 @@ export default function BacklogScreen({ user, onBack }) {
     };
 
     const handleDeleteItem = (id) => {
-        Alert.alert(
-            'Eliminar',
-            '¿Estás seguro de que quieres eliminar este elemento?',
-            [
-                { text: 'Cancelar', style: 'cancel' },
-                {
-                    text: 'Eliminar',
-                    style: 'destructive',
-                    onPress: async () => {
-                        await db.deleteBacklogItem(id);
-                        loadItems();
-                    }
-                }
-            ]
-        );
+        confirm({
+            titulo: 'Eliminar',
+            mensaje: '¿Estás seguro de que quieres eliminar este elemento?',
+            acciones: [
+                { clave: 'cancelar', texto: 'Cancelar', variante: 'cancelar' },
+                { clave: 'eliminar', texto: 'Eliminar', variante: 'destructiva' },
+            ],
+        }).then(async (clave) => {
+            if (clave !== 'eliminar') return;
+            await db.deleteBacklogItem(id);
+            loadItems();
+        });
     };
 
     const renderItem = ({ item }) => (
         <TouchableOpacity 
-            style={[styles.itemCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+            style={[styles.itemCard, { backgroundColor: theme.surface, borderColor: theme.line }]}
             onPress={() => handleUpdateStatus(item)}
             activeOpacity={0.7}
         >
             <View style={styles.cardMain}>
                 <View style={styles.cardHeader}>
-                    <Text style={[styles.itemTitle, { color: theme.text }]}>{item.title}</Text>
+                    <Text style={[styles.itemTitle, { color: theme.ink }]} numberOfLines={2} ellipsizeMode="tail">{item.title}</Text>
                     <View style={[
                         styles.statusDot, 
-                        { backgroundColor: STATUS_COLORS[item.status] }
+                        { backgroundColor: statusTone(item.status).fg }
                     ]} />
                 </View>
 
                 <View style={styles.cardFooter}>
                     <View style={styles.metadataContainer}>
                         {item.franchise && item.franchise !== 'Otros' && (
-                            <Text style={[styles.itemSubtext, { color: item.franchise === 'Marvel' ? '#e23636' : '#0476F2', fontWeight: 'bold' }]}>
+                            <Text numberOfLines={1} style={[styles.itemSubtext, { color: item.franchise === 'Marvel' ? theme.tones.rojo.fg : theme.tones.azul.fg, fontFamily: FONT.bold }]}>
                                 {item.franchise === 'Marvel' ? '🦸‍♂️ Marvel' : '🦇 DC Comics'}
                             </Text>
                         )}
                         {activeTab === 'movie' && item.year && (
-                            <Text style={[styles.itemSubtext, { color: theme.subText }]}>🎬 {item.year}</Text>
+                            <Text numberOfLines={1} style={[styles.itemSubtext, { color: theme.muted }]}>🎬 {item.year}</Text>
                         )}
                         {activeTab === 'series' && (
                             <>
-                                <Text style={[styles.itemSubtext, { color: theme.subText }]}>📺 {item.format}</Text>
+                                <Text numberOfLines={1} style={[styles.itemSubtext, { color: theme.muted }]}>📺 {item.format}</Text>
                                 {(item.start_year || item.end_year) && (
-                                    <Text style={[styles.itemSubtext, { color: theme.subText }]}>
+                                    <Text numberOfLines={1} style={[styles.itemSubtext, { color: theme.muted }]}>
                                         📅 {item.start_year || '?'}{item.end_year ? ` - ${item.end_year}` : '...'}
                                     </Text>
                                 )}
                             </>
                         )}
                         {activeTab === 'anime' && (item.start_year || item.end_year) && (
-                            <Text style={[styles.itemSubtext, { color: theme.subText }]}>
+                            <Text numberOfLines={1} style={[styles.itemSubtext, { color: theme.muted }]}>
                                 🎋 {item.start_year || '?'}{item.end_year ? ` - ${item.end_year}` : '...'}
                             </Text>
                         )}
                         {activeTab === 'reading' && item.start_year && (
-                            <Text style={[styles.itemSubtext, { color: theme.subText }]}>📚 {item.start_year}</Text>
+                            <Text numberOfLines={1} style={[styles.itemSubtext, { color: theme.muted }]}>📚 {item.start_year}</Text>
                         )}
-                        <Text style={[styles.dateText, { color: theme.subText }]}>
+                        <Text numberOfLines={1} style={[styles.dateText, { color: theme.muted }]}>
                             ⏱️ {new Date(item.created_at).toLocaleDateString()}
                         </Text>
                     </View>
@@ -227,15 +218,14 @@ export default function BacklogScreen({ user, onBack }) {
     const currentCat = CATEGORIES.find(c => c.id === activeTab);
 
     return (
-        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-            <StatusBar style={isDarkMode ? "light" : "dark"} />
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
 
             {/* Header */}
-            <View style={[styles.header, { backgroundColor: theme.header }]}>
+            <View style={[styles.header, { backgroundColor: theme.surface }]}>
                 <TouchableOpacity onPress={onBack} style={styles.backButton}>
-                    <Text style={[styles.backIcon, { color: theme.text }]}>←</Text>
+                    <Text style={[styles.backIcon, { color: theme.ink }]}>←</Text>
                 </TouchableOpacity>
-                <Text style={[styles.headerTitle, { color: theme.text }]}>Pendientes</Text>
+                <Text style={[styles.headerTitle, { color: theme.ink }]}>Pendientes</Text>
                 <TouchableOpacity onPress={() => setFilterModalVisible(true)} style={styles.filterButton}>
                     <Text style={{ fontSize: 22 }}>⚖️</Text>
                 </TouchableOpacity>
@@ -250,8 +240,8 @@ export default function BacklogScreen({ user, onBack }) {
                             style={[
                                 styles.tab,
                                 { 
-                                    backgroundColor: activeTab === cat.id ? cat.color : theme.card, 
-                                    borderColor: activeTab === cat.id ? cat.color : theme.border 
+                                    backgroundColor: activeTab === cat.id ? theme.tones[cat.tono].bg : theme.surface, 
+                                    borderColor: activeTab === cat.id ? theme.tones[cat.tono].fg : theme.lineStrong 
                                 }
                             ]}
                             onPress={() => setActiveTab(cat.id)}
@@ -259,7 +249,7 @@ export default function BacklogScreen({ user, onBack }) {
                             <Text style={styles.tabIcon}>{cat.icon}</Text>
                             <Text style={[
                                 styles.tabLabel,
-                                { color: activeTab === cat.id ? '#fff' : theme.text }
+                                { color: activeTab === cat.id ? theme.tones[cat.tono].fg : theme.ink }
                             ]}>
                                 {cat.label}
                             </Text>
@@ -278,15 +268,15 @@ export default function BacklogScreen({ user, onBack }) {
                                 style={[
                                     styles.franchiseTab,
                                     { 
-                                        backgroundColor: activeFranchise === franchise ? theme.accent : theme.inputBackground, 
-                                        borderColor: activeFranchise === franchise ? theme.accent : theme.border 
+                                        backgroundColor: activeFranchise === franchise ? theme.accent : theme.raised, 
+                                        borderColor: activeFranchise === franchise ? theme.accent : theme.lineStrong 
                                     }
                                 ]}
                                 onPress={() => setActiveFranchise(franchise)}
                             >
                                 <Text style={[
                                     styles.franchiseLabel,
-                                    { color: activeFranchise === franchise ? '#fff' : theme.text }
+                                    { color: activeFranchise === franchise ? theme.onAccent : theme.ink }
                                 ]}>
                                     {franchise}
                                 </Text>
@@ -303,16 +293,15 @@ export default function BacklogScreen({ user, onBack }) {
                         key={status}
                         style={[
                             styles.statusTab,
-                            { borderColor: STATUS_COLORS[status] },
-                            activeStatus === status && { backgroundColor: STATUS_COLORS[status] }
+                            { borderColor: statusTone(status).fg },
+                            activeStatus === status && { backgroundColor: statusTone(status).bg }
                         ]}
                         onPress={() => setActiveStatus(status)}
                     >
                         <Text style={[
                             styles.statusTabLabel,
-                            { color: STATUS_COLORS[status] },
-                            activeStatus === status && { color: '#fff' }
-                        ]}>
+                            { color: statusTone(status).fg }
+                        ]} numberOfLines={1}>
                             {status} ({counts[status] || 0})
                         </Text>
                     </TouchableOpacity>
@@ -327,7 +316,7 @@ export default function BacklogScreen({ user, onBack }) {
                 contentContainerStyle={styles.listContent}
                 ListEmptyComponent={
                     <View style={styles.emptyContainer}>
-                        <Text style={[styles.emptyText, { color: theme.subText }]}>
+                        <Text style={[styles.emptyText, { color: theme.muted }]}>
                             No hay {currentCat.label.toLowerCase()} con estado {activeStatus.toLowerCase()}
                         </Text>
                     </View>
@@ -336,7 +325,7 @@ export default function BacklogScreen({ user, onBack }) {
 
             {/* Add Button */}
             <TouchableOpacity
-                style={[styles.fab, { backgroundColor: currentCat.color }]}
+                style={[styles.fab, { backgroundColor: theme.accent }]}
                 onPress={() => {
                     setEditingItem(null);
                     setFormData({ title: '', year: '', format: '24 min', start_year: '', end_year: '', franchise: 'Otros' });
@@ -354,43 +343,43 @@ export default function BacklogScreen({ user, onBack }) {
                 onRequestClose={() => setFilterModalVisible(false)}
             >
                 <View style={styles.modalOverlay}>
-                    <View style={[styles.filterCard, { backgroundColor: theme.card }]}>
-                        <Text style={[styles.modalTitle, { color: theme.text }]}>Ordenar por</Text>
+                    <View style={[styles.filterCard, { backgroundColor: theme.surface }]}>
+                        <Text style={[styles.modalTitle, { color: theme.ink }]}>Ordenar por</Text>
 
                         <View style={styles.filterOptions}>
                             <TouchableOpacity
-                                style={[styles.filterOption, sortBy === 'title' && { backgroundColor: theme.accent }]}
+                                style={[styles.filterOption, sortBy === 'title' && { backgroundColor: theme.accent, borderColor: theme.accent }]}
                                 onPress={() => setSortBy('title')}
                             >
-                                <Text style={[styles.filterOptionText, sortBy === 'title' && { color: '#fff' }]}>Título</Text>
+                                <Text style={[styles.filterOptionText, sortBy === 'title' && { color: theme.onAccent }]}>Título</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
-                                style={[styles.filterOption, sortBy === 'year_start' && { backgroundColor: theme.accent }]}
+                                style={[styles.filterOption, sortBy === 'year_start' && { backgroundColor: theme.accent, borderColor: theme.accent }]}
                                 onPress={() => setSortBy('year_start')}
                             >
-                                <Text style={[styles.filterOptionText, sortBy === 'year_start' && { color: '#fff' }]}>Año</Text>
+                                <Text style={[styles.filterOptionText, sortBy === 'year_start' && { color: theme.onAccent }]}>Año</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
-                                style={[styles.filterOption, sortBy === 'created_at' && { backgroundColor: theme.accent }]}
+                                style={[styles.filterOption, sortBy === 'created_at' && { backgroundColor: theme.accent, borderColor: theme.accent }]}
                                 onPress={() => setSortBy('created_at')}
                             >
-                                <Text style={[styles.filterOptionText, sortBy === 'created_at' && { color: '#fff' }]}>Fecha</Text>
+                                <Text style={[styles.filterOptionText, sortBy === 'created_at' && { color: theme.onAccent }]}>Fecha</Text>
                             </TouchableOpacity>
                         </View>
 
-                        <Text style={[styles.modalTitle, { color: theme.text, marginTop: 20 }]}>Dirección</Text>
+                        <Text style={[styles.modalTitle, { color: theme.ink, marginTop: 20 }]}>Dirección</Text>
                         <View style={styles.filterOptions}>
                             <TouchableOpacity
-                                style={[styles.filterOption, order === 'ASC' && { backgroundColor: theme.accent }]}
+                                style={[styles.filterOption, order === 'ASC' && { backgroundColor: theme.accent, borderColor: theme.accent }]}
                                 onPress={() => setOrder('ASC')}
                             >
-                                <Text style={[styles.filterOptionText, order === 'ASC' && { color: '#fff' }]}>Ascendente</Text>
+                                <Text style={[styles.filterOptionText, order === 'ASC' && { color: theme.onAccent }]}>Ascendente</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
-                                style={[styles.filterOption, order === 'DESC' && { backgroundColor: theme.accent }]}
+                                style={[styles.filterOption, order === 'DESC' && { backgroundColor: theme.accent, borderColor: theme.accent }]}
                                 onPress={() => setOrder('DESC')}
                             >
-                                <Text style={[styles.filterOptionText, order === 'DESC' && { color: '#fff' }]}>Descendente</Text>
+                                <Text style={[styles.filterOptionText, order === 'DESC' && { color: theme.onAccent }]}>Descendente</Text>
                             </TouchableOpacity>
                         </View>
 
@@ -412,19 +401,19 @@ export default function BacklogScreen({ user, onBack }) {
                 onRequestClose={() => setModalVisible(false)}
             >
                 <View style={styles.modalOverlay}>
-                    <View style={[styles.modalCard, { backgroundColor: theme.card }]}>
-                        <Text style={[styles.modalTitle, { color: theme.text }]}>
+                    <View style={[styles.modalCard, { backgroundColor: theme.surface }]}>
+                        <Text style={[styles.modalTitle, { color: theme.ink }]} numberOfLines={1} ellipsizeMode="tail">
                             {editingItem ? 'Editar' : 'Añadir'} {currentCat.label}
                         </Text>
 
                         <ScrollView>
                             <Text style={[styles.inputLabel, { color: theme.accent }]}>Título</Text>
                             <TextInput
-                                style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                                 value={formData.title}
                                 onChangeText={text => setFormData({ ...formData, title: text })}
                                 placeholder="Ingresa el título..."
-                                placeholderTextColor={theme.subText}
+                                placeholderTextColor={theme.muted}
                             />
 
                             {(activeTab === 'movie' || activeTab === 'series') && (
@@ -437,13 +426,13 @@ export default function BacklogScreen({ user, onBack }) {
                                                 style={[
                                                     styles.formatOption, 
                                                     {
-                                                        backgroundColor: formData.franchise === f ? theme.accent : theme.inputBackground, 
-                                                        borderColor: formData.franchise === f ? theme.accent : theme.border
+                                                        backgroundColor: formData.franchise === f ? theme.accent : theme.raised, 
+                                                        borderColor: formData.franchise === f ? theme.accent : theme.lineStrong
                                                     }
                                                 ]}
                                                 onPress={() => setFormData({ ...formData, franchise: f })}
                                             >
-                                                <Text style={[styles.formatText, { color: formData.franchise === f ? '#fff' : theme.text }]}>{f}</Text>
+                                                <Text style={[styles.formatText, { color: formData.franchise === f ? theme.onAccent : theme.ink }]}>{f}</Text>
                                             </TouchableOpacity>
                                         ))}
                                     </View>
@@ -454,12 +443,12 @@ export default function BacklogScreen({ user, onBack }) {
                                 <>
                                     <Text style={[styles.inputLabel, { color: theme.accent }]}>Año</Text>
                                     <TextInput
-                                        style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                        style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                                         value={formData.year}
                                         onChangeText={text => setFormData({ ...formData, year: text })}
                                         placeholder="Ej: 1994"
                                         keyboardType="numeric"
-                                        placeholderTextColor={theme.subText}
+                                        placeholderTextColor={theme.muted}
                                     />
                                 </>
                             )}
@@ -474,33 +463,33 @@ export default function BacklogScreen({ user, onBack }) {
                                                 style={[
                                                     styles.formatOption, 
                                                     {
-                                                        backgroundColor: formData.format === f ? theme.accent : theme.inputBackground, 
-                                                        borderColor: formData.format === f ? theme.accent : theme.border
+                                                        backgroundColor: formData.format === f ? theme.accent : theme.raised, 
+                                                        borderColor: formData.format === f ? theme.accent : theme.lineStrong
                                                     }
                                                 ]}
                                                 onPress={() => setFormData({ ...formData, format: f })}
                                             >
-                                                <Text style={[styles.formatText, { color: formData.format === f ? '#fff' : theme.text }]}>{f}</Text>
+                                                <Text style={[styles.formatText, { color: formData.format === f ? theme.onAccent : theme.ink }]}>{f}</Text>
                                             </TouchableOpacity>
                                         ))}
                                     </View>
                                     <Text style={[styles.inputLabel, { color: theme.accent }]}>Año Inicio</Text>
                                     <TextInput
-                                        style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                        style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                                         value={formData.start_year}
                                         onChangeText={text => setFormData({ ...formData, start_year: text })}
                                         placeholder="Ej: 2020"
                                         keyboardType="numeric"
-                                        placeholderTextColor={theme.subText}
+                                        placeholderTextColor={theme.muted}
                                     />
                                     <Text style={[styles.inputLabel, { color: theme.accent }]}>Año Fin (Omitir si sigue en emisión)</Text>
                                     <TextInput
-                                        style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                        style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                                         value={formData.end_year}
                                         onChangeText={text => setFormData({ ...formData, end_year: text })}
                                         placeholder="Ej: 2024"
                                         keyboardType="numeric"
-                                        placeholderTextColor={theme.subText}
+                                        placeholderTextColor={theme.muted}
                                     />
                                 </>
                             )}
@@ -509,21 +498,21 @@ export default function BacklogScreen({ user, onBack }) {
                                 <>
                                     <Text style={[styles.inputLabel, { color: theme.accent }]}>Año Inicio</Text>
                                     <TextInput
-                                        style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                        style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                                         value={formData.start_year}
                                         onChangeText={text => setFormData({ ...formData, start_year: text })}
                                         placeholder="Ej: 2020"
                                         keyboardType="numeric"
-                                        placeholderTextColor={theme.subText}
+                                        placeholderTextColor={theme.muted}
                                     />
                                     <Text style={[styles.inputLabel, { color: theme.accent }]}>Año Fin</Text>
                                     <TextInput
-                                        style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                        style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                                         value={formData.end_year}
                                         onChangeText={text => setFormData({ ...formData, end_year: text })}
                                         placeholder="Ej: 2024"
                                         keyboardType="numeric"
-                                        placeholderTextColor={theme.subText}
+                                        placeholderTextColor={theme.muted}
                                     />
                                 </>
                             )}
@@ -532,12 +521,12 @@ export default function BacklogScreen({ user, onBack }) {
                                 <>
                                     <Text style={[styles.inputLabel, { color: theme.accent }]}>Año Inicio</Text>
                                     <TextInput
-                                        style={[styles.input, { backgroundColor: theme.inputBackground, color: theme.text, borderColor: theme.border }]}
+                                        style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                                         value={formData.start_year}
                                         onChangeText={text => setFormData({ ...formData, start_year: text })}
                                         placeholder="Ej: 2020"
                                         keyboardType="numeric"
-                                        placeholderTextColor={theme.subText}
+                                        placeholderTextColor={theme.muted}
                                     />
                                 </>
                             )}
@@ -545,16 +534,16 @@ export default function BacklogScreen({ user, onBack }) {
 
                         <View style={styles.modalButtons}>
                             <TouchableOpacity
-                                style={[styles.modalButton, { backgroundColor: theme.inputBackground }]}
+                                style={[styles.modalButton, { backgroundColor: theme.raised }]}
                                 onPress={() => setModalVisible(false)}
                             >
-                                <Text style={[styles.modalButtonText, { color: theme.text }]}>Cancelar</Text>
+                                <Text style={[styles.modalButtonText, { color: theme.ink }]}>Cancelar</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
-                                style={[styles.modalButton, { backgroundColor: currentCat.color }]}
+                                style={[styles.modalButton, { backgroundColor: theme.accent }]}
                                 onPress={handleAddItem}
                             >
-                                <Text style={[styles.modalButtonText, { color: '#fff' }]}>
+                                <Text style={[styles.modalButtonText, { color: theme.onAccent }]}>
                                     {editingItem ? 'Actualizar' : 'Guardar'}
                                 </Text>
                             </TouchableOpacity>
@@ -566,7 +555,8 @@ export default function BacklogScreen({ user, onBack }) {
     );
 }
 
-const styles = StyleSheet.create({
+// Estilos en función del tema (dirección visual): ningún color fijo.
+const makeStyles = (t) => StyleSheet.create({
     container: { flex: 1 },
     header: {
         flexDirection: 'row',
@@ -576,14 +566,14 @@ const styles = StyleSheet.create({
         borderBottomLeftRadius: 30,
         borderBottomRightRadius: 30,
         elevation: 5,
-        shadowColor: '#000',
+        shadowColor: t.shadow,
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1,
         shadowRadius: 10,
     },
     backButton: { width: 40, height: 40, justifyContent: 'center' },
-    backIcon: { fontSize: 24, fontWeight: 'bold' },
-    headerTitle: { fontSize: 22, fontWeight: 'bold' },
+    backIcon: { fontSize: 24, fontFamily: FONT.bold },
+    headerTitle: { fontSize: 22, fontFamily: FONT.bold, flex: 1, textAlign: 'center' },
     filterButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
     tabsContainer: { paddingVertical: 10 },
     tabsScroll: { paddingHorizontal: 15 },
@@ -595,6 +585,7 @@ const styles = StyleSheet.create({
     },
     statusTab: {
         flex: 1,
+        minWidth: 0,
         paddingVertical: 8,
         borderRadius: 12,
         borderWidth: 1,
@@ -603,7 +594,7 @@ const styles = StyleSheet.create({
     },
     statusTabLabel: {
         fontSize: 11,
-        fontWeight: 'bold',
+        fontFamily: FONT.bold,
     },
     tab: {
         flexDirection: 'row',
@@ -615,7 +606,7 @@ const styles = StyleSheet.create({
         borderWidth: 1,
     },
     tabIcon: { fontSize: 18, marginRight: 8 },
-    tabLabel: { fontSize: 14, fontWeight: 'bold' },
+    tabLabel: { fontSize: 14, fontFamily: FONT.bold },
     franchiseTab: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -625,10 +616,10 @@ const styles = StyleSheet.create({
         marginRight: 10,
         borderWidth: 1,
     },
-    franchiseLabel: { fontSize: 12, fontWeight: 'bold' },
+    franchiseLabel: { fontSize: 12, fontFamily: FONT.bold },
     listContent: { padding: 15, paddingBottom: 100 },
     itemCard: {
-        borderRadius: 15,
+        borderRadius: RADIUS.base,
         marginBottom: 10,
         borderWidth: 1,
         overflow: 'hidden',
@@ -644,14 +635,16 @@ const styles = StyleSheet.create({
     },
     itemTitle: {
         fontSize: 16,
-        fontWeight: 'bold',
+        fontFamily: FONT.bold,
         flex: 1,
+        minWidth: 0,
         marginRight: 10,
     },
     statusDot: {
         width: 10,
         height: 10,
         borderRadius: 5,
+        flexShrink: 0,
     },
     cardFooter: {
         flexDirection: 'row',
@@ -662,6 +655,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         flexWrap: 'wrap',
         flex: 1,
+        minWidth: 0,
         alignItems: 'center',
     },
     itemSubtext: {
@@ -675,6 +669,7 @@ const styles = StyleSheet.create({
     cardIcons: {
         flexDirection: 'row',
         gap: 8,
+        flexShrink: 0,
     },
     miniActionBtn: {
         padding: 4,
@@ -689,35 +684,35 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         elevation: 10,
-        shadowColor: '#000',
+        shadowColor: t.shadow,
         shadowOffset: { width: 0, height: 5 },
         shadowOpacity: 0.3,
         shadowRadius: 10,
     },
-    fabIcon: { fontSize: 32, color: '#fff', fontWeight: '300' },
+    fabIcon: { fontSize: 32, color: t.onAccent, fontFamily: FONT.regular },
     emptyContainer: { alignItems: 'center', marginTop: 100 },
     emptyText: { fontSize: 16 },
     modalOverlay: {
         flex: 1,
-        backgroundColor: 'rgba(0,0,0,0.5)',
+        backgroundColor: t.overlay,
         justifyContent: 'flex-end',
     },
     modalCard: {
-        backgroundColor: '#fff',
-        borderTopLeftRadius: 30,
-        borderTopRightRadius: 30,
+        backgroundColor: t.surface,
+        borderTopLeftRadius: RADIUS.sheet,
+        borderTopRightRadius: RADIUS.sheet,
         padding: 30,
         maxHeight: '80%',
     },
     filterCard: {
-        backgroundColor: '#fff',
-        borderTopLeftRadius: 30,
-        borderTopRightRadius: 30,
+        backgroundColor: t.surface,
+        borderTopLeftRadius: RADIUS.sheet,
+        borderTopRightRadius: RADIUS.sheet,
         padding: 30,
     },
-    modalTitle: { fontSize: 24, fontWeight: 'bold', marginBottom: 20 },
-    inputLabel: { fontSize: 14, fontWeight: 'bold', marginBottom: 8, marginTop: 15 },
-    input: { borderRadius: 15, padding: 15, borderWidth: 1, fontSize: 16 },
+    modalTitle: { fontSize: 24, fontFamily: FONT.bold, marginBottom: 20 },
+    inputLabel: { fontSize: 14, fontFamily: FONT.bold, marginBottom: 8, marginTop: 15 },
+    input: { borderRadius: RADIUS.sm, padding: 15, borderWidth: 1, fontSize: 16 },
     formatContainer: { flexDirection: 'row', gap: 10, marginTop: 5 },
     formatOption: {
         flex: 1,
@@ -726,19 +721,19 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         alignItems: 'center',
     },
-    formatText: { fontWeight: 'bold' },
+    formatText: { fontFamily: FONT.bold },
     modalButtons: { flexDirection: 'row', gap: 15, marginTop: 30 },
-    modalButton: { flex: 1, padding: 18, borderRadius: 15, alignItems: 'center' },
-    modalButtonText: { fontSize: 16, fontWeight: 'bold' },
+    modalButton: { flex: 1, padding: 18, borderRadius: RADIUS.sm, alignItems: 'center', minHeight: 52, justifyContent: 'center' },
+    modalButtonText: { fontSize: 16, fontFamily: FONT.bold },
     filterOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
     filterOption: {
         paddingHorizontal: 15,
         paddingVertical: 10,
         borderRadius: 12,
         borderWidth: 1,
-        borderColor: '#ddd',
+        borderColor: t.lineStrong,
     },
-    filterOptionText: { fontWeight: '600', color: '#666' },
-    closeBtn: { marginTop: 30, padding: 18, borderRadius: 15, alignItems: 'center' },
-    closeBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+    filterOptionText: { fontFamily: FONT.semibold, color: t.muted },
+    closeBtn: { marginTop: 30, padding: 18, borderRadius: RADIUS.sm, alignItems: 'center', minHeight: 52, justifyContent: 'center' },
+    closeBtnText: { color: t.onAccent, fontFamily: FONT.bold, fontSize: 16 },
 });

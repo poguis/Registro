@@ -25,6 +25,7 @@
 // extraer-pantalla.mjs (que carga @babel/*) se importa ANTES que test-hooks.mjs: los hooks
 // convierten los .json en módulos ESM y @babel/traverse hace require() de JSON internos.
 import { extraer as extraerPantalla, instanciar as instanciarPantalla, extraidas } from './lib/extraer-pantalla.mjs';
+import { hojasDesdeAlert } from './lib/hojas-stub.mjs'; // dirección visual: confirm/informar/avisar → el mismo registro que Alert
 import './lib/test-hooks.mjs';
 import { rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -319,7 +320,7 @@ async function nuevoEntorno() {
         const handleSave = instanciar(extraer(archivo, 'handleSave'), {
             name, description: '', status, seasons: temporadas.map((n, i) => ({ number: i + 1, episodes: String(n) })),
             currentSeason: T, currentEpisode: E, isEditing: !!editar, editingSeriesId: editar,
-            originalList, category: cat, currentCategory: cat, db, Alert: A.Alert, setModalVisible: () => {}, fetchSeries: recarga.fn, resetForm: () => {},
+            originalList, category: cat, currentCategory: cat, db, Alert: A.Alert, ...hojasDesdeAlert(A.Alert), setModalVisible: () => {}, fetchSeries: recarga.fn, resetForm: () => {},
         });
         await quiet(() => handleSave());
         return { alertas: A.registro.map((a) => a.titulo), mensajes: A.registro.map((a) => a.mensaje) };
@@ -335,7 +336,7 @@ async function nuevoEntorno() {
         A.elegir(eleccion);
         const recarga = crearRecarga();
         const espera = recarga.esperar();
-        const onMarkWatched = instanciar(extraer(archivo, 'onMarkWatched'), { rawSeries: raw, items, db, Alert: A.Alert, loadData: recarga.fn });
+        const onMarkWatched = instanciar(extraer(archivo, 'onMarkWatched'), { rawSeries: raw, items, db, Alert: A.Alert, ...hojasDesdeAlert(A.Alert), loadData: recarga.fn });
         await quiet(() => onMarkWatched(item));
         const final = A.registro.find((a) => a.botones.length);
         if (final && (eleccion === null || eleccion === 'Cancelar')) espera.catch(() => {});
@@ -371,7 +372,7 @@ async function nuevoEntorno() {
         const recarga = crearRecarga();
         const espera = recarga.esperar();
         const updateToChapter = instanciar(extraer(PANTALLA.detalle, 'updateToChapter'), {
-            activeSeries: s, originalList, category: cat, db, Alert: A.Alert, fetchSeries: recarga.fn, setActiveSeries: () => {},
+            activeSeries: s, originalList, category: cat, db, Alert: A.Alert, ...hojasDesdeAlert(A.Alert), fetchSeries: recarga.fn, setActiveSeries: () => {},
         });
         await quiet(() => updateToChapter(s.id, sNum, eNum));
         const alerta = A.registro.find((a) => a.botones.length);
@@ -393,7 +394,7 @@ async function nuevoEntorno() {
         const A = crearAlert();
         A.elegir('Reiniciar');
         const handleRestart = instanciar(extraer(PANTALLA.detalle, 'handleRestart'), {
-            activeSeries: s, db, Alert: A.Alert, fetchSeries: () => {}, setProgressModalVisible: () => {},
+            activeSeries: s, db, Alert: A.Alert, ...hojasDesdeAlert(A.Alert), fetchSeries: () => {}, setProgressModalVisible: () => {},
         });
         await quiet(() => handleRestart());
         await A.esperar();
@@ -485,7 +486,7 @@ const ESCENARIOS = {
             const A = crearAlert();
             const handleSave = instanciar(extraer(PANTALLA.categorias, 'handleSave'), {
                 name: c0.name, type: 'video', startDate: c0.start_date, selectedDays: quotas, frequency: '0', seriesCount: '3',
-                description: '', isEditing: true, editingId: cat.id, db: E.db, user: E.user, Alert: A.Alert, setModalVisible: () => {}, fetchCategories: () => {},
+                description: '', isEditing: true, editingId: cat.id, db: E.db, user: E.user, Alert: A.Alert, ...hojasDesdeAlert(A.Alert), setModalVisible: () => {}, fetchCategories: () => {},
             });
             await quiet(() => handleSave());
         };
@@ -708,7 +709,7 @@ const ESCENARIOS = {
             db.addEntertainmentCategory = async (u, data) => { const res = await E.db.addEntertainmentCategory(u, data); id = res.id; return res; };
             const handleSave = instanciar(extraer(PANTALLA.categorias, 'handleSave'), {
                 name: 'F', type: 'video', startDate: dia(0), selectedDays: todas(1), frequency: '', seriesCount: seriesCountTexto,
-                description: '', isEditing: false, editingId: null, db, user: E.user, Alert: A.Alert, setModalVisible: () => {}, fetchCategories: () => {},
+                description: '', isEditing: false, editingId: null, db, user: E.user, Alert: A.Alert, ...hojasDesdeAlert(A.Alert), setModalVisible: () => {}, fetchCategories: () => {},
             });
             await quiet(() => handleSave());
             // 7.4a (O1): un límite inválido no guarda nada y avisa; se devuelve la alerta en su lugar.

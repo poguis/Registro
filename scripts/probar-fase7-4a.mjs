@@ -29,6 +29,7 @@
 //
 // extraer-pantalla.mjs (carga @babel/*) se importa ANTES que test-hooks.mjs (ver probar-fase7-2).
 import { extraer, instanciar as instanciarPantalla } from './lib/extraer-pantalla.mjs';
+import { hojasDesdeAlert } from './lib/hojas-stub.mjs'; // dirección visual: confirm/informar/avisar → el mismo registro que Alert
 import './lib/test-hooks.mjs';
 import { rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -200,7 +201,7 @@ async function entorno(uid = UID) {
         const handleSave = instanciar(extraer(V(cat).detalle, 'handleSave'), {
             name, description: '', status, seasons: temporadas.map((n, i) => ({ number: i + 1, episodes: String(n) })),
             currentSeason: T, currentEpisode: E, isEditing: !!editar, editingSeriesId: editar,
-            originalList, category: categoriaProp, currentCategory: cat, db, Alert: A.Alert, setModalVisible: () => {}, fetchSeries: () => {}, resetForm: () => {},
+            originalList, category: categoriaProp, currentCategory: cat, db, Alert: A.Alert, ...hojasDesdeAlert(A.Alert), setModalVisible: () => {}, fetchSeries: () => {}, resetForm: () => {},
         });
         await quiet(() => handleSave());
         return A.registro;
@@ -215,7 +216,7 @@ async function entorno(uid = UID) {
         const item = p.items.find((i) => i.seriesName === nombre);
         if (!item) throw new Error(`${nombre} no está en la cola`);
         const A = crearAlert(eleccion);
-        const onMarkWatched = instanciar(extraer(v.registro, 'onMarkWatched'), { rawSeries: p.raw, items: p.items, db: espia.db, Alert: A.Alert, loadData: p.loadData });
+        const onMarkWatched = instanciar(extraer(v.registro, 'onMarkWatched'), { rawSeries: p.raw, items: p.items, db: espia.db, Alert: A.Alert, ...hojasDesdeAlert(A.Alert), loadData: p.loadData });
         await quiet(async () => { await onMarkWatched(item); await espia.asentar(); });
         return A.registro;
     };
@@ -250,7 +251,7 @@ async function entorno(uid = UID) {
         const A = crearAlert(eleccion);
         const espia = espiar(db);
         const updateToChapter = instanciar(extraer(V(cat).detalle, 'updateToChapter'), {
-            activeSeries: serieX, originalList, category: cat, db: espia.db, Alert: A.Alert, fetchSeries: () => {}, setActiveSeries: () => {},
+            activeSeries: serieX, originalList, category: cat, db: espia.db, Alert: A.Alert, ...hojasDesdeAlert(A.Alert), fetchSeries: () => {}, setActiveSeries: () => {},
         });
         await quiet(async () => { await updateToChapter(serieX.id, s, e); await espia.asentar(); });
         return A.registro;
@@ -284,7 +285,7 @@ async function entorno(uid = UID) {
         const A = crearAlert('Reiniciar');
         const espia = espiar(db);
         const handleRestart = instanciar(extraer(V(cat).detalle, 'handleRestart'), {
-            activeSeries: s, db: espia.db, Alert: A.Alert, fetchSeries: () => {}, setProgressModalVisible: () => {},
+            activeSeries: s, db: espia.db, Alert: A.Alert, ...hojasDesdeAlert(A.Alert), fetchSeries: () => {}, setProgressModalVisible: () => {},
         });
         await quiet(async () => { await handleRestart(); await espia.asentar(); });
         return A.registro;
@@ -297,7 +298,7 @@ async function entorno(uid = UID) {
         const A = crearAlert();
         let abrio = false, reseteo = false;
         const handleAddPress = instanciar(extraer(V(cat).detalle, 'handleAddPress'), {
-            originalList, category: categoriaProp, currentCategory: cat, Alert: A.Alert,
+            originalList, category: categoriaProp, currentCategory: cat, Alert: A.Alert, ...hojasDesdeAlert(A.Alert),
             resetForm: () => { reseteo = true; }, setModalVisible: (x) => { if (x) abrio = true; },
         });
         handleAddPress();
@@ -862,7 +863,7 @@ for (const tipo of ['video', 'reading']) {
         db.addEntertainmentCategory = async (u, data) => { const res = await E.db.addEntertainmentCategory(u, data); id = res.id; return res; };
         const handleSave = instanciar(extraer(CATEGORIAS, 'handleSave'), {
             name, type, startDate: dia(0), selectedDays: todas(1), frequency: type === 'reading' ? '1' : '', seriesCount,
-            description: '', isEditing: !!editar, editingId: editar, db, user: E.user, Alert: A.Alert, setModalVisible: () => {}, fetchCategories: () => {},
+            description: '', isEditing: !!editar, editingId: editar, db, user: E.user, Alert: A.Alert, ...hojasDesdeAlert(A.Alert), setModalVisible: () => {}, fetchCategories: () => {},
         });
         await quiet(() => handleSave());
         const error = A.registro.find((x) => x.titulo === 'Error');

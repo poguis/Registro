@@ -1,16 +1,9 @@
 import React, { useState } from 'react';
-import {
-    View,
-    Text,
-    TouchableOpacity,
-    StyleSheet,
-    Dimensions,
-    Alert,
-    ScrollView
-} from 'react-native';
+import { View, TouchableOpacity, StyleSheet, Dimensions, ScrollView } from 'react-native';
+import { Text } from '../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme, FONT, RADIUS } from '../contexts/ThemeContext';
+import { useSheet } from '../hooks/useSheet';
 import { backupAndShare } from '../services/backup';
 import db from '../services/db';
 import { showBackupResult } from './backupResult';
@@ -18,18 +11,19 @@ import SyncStatus from './SyncStatus';
 
 const { width } = Dimensions.get('window');
 
-const MenuButton = ({ title, icon, color, onPress, theme, disabled = false }) => (
+// tone: un tono de identidad del tema (theme.tones.*), con fg (borde) y bg (fondo del ícono).
+const MenuButton = ({ title, icon, tone, onPress, theme, disabled = false }) => (
     <TouchableOpacity
-        style={[styles.menuButton, { borderLeftColor: color, backgroundColor: theme.card, opacity: disabled ? 0.6 : 1 }]}
+        style={[styles.menuButton, { borderLeftColor: tone.fg, backgroundColor: theme.surface, shadowColor: theme.shadow, opacity: disabled ? 0.6 : 1 }]}
         onPress={onPress}
         activeOpacity={0.7}
         disabled={disabled}
     >
-        <View style={[styles.iconContainer, { backgroundColor: color }]}>
+        <View style={[styles.iconContainer, { backgroundColor: tone.bg }]}>
             <Text style={styles.iconText}>{icon}</Text>
         </View>
-        <Text style={[styles.menuButtonText, { color: theme.text }]}>{title}</Text>
-        <Text style={styles.arrow}>›</Text>
+        <Text style={[styles.menuButtonText, { color: theme.ink }]} numberOfLines={1} ellipsizeMode="tail">{title}</Text>
+        <Text style={[styles.arrow, { color: theme.muted }]}>›</Text>
     </TouchableOpacity>
 );
 
@@ -38,6 +32,7 @@ const MenuButton = ({ title, icon, color, onPress, theme, disabled = false }) =>
 // devTools: solo en la variante dev (acceso a la prueba de RLS).
 export default function HomeScreen({ user, onLogout, onNavigate, notice, devTools }) {
     const { isDarkMode, toggleTheme, theme } = useTheme();
+    const { confirm, informar, avisar } = useSheet();
     const [isBackingUp, setIsBackingUp] = useState(false);
 
     // Respaldo: copia física (.db) + JSON, y menú de compartir para sacarlos del teléfono.
@@ -49,10 +44,10 @@ export default function HomeScreen({ user, onLogout, onNavigate, notice, devTool
             // Fase 6.7: limpieza de respaldos/ solo cuando el .db y el .json nuevos ya están escritos;
             // el respaldo recién creado está protegido. Nunca bloquea ni falla el respaldo.
             db.cleanupBackups(summary.stamp).catch(() => {});
-            showBackupResult(summary, 'Asegúrate de guardarlos fuera del teléfono (Drive, correo o PC).');
+            showBackupResult(confirm, summary, 'Asegúrate de guardarlos fuera del teléfono (Drive, correo o PC).');
         } catch (error) {
             console.error('Error creating backup:', error);
-            Alert.alert('Error', `No se pudo generar el respaldo. Tus datos no se modificaron.\n\n${error.message}`);
+            informar('Error', `No se pudo generar el respaldo. Tus datos no se modificaron.\n\n${error.message}`);
         } finally {
             setIsBackingUp(false);
         }
@@ -75,43 +70,42 @@ export default function HomeScreen({ user, onLogout, onNavigate, notice, devTool
             onNavigate('TRABAJO');
             return;
         }
-        Alert.alert('Próximamente', `El módulo de ${module} estará disponible pronto.`);
+        avisar({ titulo: 'Próximamente', mensaje: `El módulo de ${module} estará disponible pronto.` });
     };
 
     return (
-        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-            <StatusBar style={isDarkMode ? "light" : "dark"} />
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
 
             {/* Header */}
-            <View style={[styles.header, { backgroundColor: theme.header }]}>
+            <View style={[styles.header, { backgroundColor: theme.surface, shadowColor: theme.shadow }]}>
                 {/* flex: 1 + una línea: un email largo no empuja los botones fuera de la pantalla */}
-                <View style={{ flex: 1, marginRight: 10 }}>
-                    <Text style={[styles.greeting, { color: theme.subText }]}>Hola,</Text>
-                    <Text style={[styles.username, { color: theme.text }]} numberOfLines={1} ellipsizeMode="middle">
+                <View style={{ flex: 1, minWidth: 0, marginRight: 10 }}>
+                    <Text style={[styles.greeting, { color: theme.muted }]}>Hola,</Text>
+                    <Text style={[styles.username, { color: theme.ink }]} numberOfLines={1} ellipsizeMode="middle">
                         {user?.username || 'Usuario'}
                     </Text>
                 </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', flexShrink: 0 }}>
                     <TouchableOpacity
-                        style={[styles.themeButton, { backgroundColor: theme.inputBackground }]}
+                        style={[styles.themeButton, { backgroundColor: theme.raised }]}
                         onPress={toggleTheme}
                     >
                         <Text style={{ fontSize: 20 }}>{isDarkMode ? '🌞' : '🌙'}</Text>
                     </TouchableOpacity>
                     {onLogout && (
-                        <TouchableOpacity style={styles.logoutButton} onPress={onLogout}>
-                            <Text style={styles.logoutText}>Cerrar sesión</Text>
+                        <TouchableOpacity style={[styles.logoutButton, { backgroundColor: theme.behindBg }]} onPress={onLogout}>
+                            <Text style={[styles.logoutText, { color: theme.behindFg }]} numberOfLines={1}>Cerrar sesión</Text>
                         </TouchableOpacity>
                     )}
                 </View>
             </View>
 
             {notice && (
-                <View style={[styles.notice, { backgroundColor: theme.card, borderColor: theme.accent }]}>
-                    <Text style={[styles.noticeText, { color: theme.text }]}>{notice.text}</Text>
+                <View style={[styles.notice, { backgroundColor: theme.surface, borderColor: theme.accent }]}>
+                    <Text style={[styles.noticeText, { color: theme.ink }]}>{notice.text}</Text>
                     {notice.actionLabel && (
                         <TouchableOpacity onPress={notice.onAction} disabled={notice.busy}>
-                            <Text style={[styles.noticeAction, { color: theme.accent }]}>
+                            <Text style={[styles.noticeAction, { color: theme.accent }]} numberOfLines={1}>
                                 {notice.busy ? 'Conectando…' : notice.actionLabel}
                             </Text>
                         </TouchableOpacity>
@@ -125,12 +119,12 @@ export default function HomeScreen({ user, onLogout, onNavigate, notice, devTool
 
             {/* Desplazable: con el aviso arriba, las últimas opciones no caben en pantallas pequeñas. */}
             <ScrollView style={styles.content} contentContainerStyle={styles.contentInner}>
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>Mi Panel</Text>
+                <Text style={[styles.sectionTitle, { color: theme.ink }]}>Mi Panel</Text>
 
                 <MenuButton
                     title="Dinero"
                     icon="💰"
-                    color="#4CAF50"
+                    tone={theme.tones.verde}
                     onPress={() => handlePress('Dinero')}
                     theme={theme}
                 />
@@ -138,7 +132,7 @@ export default function HomeScreen({ user, onLogout, onNavigate, notice, devTool
                 <MenuButton
                     title="Serie/Anime"
                     icon="📺"
-                    color="#2196F3"
+                    tone={theme.tones.azul}
                     onPress={() => handlePress('Series y Anime')}
                     theme={theme}
                 />
@@ -146,7 +140,7 @@ export default function HomeScreen({ user, onLogout, onNavigate, notice, devTool
                 <MenuButton
                     title="Pendiente"
                     icon="📋"
-                    color="#673AB7"
+                    tone={theme.tones.morado}
                     onPress={() => handlePress('Pendiente')}
                     theme={theme}
                 />
@@ -154,17 +148,17 @@ export default function HomeScreen({ user, onLogout, onNavigate, notice, devTool
                 <MenuButton
                     title="Trabajo"
                     icon="💼"
-                    color="#FF9800"
+                    tone={theme.tones.naranja}
                     onPress={() => handlePress('Trabajo')}
                     theme={theme}
                 />
 
-                <Text style={[styles.sectionTitle, { color: theme.text, marginTop: 10 }]}>Datos</Text>
+                <Text style={[styles.sectionTitle, { color: theme.ink, marginTop: 10 }]}>Datos</Text>
 
                 <MenuButton
                     title={isBackingUp ? 'Generando respaldo…' : 'Respaldar datos'}
                     icon="💾"
-                    color="#607D8B"
+                    tone={theme.tones.pizarra}
                     onPress={handleBackup}
                     theme={theme}
                     disabled={isBackingUp}
@@ -174,7 +168,7 @@ export default function HomeScreen({ user, onLogout, onNavigate, notice, devTool
                     <MenuButton
                         title="Prueba de RLS (dev)"
                         icon="🧪"
-                        color="#9C27B0"
+                        tone={theme.tones.rojo}
                         onPress={() => onNavigate('RLS_TEST')}
                         theme={theme}
                     />
@@ -187,17 +181,14 @@ export default function HomeScreen({ user, onLogout, onNavigate, notice, devTool
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#F7F7F7',
     },
     header: {
         padding: 24,
-        backgroundColor: '#fff',
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        borderBottomLeftRadius: 30,
-        borderBottomRightRadius: 30,
-        shadowColor: '#000',
+        borderBottomLeftRadius: RADIUS.sheet,
+        borderBottomRightRadius: RADIUS.sheet,
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.05,
         shadowRadius: 15,
@@ -206,18 +197,15 @@ const styles = StyleSheet.create({
     },
     greeting: {
         fontSize: 16,
-        color: '#888',
     },
     username: {
         fontSize: 28,
-        fontWeight: 'bold',
-        color: '#333',
+        fontFamily: FONT.bold,
     },
     logoutButton: {
         paddingHorizontal: 15,
         paddingVertical: 8,
-        backgroundColor: '#FFEBEE',
-        borderRadius: 20,
+        borderRadius: RADIUS.sm,
         marginLeft: 10,
     },
     notice: {
@@ -225,7 +213,7 @@ const styles = StyleSheet.create({
         marginTop: -5,
         marginBottom: 10,
         padding: 14,
-        borderRadius: 15,
+        borderRadius: RADIUS.base,
         borderWidth: 1,
     },
     noticeText: {
@@ -234,11 +222,10 @@ const styles = StyleSheet.create({
     },
     noticeAction: {
         fontSize: 14,
-        fontWeight: 'bold',
+        fontFamily: FONT.bold,
     },
     logoutText: {
-        color: '#FF5252',
-        fontWeight: '600',
+        fontFamily: FONT.semibold,
         fontSize: 14,
     },
     themeButton: {
@@ -247,7 +234,6 @@ const styles = StyleSheet.create({
         borderRadius: 20,
         justifyContent: 'center',
         alignItems: 'center',
-        backgroundColor: '#f0f0f0',
     },
     content: {
         flex: 1,
@@ -258,20 +244,17 @@ const styles = StyleSheet.create({
     },
     sectionTitle: {
         fontSize: 18,
-        fontWeight: '600',
-        color: '#333',
+        fontFamily: FONT.semibold,
         marginBottom: 20,
         marginLeft: 5,
     },
     menuButton: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#fff',
         padding: 20,
-        borderRadius: 20,
+        borderRadius: RADIUS.base,
         marginBottom: 15,
         borderLeftWidth: 5,
-        shadowColor: '#000',
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.05,
         shadowRadius: 10,
@@ -280,7 +263,7 @@ const styles = StyleSheet.create({
     iconContainer: {
         width: 50,
         height: 50,
-        borderRadius: 15,
+        borderRadius: RADIUS.sm,
         justifyContent: 'center',
         alignItems: 'center',
         marginRight: 15,
@@ -290,13 +273,12 @@ const styles = StyleSheet.create({
     },
     menuButtonText: {
         fontSize: 18,
-        fontWeight: 'bold',
-        color: '#333',
+        fontFamily: FONT.bold,
         flex: 1,
+        minWidth: 0,
     },
     arrow: {
         fontSize: 24,
-        color: '#ccc',
-        fontWeight: '300',
+        fontFamily: FONT.regular,
     },
 });
