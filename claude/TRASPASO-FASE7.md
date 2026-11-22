@@ -1,16 +1,16 @@
 # Traspaso a la Fase 7
 
-Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar la 7.1 (2026-11-16), la 7.2 (2026-11-17), la 7.3 (2026-11-18), la 7.4a (2026-11-20) y la 7.4b (2026-11-21). Las fases 0–6 están cerradas; el detalle de cada una está en DECISIONES.md (Fases) y CLAUDE.md. El traspaso anterior (`claude/TRASPASO-FASE6.md`) queda como histórico.
+Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar la 7.1 (2026-11-16), la 7.2 (2026-11-17), la 7.3 (2026-11-18), la 7.4a (2026-11-20), la 7.4b (2026-11-21) y la dirección visual (2026-11-22). Las fases 0–6 están cerradas; el detalle de cada una está en DECISIONES.md (Fases) y CLAUDE.md. El traspaso anterior (`claude/TRASPASO-FASE6.md`) queda como histórico.
 
 ## 1. Estado actual
 
 ### Celular del usuario
-- **Registro (producción)** `com.poguis.Registro`: **1.3.8 / versionCode 12** (7.4b, 2026-11-21), firma EAS `31:32:DE:…:3E:52`, instalada siempre encima (`install -r`), mismo `firstInstallTime` desde 2026-09-21. Sync encendida contra **Poguis**. BD local `user_version` **6**: sin `legacy_*` ni columna `password`, con `entertainment_quotas_history.frequency`.
+- **Registro (producción)** `com.poguis.Registro`: **1.3.9 / versionCode 13** (dirección visual, 2026-11-22), firma EAS `31:32:DE:…:3E:52`, instalada siempre encima (`install -r`), mismo `firstInstallTime` desde 2026-09-21. Sync encendida contra **Poguis**. BD local `user_version` **6**: sin `legacy_*` ni columna `password`, con `entertainment_quotas_history.frequency`.
 - `respaldos/` del celular: los 10 respaldos manuales más recientes y la `pre-migracion-v5`; 0 copias con la contraseña antigua (retención de la 6.7).
-- **Registro Dev** `com.poguis.Registro.dev`: **1.3.8 / versionCode 12** (`user_version` 6), firma `debug.keystore` `fac61745…`, contra **Registro Dev**, instalada encima con el mismo `firstInstallTime`. Se instala al lado de la app real y tiene su propia BD.
+- **Registro Dev** `com.poguis.Registro.dev`: **1.3.9 / versionCode 13** (`user_version` 6), firma `debug.keystore` `fac61745…`, contra **Registro Dev**, instalada encima con el mismo `firstInstallTime`. Se instala al lado de la app real y tiene su propia BD.
 
 ### Poguis (producción)
-- Datos reales de un único usuario: **31 filas** en las 15 tablas sincronizadas, **12 vivas y 19 borradas** (`verificar-fase5` 16/16 = respaldo "después" de la 7.3, 2026-11-18). **Sin cambios en la 7.4a** (2026-11-20: `verificar-fase5` = "después", 31 / 12 / 19, un `user_id`) **ni en la 7.4b** (2026-11-21: `verificar-fase5` = "después" en las 16 filas, 31 / 12 / 19, un `user_id`; `auditar-fase6` 18/18 estrictos).
+- Datos reales de un único usuario: **31 filas** en las 15 tablas sincronizadas, **12 vivas y 19 borradas** (`verificar-fase5` 16/16 = respaldo "después" de la 7.3, 2026-11-18). **Sin cambios en la 7.4a** (2026-11-20: `verificar-fase5` = "después", 31 / 12 / 19, un `user_id`) **ni en la 7.4b** (2026-11-21: `verificar-fase5` = "después" en las 16 filas, 31 / 12 / 19, un `user_id`; `auditar-fase6` 18/18 estrictos) **ni en la dirección visual** (2026-11-22: sin SQL; `verificar-fase5` = "después" en las 16 filas, 31 / 12 / 19, un `user_id`).
 - **Diferencia con la 6.7** (30 / 26 / 4, que coincide con su `verificar-fase5-poguis.json`):
   - +1 fila viva en `balance_history` (de 2 a 3), un movimiento del usuario;
   - 15 tombstones de entretenimiento: 1 categoría, 1 cuota, 1 serie, 1 temporada y 11 filas de `watch_history`. El usuario los borró desde la app antes de la 7.3, como decidió el diseño (Alcance), y quedan para siempre igual que los de la 6.8.
@@ -28,7 +28,7 @@ Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar
 - Datos de prueba que se quedan sin acción: el elemento `[prueba F6.3]` en `backlog` y el tombstone "Venta" en `finance_categories` (6.6). El usuario sintético de la 6.2 se borró (cascade verificado).
 
 ### Versiones y commits
-- `app.json`: `versionName` 1.3.8, `versionCode` 12. Para cada APK que se vaya a instalar, subir los dos (las versiones no pueden bajar).
+- `app.json`: `versionName` 1.3.9, `versionCode` 13. Para cada APK que se vaya a instalar, subir los dos (las versiones no pueden bajar).
 - Expo SDK 54 (`expo` 54.0.38), React Native 0.81.5, `expo-sqlite` 16.0.10 (SQLite 3.50.3, sin modo de solo lectura), auth-js 2.118.
 - Commits de la Fase 6:
   - `97fb9b6` / `ceed19b` (6.1)
@@ -44,7 +44,8 @@ Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar
   - `d55b5e1` (7.2) y `758e7de` (diseño y cierre de la 7.2);
   - `241c26e` (7.3, implementación), `45f5cda` (cierre de la 7.3) y `0d8d327` (diseño con I1–I6 y 7.4 dividida);
   - `90ea3b5` (7.4a), `47f358c` (corrección de la 7.4a) y `6fbc2c6` (cierre de la 7.4a);
-  - `20ad1cb` (7.4b) y el commit de este cierre.
+  - `20ad1cb` (7.4b) y `bd17bb9` (cierre de la 7.4b);
+  - `c8eb200` (dirección visual) y el commit de este cierre.
 
 ### Credenciales (nombres y ubicación, nunca valores)
 - `.env` (fuera de git; plantilla `.env.example`): `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (Poguis) y `EXPO_PUBLIC_SUPABASE_DEV_URL` / `EXPO_PUBLIC_SUPABASE_DEV_PUBLISHABLE_KEY` (Registro Dev). Solo claves `sb_publishable_`; 0 secret keys en los dos proyectos.
@@ -69,7 +70,7 @@ Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar
 - **Dev siempre antes que producción.** Los experimentos van contra Registro Dev; nunca un APK de producción en un emulador con datos de prueba.
 - **Protocolo de instalación en producción:**
   1. respaldo "antes" desde la app;
-  2. `install -r` encima, sin desinstalar, comprobando la firma y el `firstInstallTime`;
+  2. `install -r` encima, sin desinstalar, comprobando la firma y el `firstInstallTime`. `apksigner` está en `D:\Users\Carlos\AppData\Local\Android\Sdk\build-tools\36.0.0\apksigner.bat` (la 34.0.0 no existe en esta PC; `scripts/build-apk.mjs` usa la 36.0.0);
   3. abrir y comprobar los datos y el indicador;
   4. respaldo "después";
   5. `validar-respaldo` de los dos y `comparar-sync` antes vs después (15 tablas, mismo saldo);
@@ -98,7 +99,7 @@ Cerrado: el punto 7 (7.1, ver §5). Los demás siguen pendientes.
      - la reconexión dentro de los 60 s de enfriamiento de auth-js seguida del ciclo por `TOKEN_REFRESHED` (solo en `probar-fase5`);
      - una cuenta Google distinta bloqueada (solo en `probar-fase3`).
    - **Descartado:** el cursor para las tablas vacías (DECISIONES.md, Descartado).
-9. **Rediseño de entretenimiento (subfases 7.3–7.10):** ver `claude/DISENO-ENTRETENIMIENTO.md`. El análisis previo (7.2, §6), el motor puro (7.3, §7), la 7.4a (§8) y la 7.4b (§9) están cerrados; sigue la dirección visual (antes de la 7.5).
+9. **Rediseño de entretenimiento (subfases 7.3–7.10):** ver `claude/DISENO-ENTRETENIMIENTO.md`. El análisis previo (7.2, §6), el motor puro (7.3, §7), la 7.4a (§8), la 7.4b (§9) y la dirección visual (§10) están cerrados; sigue la 7.5. El rediseño completo de las pantallas va al final, después de la 7.11 (decisión del usuario, 2026-11-22).
 
 ## 4. [PENDIENTE] vigentes (DECISIONES.md)
 - **Restaurar un respaldo dentro de la app.**
@@ -212,4 +213,34 @@ Cerrado: el punto 7 (7.1, ver §5). Los demás siguen pendientes.
   - respaldo "después" (app 1.3.8, v6, con `pre-migracion-v6`);
   - los dos válidos y `comparar-sync` idénticos en las 15 tablas, con el mismo saldo;
   - `verificar-fase5` = "después" en las 16 filas (31 / 12 / 19, un `user_id`) y `auditar-fase6` 18/18.
-- **Siguiente:** la dirección visual (O5 y el diseño visual de las ideas), antes de la 7.5.
+- **Siguiente:** la dirección visual (O5 y el diseño visual de las ideas), antes de la 7.5. Cerrada: ver §10.
+
+## 10. Dirección visual — tema A, tipografía, hojas propias y nombres largos [CERRADA 2026-11-22]
+- **Commit:** `c8eb200`; APK **1.3.9 / versionCode 13**. Solo visual: sin cambios de esquema (`user_version` 6), migraciones, `src/entertainment/`, `src/data/`, `src/sync/`, `src/services/`, `src/auth/` ni `supabase/`; sin SQL.
+- **Qué cambió:**
+  - **Tema A "Hueso y petróleo"** (claro y oscuro) en `src/contexts/ThemeContext.js`, única fuente de colores, fuentes y radios. Las pantallas usan tokens (`theme.*` o `makeStyles(t)`), nunca colores fijos. Se conserva la preferencia `app_theme`; "seguir el sistema" no se agrega.
+  - **Plus Jakarta Sans** 400/500/600/700 embebida con el plugin de `expo-font`; `src/components/AppText.js` (`Text` y `TextInput`) pone la familia de cada peso.
+  - **Hojas propias (O6):** `BottomSheet`, `Toast`, `SheetProvider` (cola, de a una) y `useSheet` (`confirm` / `informar` / `avisar`) reemplazan los 78 `Alert.alert`, con los mismos textos. Sin excepciones.
+  - **Nombres largos:** 2 líneas en filas y tarjetas, 3 en el título del detalle, 2 en la categoría de una cabecera, 1 con elipsis en subtítulos y metadatos; los mensajes de las hojas, completos.
+  - **Barras:** borde a borde (`edgeToEdgeEnabled`), una sola `StatusBar` en la raíz y `expo-navigation-bar` solo para el color de los íconos. Splash `#F6F1E8`; el ícono adaptativo no cambió.
+  - **Colores de identidad** con los tonos del tema: tipos y estados de Pendiente, crédito (azul) y débito (verde), lo que debo (rojo) y lo que me deben (azul), ingreso y gasto, y los turnos y resaltados de Trabajo.
+- **Pruebas en la PC:**
+  - `scripts/probar-tema.mjs` (nuevo): **48 OK**. Comprueba contrastes, 0 `Alert.alert`, 0 colores fijos, 0 tokens viejos, fuentes, la hoja, el aviso, los proveedores y que no hay cambios de esquema.
+  - `probar-fase7-2` **17 OK** con `CASOS` intacto, `7-3` **12 OK** con 0 diferencias, `7-4a` **35 OK** y `7-4b` **24 OK**.
+    - Solo cambia el mecanismo: `scripts/lib/hojas-stub.mjs` traduce las hojas al registro de `Alert`.
+    - En la 7-3, el registro `retorno` se compara al final cuando hubo una alerta con botones, porque la función nueva espera la elección.
+  - El resto de suites en verde, en serie, con `probar-fase4` sola (88 OK). `probar-fase3`: la versión fija pasa a 1.3.9 / 13.
+  - `expo-doctor` 18/18, `expo export` sin errores, `escanear-historial` y `verificar-secretos` en 0.
+- **Registro Dev:** 1.3.9 instalada encima. La lista por pantalla, en modo claro y oscuro, dio todo OK: nombres largos, hojas, aviso, Atrás, barras y fuente en modo avión.
+- **Producción, con el protocolo completo:**
+  - respaldo "antes" (app 1.3.8, v6);
+  - `install -r` de la 1.3.9 con la firma EAS `3132ded2…3e52` comprobada, de versionCode 12 a 13 y con el mismo `firstInstallTime` (2026-09-21);
+  - respaldo "después" (app 1.3.9, v6);
+  - los dos válidos (formato 2, `user_version` 6, outbox vacía) y `comparar-sync` idénticos en las 15 tablas, con el mismo saldo;
+  - `verificar-fase5` en Poguis = "después" en las 16 filas (31 / 12 / 19, un `user_id`).
+- **Pendientes para una subfase de pulido** (sin corregir aquí; detalle en `claude/DISENO-ENTRETENIMIENTO.md`):
+  - **B1:** en Dinero, "Seleccionar Rango" usa `now`, que no está definido; si el año queda vacío, la pantalla lanza un error.
+  - **B2:** el formulario de Trabajo no tiene `onRequestClose`, así que Atrás no lo cierra.
+  - **O7:** textos mejorables de las alertas.
+- **Decisión del usuario (2026-11-22):** esta subfase aplicó solo la base visual. El rediseño completo de las pantallas va al final, después de la 7.11; "Hoy te toca" sigue en la 7.9.
+- **Siguiente:** la 7.5, según el diseño.

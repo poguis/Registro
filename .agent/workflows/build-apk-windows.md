@@ -36,6 +36,6 @@ Las dos se instalan lado a lado, cada una con su BD.
    **El release de producción falla si la huella no es `3132ded2…3e52`: no lo instales.**
 
 3. **Instalar**
-   - Antes de instalar compara el SHA-256 del archivo (`Get-FileHash`) y la huella del certificado (`apksigner verify --print-certs`).
+   - Antes de instalar compara el SHA-256 del archivo (`Get-FileHash`) y la huella del certificado (`apksigner verify --print-certs`), con el `apksigner` de build-tools 36.0.0, el mismo que usa `scripts/build-apk.mjs` (la 34.0.0 no existe en esta PC): `& "D:\Users\Carlos\AppData\Local\Android\Sdk\build-tools\36.0.0\apksigner.bat" verify --print-certs <apk>`.
    - Siempre encima: `adb -s <dispositivo> install -r <apk>`, con la misma firma. Nunca desinstalar ni borrar datos: los cambios de esquema van como migración versionada.
    - Emulador de pruebas: AVD `Registro_GoogleAPIs_36`, siempre `adb -s emulator-5554`. El celular solo lo maneja el usuario.

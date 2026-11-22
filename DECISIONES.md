@@ -223,6 +223,30 @@ Lista viva para la Fase 7: `claude/TRASPASO-FASE7.md`.
 - [OK] Las decisiones del rediseño de Pendiente + Series/Anime + Lectura (subfases 7.3–7.10) viven en `claude/DISENO-ENTRETENIMIENTO.md`, que es la **fuente única**: no se duplican aquí. Se actualiza al cerrar cada subfase.
 - El comportamiento actual que el rediseño corrige o conserva está en `docs/ENTRETENIMIENTO-ACTUAL.md` (7.2, `d55b5e1`), con el oráculo `scripts/probar-fase7-2.mjs`.
 
+## Interfaz (dirección visual, 2026-11-22, `c8eb200`, app 1.3.9 / vc 13)
+- [OK] **Tema A "Hueso y petróleo"**, claro y oscuro. `src/contexts/ThemeContext.js` es la única fuente de colores, fuentes y radios. Los tokens son `bg`, `surface`, `raised`, `ink`, `muted`, `line` (decorativo), `lineStrong` (bordes de campos, ≥ 3:1), `accent`/`onAccent`/`soft`, `aheadFg/Bg`, `behindFg/Bg`, `okFg/Bg`, `danger`/`onDanger`, `overlay`, `shadow`, `money.{ingreso, gasto, deuda}` y `tones.{verde, azul, morado, naranja, rojo, pizarra}`. Los valores están en `claude/DISENO-ENTRETENIMIENTO.md` (Dirección visual A).
+  - Las pantallas no usan colores fijos (`#hex`, `rgb()` ni nombres de color): leen `theme.*` o una `makeStyles(t)`.
+  - Contraste exigido: ≥ 4.5 de todo texto y ≥ 3 de `lineStrong` y del texto destructivo.
+  - La preferencia sigue en `app_theme` y "seguir el sistema" no se agrega. Splash `#F6F1E8`; el ícono adaptativo no cambia.
+  - Lo verifica `scripts/probar-tema.mjs`.
+- [OK] **Hojas propias en vez de `Alert.alert`** (O6). `SheetProvider` en la raíz (`ThemeProvider` > `SafeAreaProvider` > `SheetProvider`), con una cola que muestra las hojas de a una, y `useSheet()`:
+  - `confirm({ titulo, mensaje, acciones })` devuelve la `clave` elegida, o null al cancelar;
+  - `informar(titulo, mensaje)` muestra una hoja con "OK";
+  - `avisar({ titulo, mensaje })` muestra un aviso abajo, de hasta 2 líneas, que se oculta solo.
+
+  Atrás y el fondo cancelan; una hoja de solo "OK" se cierra igual que con OK. Los avisos se muestran después de cerrar el formulario modal, porque un Modal abierto los taparía. Prohibido `Alert.alert` en `App.js` y `src/`; la lista de excepciones está vacía.
+- [OK] **Nombres largos:**
+  - títulos de series y trabajos en filas y tarjetas: 2 líneas;
+  - título del detalle: 3 líneas;
+  - categoría en una cabecera: 2 líneas;
+  - subtítulos, metadatos y títulos de hoja o aviso: 1 línea con `ellipsizeMode="tail"`;
+  - el contenedor del texto lleva `flex: 1` (o `flexShrink: 1`) y `minWidth: 0`; chips, contadores y botones, `flexShrink: 0`;
+  - los mensajes de las hojas se muestran completos.
+- [OK] **Fuentes por familia:** Plus Jakarta Sans 400/500/600/700, embebida con el plugin de `expo-font` (`app.json`), así que está disponible desde el primer frame, también sin red. En Android `fontWeight` no elige el archivo de una fuente propia: las pantallas importan `Text`/`TextInput` de `src/components/AppText.js`, que pone la familia por peso, y usan `FONT.*` en vez de `fontWeight`.
+- [OK] **Barras del sistema:** borde a borde (`edgeToEdgeEnabled`). El fondo `bg` se ve detrás de las barras y los márgenes los pone `react-native-safe-area-context`. Una sola `StatusBar` en la raíz, con su estilo según el modo. `expo-navigation-bar` se usa solo para el color de los íconos (`setButtonStyleAsync`), porque con borde a borde el color de fondo no se aplica. Nota: con navegación de 3 botones, Android puede dibujar un velo propio detrás de la barra.
+- [OK] **Rediseño completo al final** (decisión del usuario, 2026-11-22): la dirección visual aplicó solo la base (tema A, tipografía, hojas y nombres largos). El rediseño completo de las pantallas se hace después de la 7.11, cuando toda la lógica esté terminada. "Hoy te toca" sigue en la 7.9.
+- Pendientes para una subfase de pulido: O7, B1 y B2 (`claude/DISENO-ENTRETENIMIENTO.md`, Observaciones).
+
 ## Datos existentes y cuentas
 - [OK] Los datos del celular se migran in-place en Fase 1, con respaldo previo verificado.
 - [OK] Al inicio de Fase 1, Claude Code cuenta las cuentas locales y se detiene a informar antes de migrar. Si hay una sola, se asocia a la primera cuenta Google (Fase 3).

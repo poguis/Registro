@@ -4,7 +4,7 @@ Estados: [OK] decidido por el usuario · [PROPUESTA] sugerido, se confirma en la
 
 Origen: respuestas del usuario del 2026-11-17 y resultados de la 7.2 (commit `d55b5e1`: `docs/ENTRETENIMIENTO-ACTUAL.md` y `scripts/probar-fase7-2.mjs`, 17 OK). R1–R14 y C1–C14 remiten a ese documento y a esa suite.
 
-**Estado: vigente.** 7.4b cerrada; sigue la dirección visual y después la 7.5. Se actualiza al cerrar cada subfase, y cualquier cambio de criterio se marca aquí.
+**Estado: vigente.** Dirección visual cerrada (2026-11-22, `c8eb200`, app 1.3.9 / vc 13); sigue la 7.5. Se actualiza al cerrar cada subfase, y cualquier cambio de criterio se marca aquí.
 
 ## Alcance y datos
 - [OK] Datos existentes de entretenimiento en producción (1 categoría de video, 1 serie, 1 temporada y 11 filas en `watch_history`): el usuario los borra desde la app (borrado lógico) y el rediseño no los migra. Sus tombstones quedan en el celular y en Poguis, igual que los de la 6.8. Las migraciones nuevas tienen que tolerar tombstones.
@@ -115,7 +115,11 @@ Lista viva. Cada observación se asigna a una subfase cuando se planifica; las d
 - R15 (7.3): con una temporada de 0 capítulos, video genera 1 capítulo y pasa a la siguiente, y lectura genera hasta 999. Conservado en la 7.3 (`QueueVariant`); en la 7.4a se salta igual en los dos. **Corregido en la 7.4a.**
 - R16 (hallado en la 7.4a): una temporada que falta entre las guardadas (el formulario descartaba la vacía y conservaba la numeración) contaba como de 999 capítulos y la serie nunca llegaba a la siguiente. **Corregido en la 7.4a.** Se salta, y la serie termina en la temporada de número más alto; 999 solo para una serie sin temporadas.
 - O4 (prueba 7.4a): el formulario permite crear una temporada (o parte) con 0 capítulos (o tomos), que no tiene sentido. Cada temporada debe tener al menos 1. La cola sigue saltando las de 0 que ya existan. → corrección de la 7.4a. **Cerrada en la 7.4a.**
-- O5 (prueba 7.4a): el tema claro es demasiado blanco; usar un fondo claro cálido (beige o hueso), no blanco puro, en toda la app. → dirección visual.
+- O5 (prueba 7.4a): el tema claro es demasiado blanco; usar un fondo claro cálido (beige o hueso), no blanco puro, en toda la app. → dirección visual. **Cerrada en la dirección visual** (fondo hueso `#F6F1E8`, tema A).
+- O6 (dirección visual): reemplazar los diálogos del sistema (`Alert.alert`) por una hoja inferior propia, más un aviso breve para los mensajes de éxito, con el estilo de la app en los dos modos. **Cerrada en la dirección visual:** `BottomSheet`, `Toast`, `SheetProvider` (cola) y `useSheet` reemplazan los 78 `Alert.alert`, con los mismos textos y sin excepciones.
+- O7 (dirección visual): textos de las alertas que se pueden mejorar y que **no se cambiaron** en la dirección visual: "¿Estás seguro?" al eliminar una serie u obra (no dice qué se borra), "Mover a:" en "¡Completada!", y 'Error' + "Falta categoría" / "Selecciona persona" en Dinero (muy secos). → subfase de pulido.
+- B1 (dirección visual): en Dinero, "Seleccionar Rango" usa `now`, que no está definido; si el año queda vacío, la pantalla lanza un error. Es previo a la subfase y no se corrigió (era solo visual). → subfase de pulido.
+- B2 (dirección visual): el formulario de Trabajo no tiene `onRequestClose`, así que Atrás no lo cierra (igual que antes). → subfase de pulido.
 
 ## Ideas nuevas [OK] (aceptadas por el usuario el 2026-11-18, todas con un diseño visual mejorado)
 - I1 "Hoy te toca" en el inicio: lo que toca ver y leer hoy en todas las categorías, para marcar con un toque. → 7.9.
@@ -124,7 +128,32 @@ Lista viva. Cada observación se asigna a una subfase cuando se planifica; las d
 - I4 Rachas y mapa de calor del historial. → 7.10.
 - I5 Recordatorio diario local (notificación) si no se cumplió la cuota; funciona sin internet; suma un módulo nativo. → subfase propia (7.11).
 - I6 Deslizar para marcar visto en el Registro, con "Deshacer". → 7.6.
-- [PROPUESTA] Dirección visual: antes de las subfases con mucha interfaz (7.5 en adelante), maquetas de las pantallas clave (inicio con "Hoy te toca", categoría con "Ritmo", Registro, detalle de serie con portada) para elegir el estilo; después se aplica como tema común.
+- [OK] Dirección visual: antes de las subfases con mucha interfaz (7.5 en adelante), maquetas de las pantallas clave para elegir el estilo; después se aplica como tema común. El usuario eligió la dirección A "Hueso y petróleo" (ver Dirección visual A). **Aplicada como base en la dirección visual.**
+
+## Dirección visual A "Hueso y petróleo" [OK] (aplicada el 2026-11-22, `c8eb200`)
+- **Decisión del usuario (2026-11-22):** esta subfase aplicó solo la base visual (tema A, tipografía, hojas, nombres largos). El rediseño completo de las pantallas se hace al final, después de que toda la lógica esté terminada (después de la 7.11). 'Hoy te toca' sigue en la 7.9.
+- **Tokens** (`src/contexts/ThemeContext.js`, única fuente de colores; `scripts/probar-tema.mjs` verifica los contrastes):
+
+  | Token | Claro | Oscuro | Uso |
+  |---|---|---|---|
+  | `bg` | `#F6F1E8` | `#181614` | fondo de pantalla (hueso, O5) |
+  | `surface` | `#FFFDF8` | `#221F1C` | tarjetas, cabeceras, hojas |
+  | `raised` | `#EFE8DC` | `#2D2925` | campos, chips inactivos, botón secundario |
+  | `ink` / `muted` | `#24211D` / `#6B6359` | `#F1EBE2` / `#B3A899` | texto / texto secundario |
+  | `line` / `lineStrong` | `#E3D9CA` / `#8C8275` | `#3A352F` / `#807769` | separadores decorativos / bordes de campos (≥ 3:1) |
+  | `accent` / `onAccent` / `soft` | `#1F6B73` / `#FFFFFF` / `#DCEBEA` | `#62B5BC` / `#0D2325` / `#1D3436` | petróleo: acción principal, texto sobre ella, fondo suave |
+  | `aheadFg`/`Bg` | `#1D5FA8` / `#E1EBF7` | `#93BEF2` / `#1B2C42` | adelanto |
+  | `behindFg`/`Bg` | `#9A4A00` / `#FAE3CD` | `#F2A866` / `#3B2716` | atraso |
+  | `okFg`/`Bg` | `#4F4A44` / `#EAE4DA` | `#CFC7BC` / `#2F2B27` | al día |
+  | `danger` / `onDanger` | `#9A4A00` / `#FFFFFF` | `#F2A866` / `#24211D` | botón destructivo |
+  | `overlay` · `shadow` | `rgba(36,33,29,0.48)` · `#24211D` | `rgba(0,0,0,0.60)` · `#000000` | fondo de hojas y modales · sombras |
+  | `money.ingreso/gasto/deuda` | `#2E6B34` / `#B3261E` / `#7A3E9D` | `#7CC48A` / `#F2948C` / `#C9A2E6` | Dinero, Estadísticas |
+  | `tones.*` (fg/bg) | verde, azul, morado, naranja, rojo, pizarra | ídem | colores de identidad (módulos de Inicio, tipos y estados, crédito/débito, turnos) |
+
+- **Contraste:** ≥ 4.5 de todo texto sobre `bg` y `surface` y de cada par fg/bg; ≥ 3 de `lineStrong` y del texto destructivo. `line` es decorativo.
+- **Tipografía:** Plus Jakarta Sans 400/500/600/700, embebida, una familia por peso (`AppText`). Radios: 18 (base), 11 (pequeño) y 24 (hoja).
+- **Hojas (O6):** `confirm` (variantes primaria / secundaria / destructiva / cancelar; Atrás y el fondo cancelan, y una hoja de solo "OK" se cierra igual que con OK), `informar` (hoja con "OK") y `avisar` (aviso de hasta 2 líneas, que se muestra después de cerrar el formulario modal).
+- **Nombres largos:** 2 líneas en filas y tarjetas; 3 en el título del detalle; 2 en la categoría de una cabecera; 1 con elipsis en subtítulos, metadatos y títulos de hoja o aviso; los mensajes de las hojas, completos. Contenedor con `flex: 1` y `minWidth: 0`; chips, contadores y botones con `flexShrink: 0`.
 
 ## Orden de trabajo [OK]
 Cada subfase con su plan, su aprobación y su ciclo completo. Si surge algo nuevo, se agrega.
@@ -134,7 +163,8 @@ Cada subfase con su plan, su aprobación y su ciclo completo. Si surge algo nuev
 3. 7.3 Motor puro: cerrada (`241c26e`, cierre `45f5cda`).
 4. 7.4 Correcciones del motor, en dos subfases (un APK cada una):
    - 7.4a: **cerrada** (`90ea3b5`, `47f358c` y el commit de este cierre). Sin migración: historial como conteo (incluye R1, R5–R8 y la grilla como "marcar vistos hasta aquí"); C2 al final del ciclo actual (la pausada que se reanuda entra en la vuelta en curso conservando su lugar); R15; O1 (y R2); O2; corrección tras la prueba del celular: E3 conservando el lugar y O4 (temporadas de al menos 1 capítulo), con APK 1.3.7 / vc 11;
-   - 7.4b: **cerrada** (`20ad1cb` y el commit de este cierre). Con migración (primero en Supabase): historial de todo el ritmo desde mañana, sin períodos vacíos (R10), con comparación por contenido (R11); fecha de inicio fija con registros; R12.
+   - 7.4b: **cerrada** (`20ad1cb`, cierre `bd17bb9`). Con migración (primero en Supabase): historial de todo el ritmo desde mañana, sin períodos vacíos (R10), con comparación por contenido (R11); fecha de inicio fija con registros; R12.
+   - Dirección visual (antes de la 7.5): **cerrada** (`c8eb200` y el commit de este cierre). Tema A, Plus Jakarta Sans, hojas propias (O5 y O6) y nombres largos, con APK 1.3.9 / vc 13. Solo la base visual.
 5. 7.5 Vínculo Pendiente↔Series/Lectura y subtipo de lectura (migración en Supabase y la migración local siguiente).
 6. 7.6 Punto de inicio (T0/C0), "Continuar" y "Volver a ver" desde En espera y Terminado (O3), deslizar para marcar con "Deshacer" (I6).
 7. 7.7 Lectura por capítulos, tomo opcional y K.
@@ -142,5 +172,6 @@ Cada subfase con su plan, su aprobación y su ciclo completo. Si surge algo nuev
 9. 7.9 Visualización del ritmo, "Hoy te toca" (I1) y fecha estimada de fin (I2).
 10. 7.10 Estadísticas de entretenimiento, rachas y mapa de calor (I4).
 11. 7.11 Recordatorio diario local (I5).
+12. Rediseño completo de las pantallas, después de la 7.11, cuando toda la lógica esté terminada (decisión del usuario, 2026-11-22; ver Dirección visual A).
 
-Antes de la 7.5: dirección visual con maquetas (ver Ideas nuevas).
+Subfase de pulido (O7, B1 y B2): sin lugar decidido en el orden; se planifica aparte.
