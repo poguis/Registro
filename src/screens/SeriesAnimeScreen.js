@@ -279,10 +279,18 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
         }
     };
 
-    const handleDelete = (id) => {
+    // Fase 7.5 (D5): borrar la categoría borra también los títulos de Pendiente de sus series
+    // vinculadas; la confirmación lo dice (singular o plural). Sin vinculados, el texto de siempre.
+    const handleDelete = async (id) => {
+        const linked = await db.countLinkedTitlesInCategory(id);
+        const n = linked && linked.success ? linked.count : 0;
+        const base = '¿Estás seguro de que quieres eliminar esta categoría?';
+        const mensaje = n === 0 ? base
+            : n === 1 ? `${base} También se borrará su título vinculado en Pendiente y se pierde el progreso.`
+            : `${base} También se borrarán sus ${n} títulos vinculados en Pendiente y se pierde el progreso.`;
         confirm({
             titulo: 'Eliminar',
-            mensaje: '¿Estás seguro de que quieres eliminar esta categoría?',
+            mensaje,
             acciones: [
                 { clave: 'cancelar', texto: 'Cancelar', variante: 'cancelar' },
                 { clave: 'eliminar', texto: 'Eliminar', variante: 'destructiva' },

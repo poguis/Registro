@@ -1,5 +1,6 @@
-import { getConnection, enqueue, mutate, type Row } from '../data/db/connection';
+import { getConnection, enqueue, mutate, mutateFromSync, type Row } from '../data/db/connection';
 import { seedPendingDefaultCategories } from '../data/repositories/users';
+import { reconcileLinkedTitles } from '../data/repositories/series';
 import { nowIso } from '../data/clock';
 import {
     TABLES, columnsOf, toRemote, fromRemote, sameAsLocal, MappingError, PARENT_FKS, NATURAL_KEYS,
@@ -67,6 +68,9 @@ const confirm = (ids: number[]) => localTx(async () => {
 // timeout, 408, 429, 5xx). resetNetworkBackoff() reinicia solo esas: nunca las de sesión, las
 // que esperan a un padre ni las bloqueadas.
 const NETWORK_TAG = 'red · ';
+// Fase 7.5: last_error de las entradas que esperan a un padre BLOQUEADO (no se bloquean ellas). Al
+// pulsar "Reintentar" se liberan junto con el padre (unblockAll), así la hija sube en el mismo ciclo.
+export const PARENT_BLOCKED = 'el padre tiene un error bloqueado';
 
 const markTransient = (g: Group, err: string, kind: 'network' | 'auth' | 'parent', immediate = false) => localTx(async () => {
     const next = immediate ? null : new Date(Date.now() + backoffMs(g.attempts)).toISOString();
@@ -206,7 +210,7 @@ export async function pushOutbox(cfg: SyncConfig, transport: Transport, uid: str
                             await markTransient(b.g, 'padre pendiente de subir', 'parent', true); res.transient++;
                             retryNextRound = true;
                         } else if (p === 'parent-blocked') {
-                            await markTransient(b.g, 'el padre tiene un error bloqueado', 'parent'); res.transient++;
+                            await markTransient(b.g, PARENT_BLOCKED, 'parent'); res.transient++;
                         } else {
                             await markBlocked(b.g, `padre inexistente: ${describe(err)}`); res.blocked++;
                         }
@@ -228,7 +232,9 @@ async function enqueueMissingParents(table: string, local: Row, err: RemoteError
     const fks = PARENT_FKS[table] || [];
     // El mensaje nombra la restricción: <tabla>_<col sin _id>_fkey (o user_id → auth.users).
     const named = fks.filter((fk) => err.message.includes(`${table}_${fk.column.replace(/_id$/, '')}_fkey`));
-    const candidates = named.length ? named : fks;
+    // Fase 7.5: una FK con valor NULL (p. ej. series.backlog_id de una serie sin vínculo) no se
+    // comprueba en el servidor (MATCH SIMPLE), así que nunca es el padre que falta.
+    const candidates = (named.length ? named : fks).filter((fk) => local[fk.column] !== null && local[fk.column] !== undefined);
     if (candidates.length === 0) return 'missing';
     let outcome: 'enqueued' | 'pending' | 'parent-blocked' | 'missing' = 'pending';
     await localTx(async () => {
@@ -321,11 +327,15 @@ export async function pullTable(cfg: SyncConfig, transport: Transport, table: st
 }
 
 // Aplica filas remotas en la transacción en curso. Nunca escribe en la outbox.
+// Fase 7.5: solo se escriben las columnas que trae la fila remota. Un servidor sin una columna
+// nueva (la app nueva antes de aplicar el SQL) no la manda, y entonces el valor local se conserva
+// en vez de pisarlo con NULL (y tampoco cuenta como diferencia para "ya es igual").
 export async function applyRemoteRows(table: string, rows: RemoteRow[], uid: string, res: PullResult): Promise<void> {
-    const cols = Object.keys(columnsOf(table));
+    const allCols = Object.keys(columnsOf(table));
     const nk = NATURAL_KEYS[table];
     for (const remote of rows) {
         if (remote.user_id !== uid) continue; // RLS ya lo garantiza
+        const cols = allCols.filter((c) => Object.prototype.hasOwnProperty.call(remote, c));
         const incoming = fromRemote(table, remote);
         // Clave natural: otra fila local con la misma clave y otro id → adopta el id del servidor.
         if (nk) {
@@ -340,7 +350,7 @@ export async function applyRemoteRows(table: string, rows: RemoteRow[], uid: str
         }
         if (await hasOutbox(table, incoming.id)) { res.skippedPending++; continue; }
         const existing = await db().getFirstAsync<Row>(`SELECT * FROM ${table} WHERE id = ?`, [incoming.id]);
-        if (existing && sameAsLocal(table, existing, incoming)) { res.skippedSame++; continue; }
+        if (existing && sameAsLocal(table, existing, incoming, cols)) { res.skippedSame++; continue; }
         await db().runAsync(
             `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${placeholders(cols.length)})
              ON CONFLICT(id) DO UPDATE SET ${cols.filter((c) => c !== 'id').map((c) => `${c} = excluded.${c}`).join(', ')}`,
@@ -356,7 +366,7 @@ export type SyncOutcome =
     | { status: 'skipped'; reason: 'not-linked' | 'no-session' | 'other-account' | 'session-expired' }
     | { status: 'offline'; push: PushResult; pulled: number }
     | { status: 'timeout' }
-    | { status: 'ok'; push: PushResult; pulled: number; applied: number; skippedPending: number; merged: number; remoteWrites: number; localWrites: number; seededDefaults: number };
+    | { status: 'ok'; push: PushResult; pulled: number; applied: number; skippedPending: number; merged: number; remoteWrites: number; localWrites: number; seededDefaults: number; reconciledTitles: number };
 
 async function setMeta(values: Record<string, string | null>) {
     await localTx(async () => {
@@ -390,7 +400,7 @@ export async function syncOnce(cfg: SyncConfig, transport: Transport, cancel: Ca
         await setMeta({ last_error: push.lastError });
         return { status: 'offline', push, pulled: 0 };
     }
-    let pulled = 0, applied = 0, skippedPending = 0, merged = 0, seededDefaults = 0;
+    let pulled = 0, applied = 0, skippedPending = 0, merged = 0, seededDefaults = 0, reconciledTitles = 0;
     for (const table of TABLES) {
         const r = await pullTable(cfg, transport, table, uid, cancel);
         if (r.cancelled) return { status: 'timeout' };
@@ -410,10 +420,18 @@ export async function syncOnce(cfg: SyncConfig, transport: Transport, cancel: Ca
             seededDefaults = await mutate(() => seedPendingDefaultCategories(uid));
             if (seededDefaults > 0) localDataChanged = true;
         }
+        // Fase 7.5 (D2): con el pull de series COMPLETO (backlog va antes en TABLES), se alinean los
+        // títulos de Pendiente vinculados con sus series. Solo escribe lo desalineado; va por la cola
+        // y la outbox como cualquier cambio local, pero sin avisar al listener (mutateFromSync): lo
+        // encolado se sube abajo, en este mismo ciclo, sin disparar otro.
+        if (table === 'series') {
+            reconciledTitles = await mutateFromSync(() => reconcileLinkedTitles(uid));
+            if (reconciledTitles > 0) localDataChanged = true;
+        }
     }
-    // Lo sembrado se sube en el mismo ciclo para converger sin esperar al siguiente.
+    // Lo sembrado o reconciliado se sube en el mismo ciclo para converger sin esperar al siguiente.
     let push2 = emptyPush();
-    if (seededDefaults > 0) {
+    if (seededDefaults > 0 || reconciledTitles > 0) {
         push2 = await pushOutbox(cfg, transport, uid, cancel);
         if (push2.stop === 'cancelled') return { status: 'timeout' };
         if (push2.stop === 'auth') {
@@ -434,7 +452,7 @@ export async function syncOnce(cfg: SyncConfig, transport: Transport, cancel: Ca
     };
     return {
         status: 'ok', push: totalPush, pulled, applied, skippedPending, merged: merged + totalPush.merged,
-        remoteWrites: totalPush.pushed, localWrites: applied, seededDefaults,
+        remoteWrites: totalPush.pushed, localWrites: applied, seededDefaults, reconciledTitles,
     };
 }
 
@@ -550,13 +568,19 @@ export async function getSyncStatus(): Promise<SyncStatus> {
     };
 }
 
-// "Reintentar": desbloquea las entradas; el siguiente ciclo vuelve a subirlas.
+// "Reintentar": desbloquea las entradas; el siguiente ciclo vuelve a subirlas. Fase 7.5: también
+// libera la espera de las que esperaban a un padre bloqueado (p. ej. las temporadas de una serie
+// bloqueada), para que suban detrás de él en el mismo ciclo. Devuelve cuántas estaban bloqueadas.
 export async function unblockAll(): Promise<number> {
     let n = 0;
     await localTx(async () => {
         n = (await db().runAsync(
             'UPDATE outbox SET blocked_at = NULL, block_reason = NULL, attempts = 0, next_attempt_at = NULL WHERE blocked_at IS NOT NULL'
         )).changes;
+        await db().runAsync(
+            'UPDATE outbox SET attempts = 0, next_attempt_at = NULL WHERE blocked_at IS NULL AND last_error = ?',
+            [PARENT_BLOCKED]
+        );
     });
     return n;
 }

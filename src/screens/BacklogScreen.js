@@ -6,6 +6,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import db from '../services/db';
 import { useSyncRefresh } from '../sync/useSyncRefresh';
 import { useTheme, FONT, RADIUS } from '../contexts/ThemeContext';
+// Fase 7.5: vínculo con Series/Lectura (estado que mueve la serie, borrado en los dos lados) y
+// subtipo de lectura.
+import { nextManualStatus, isLinked, linkLabel, validateBacklogForm, SUBTYPE_LABELS } from '../entertainment/link';
 
 const { width } = Dimensions.get('window');
 
@@ -38,6 +41,7 @@ export default function BacklogScreen({ user, onBack }) {
     const [filterModalVisible, setFilterModalVisible] = useState(false);
     const [editingItem, setEditingItem] = useState(null);
     const [activeFranchise, setActiveFranchise] = useState('Todos');
+    const [activeSubtype, setActiveSubtype] = useState('Todos'); // Fase 7.5: filtro de la pestaña Lectura
 
     // Sort states
     const [sortBy, setSortBy] = useState('created_at'); // 'title', 'year_start', 'created_at'
@@ -51,27 +55,29 @@ export default function BacklogScreen({ user, onBack }) {
         start_year: '',
         end_year: '',
         franchise: 'Otros',
+        subtype: null,
     });
 
     useEffect(() => {
         loadItems();
-    }, [activeTab, activeStatus, sortBy, order, activeFranchise]);
+    }, [activeTab, activeStatus, sortBy, order, activeFranchise, activeSubtype]);
     // Recarga si la sync trae cambios del servidor (sin tocar formularios, filtros ni scroll).
     useSyncRefresh(() => loadItems());
 
     useEffect(() => {
         setActiveFranchise('Todos');
+        setActiveSubtype('Todos');
     }, [activeTab]);
 
     const loadItems = async () => {
         setLoading(true);
         // Load items
-        const res = await db.getBacklogItems(user.id, activeTab, activeStatus, sortBy, order, activeFranchise);
+        const res = await db.getBacklogItems(user.id, activeTab, activeStatus, sortBy, order, activeFranchise, activeSubtype);
         if (res.success) {
             setItems(res.data);
         }
         // Load counts
-        const countsRes = await db.getBacklogCounts(user.id, activeTab, activeFranchise);
+        const countsRes = await db.getBacklogCounts(user.id, activeTab, activeFranchise, activeSubtype);
         if (countsRes.success) {
             setCounts(countsRes.counts);
         }
@@ -79,14 +85,14 @@ export default function BacklogScreen({ user, onBack }) {
     };
 
     const handleAddItem = async () => {
-        if (!formData.title.trim()) {
-            informar('Error', 'El título es obligatorio');
-            return;
-        }
+        const formErrors = { titulo: 'El título es obligatorio', subtipo: 'Elige el subtipo: libro, cómic o manga.' };
+        const validation = validateBacklogForm({ type: activeTab, title: formData.title, subtype: formData.subtype });
+        if (validation.error) { informar('Error', formErrors[validation.error]); return; }
 
         const data = {
             ...formData,
             type: activeTab,
+            subtype: activeTab === 'reading' ? formData.subtype : null,
             year: formData.year ? parseInt(formData.year) : null,
             start_year: formData.start_year ? parseInt(formData.start_year) : null,
             end_year: formData.end_year ? parseInt(formData.end_year) : null,
@@ -97,7 +103,7 @@ export default function BacklogScreen({ user, onBack }) {
             if (res.success) {
                 setModalVisible(false);
                 setEditingItem(null);
-                setFormData({ title: '', year: '', format: '24 min', start_year: '', end_year: '', franchise: 'Otros' });
+                setFormData({ title: '', year: '', format: '24 min', start_year: '', end_year: '', franchise: 'Otros', subtype: null });
                 loadItems();
             } else {
                 informar('Error', 'No se pudo actualizar');
@@ -106,7 +112,7 @@ export default function BacklogScreen({ user, onBack }) {
             const res = await db.addBacklogItem(user.id, data);
             if (res.success) {
                 setModalVisible(false);
-                setFormData({ title: '', year: '', format: '24 min', start_year: '', end_year: '', franchise: 'Otros' });
+                setFormData({ title: '', year: '', format: '24 min', start_year: '', end_year: '', franchise: 'Otros', subtype: null });
                 setActiveStatus('Pendiente');
                 loadItems();
             } else {
@@ -124,14 +130,20 @@ export default function BacklogScreen({ user, onBack }) {
             start_year: item.start_year ? item.start_year.toString() : '',
             end_year: item.end_year ? item.end_year.toString() : '',
             franchise: item.franchise || 'Otros',
+            subtype: item.subtype || null,
         });
         setModalVisible(true);
     };
 
+    // Fase 7.5 (D6): película, rota como siempre; serie/anime/lectura sin vínculo, Pendiente ↔
+    // Terminado; vinculado, el estado lo mueve la serie (se avisa).
     const handleUpdateStatus = async (item) => {
-        const statuses = ['Pendiente', 'Mirando', 'Terminado'];
-        const currentIndex = statuses.indexOf(item.status);
-        const nextStatus = statuses[(currentIndex + 1) % statuses.length];
+        const nextStatus = nextManualStatus(item);
+        if (!nextStatus) {
+            const quien = item.type === 'reading' ? 'la obra' : 'la serie';
+            informar('Vinculado', `El estado lo cambia ${quien} en «${item.linked_category_name || 'su categoría'}».`);
+            return;
+        }
 
         const res = await db.updateBacklogStatus(item.id, nextStatus);
         if (res.success) {
@@ -139,10 +151,15 @@ export default function BacklogScreen({ user, onBack }) {
         }
     };
 
-    const handleDeleteItem = (id) => {
+    // Fase 7.5: un título vinculado se borra con su serie (y su progreso); la confirmación lo dice.
+    const handleDeleteItem = (item) => {
+        const id = item.id;
+        const quien = item.type === 'reading' ? 'su obra' : 'su serie';
         confirm({
             titulo: 'Eliminar',
-            mensaje: '¿Estás seguro de que quieres eliminar este elemento?',
+            mensaje: isLinked(item)
+                ? `Se borrarán el título y ${quien} en «${item.linked_category_name || 'su categoría'}», con todo su progreso.`
+                : '¿Estás seguro de que quieres eliminar este elemento?',
             acciones: [
                 { clave: 'cancelar', texto: 'Cancelar', variante: 'cancelar' },
                 { clave: 'eliminar', texto: 'Eliminar', variante: 'destructiva' },
@@ -169,6 +186,17 @@ export default function BacklogScreen({ user, onBack }) {
                     ]} />
                 </View>
 
+                {isLinked(item) && (
+                    <View style={styles.linkRow}>
+                        <View style={[styles.linkChip, { backgroundColor: theme.soft }]}>
+                            <Text style={[styles.linkChipText, { color: theme.accent }]} numberOfLines={1}>Vinculado</Text>
+                        </View>
+                        <Text style={[styles.linkText, { color: theme.muted }]} numberOfLines={1} ellipsizeMode="tail">
+                            {linkLabel({ seriesStatus: item.linked_series_status, categoryName: item.linked_category_name })}
+                        </Text>
+                    </View>
+                )}
+
                 <View style={styles.cardFooter}>
                     <View style={styles.metadataContainer}>
                         {item.franchise && item.franchise !== 'Otros' && (
@@ -194,6 +222,9 @@ export default function BacklogScreen({ user, onBack }) {
                                 🎋 {item.start_year || '?'}{item.end_year ? ` - ${item.end_year}` : '...'}
                             </Text>
                         )}
+                        {activeTab === 'reading' && (
+                            <Text numberOfLines={1} style={[styles.itemSubtext, { color: theme.muted }]}>{SUBTYPE_LABELS[item.subtype] || 'Sin subtipo'}</Text>
+                        )}
                         {activeTab === 'reading' && item.start_year && (
                             <Text numberOfLines={1} style={[styles.itemSubtext, { color: theme.muted }]}>📚 {item.start_year}</Text>
                         )}
@@ -206,7 +237,7 @@ export default function BacklogScreen({ user, onBack }) {
                         <TouchableOpacity onPress={(e) => { e.stopPropagation(); handleEditPress(item); }} style={styles.miniActionBtn}>
                             <Text style={{ fontSize: 16 }}>✏️</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity onPress={(e) => { e.stopPropagation(); handleDeleteItem(item.id); }} style={styles.miniActionBtn}>
+                        <TouchableOpacity onPress={(e) => { e.stopPropagation(); handleDeleteItem(item); }} style={styles.miniActionBtn}>
                             <Text style={{ fontSize: 16 }}>🗑️</Text>
                         </TouchableOpacity>
                     </View>
@@ -286,6 +317,31 @@ export default function BacklogScreen({ user, onBack }) {
                 </View>
             )}
 
+            {/* Fase 7.5: filtro de subtipo (Lectura) */}
+            {activeTab === 'reading' && (
+                <View style={[styles.tabsContainer, { paddingTop: 0, paddingBottom: 10 }]}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.tabsScroll, { flexGrow: 1, justifyContent: 'center' }]}>
+                        {['Todos', ...Object.keys(SUBTYPE_LABELS)].map(sub => (
+                            <TouchableOpacity
+                                key={sub}
+                                style={[
+                                    styles.franchiseTab,
+                                    {
+                                        backgroundColor: activeSubtype === sub ? theme.accent : theme.raised,
+                                        borderColor: activeSubtype === sub ? theme.accent : theme.lineStrong
+                                    }
+                                ]}
+                                onPress={() => setActiveSubtype(sub)}
+                            >
+                                <Text style={[styles.franchiseLabel, { color: activeSubtype === sub ? theme.onAccent : theme.ink }]}>
+                                    {sub === 'Todos' ? 'Todos' : SUBTYPE_LABELS[sub]}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
+                    </ScrollView>
+                </View>
+            )}
+
             {/* Sub Tabs (Status) */}
             <View style={styles.statusTabsContainer}>
                 {['Pendiente', 'Mirando', 'Terminado', 'Total'].map(status => (
@@ -328,7 +384,7 @@ export default function BacklogScreen({ user, onBack }) {
                 style={[styles.fab, { backgroundColor: theme.accent }]}
                 onPress={() => {
                     setEditingItem(null);
-                    setFormData({ title: '', year: '', format: '24 min', start_year: '', end_year: '', franchise: 'Otros' });
+                    setFormData({ title: '', year: '', format: '24 min', start_year: '', end_year: '', franchise: 'Otros', subtype: null });
                     setModalVisible(true);
                 }}
             >
@@ -519,6 +575,24 @@ export default function BacklogScreen({ user, onBack }) {
 
                             {activeTab === 'reading' && (
                                 <>
+                                    <Text style={[styles.inputLabel, { color: theme.accent }]}>Subtipo</Text>
+                                    <View style={styles.formatContainer}>
+                                        {Object.entries(SUBTYPE_LABELS).map(([clave, texto]) => (
+                                            <TouchableOpacity
+                                                key={clave}
+                                                style={[
+                                                    styles.formatOption,
+                                                    {
+                                                        backgroundColor: formData.subtype === clave ? theme.accent : theme.raised,
+                                                        borderColor: formData.subtype === clave ? theme.accent : theme.lineStrong
+                                                    }
+                                                ]}
+                                                onPress={() => setFormData({ ...formData, subtype: clave })}
+                                            >
+                                                <Text style={[styles.formatText, { color: formData.subtype === clave ? theme.onAccent : theme.ink }]}>{texto}</Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
                                     <Text style={[styles.inputLabel, { color: theme.accent }]}>Año Inicio</Text>
                                     <TextInput
                                         style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
@@ -640,6 +714,11 @@ const makeStyles = (t) => StyleSheet.create({
         minWidth: 0,
         marginRight: 10,
     },
+    // Fase 7.5: chip "Vinculado" y estado detallado del título vinculado.
+    linkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+    linkChip: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: RADIUS.sm, flexShrink: 0 },
+    linkChipText: { fontFamily: FONT.semibold, fontSize: 11 },
+    linkText: { flex: 1, minWidth: 0, fontSize: 12 },
     statusDot: {
         width: 10,
         height: 10,

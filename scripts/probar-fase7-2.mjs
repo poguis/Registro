@@ -39,6 +39,10 @@ const { createDevices, quiet } = await import('./lib/sync-devices.mjs');
 const utils = await import('../src/services/backlogUtils.js');
 const motorCola = await import('../src/entertainment/queue.ts');
 const motorDetalle = await import('../src/entertainment/seriesDetail.ts');
+// Fase 7.5: el motor del vínculo con Pendiente se inyecta igual que los demás; el formulario de serie
+// arranca sin vínculo (link null), como una serie de la 1.3.9 (mecanismo: CASOS no cambia por esto).
+const motorVinculo = await import('../src/entertainment/link.ts');
+const FORM_SIN_VINCULO = { link: null, newType: null, newStartYear: '' };
 const motorCategoria = await import('../src/entertainment/category.ts'); // 7.4a
 const { calculateBacklog, getQuotasForDate, getLocalDateString } = utils;
 // Fase 7.4a: los vistos se cuentan como la app (filas de historial: watched_count / totalWatched).
@@ -180,11 +184,15 @@ const CASOS = [
     {
         id: 'C13', titulo: 'Pendiente (backlog) frente a series',
         entrada: { tipo: 'series' },
+        // Fase 7.5 (cambio aprobado, D6 y el vínculo): sin vínculo, el botón alterna Pendiente ↔
+        // Terminado (Mirando lo pone la serie); crear la serie "De Pendiente" no agrega filas a
+        // Pendiente, pasa el título a Mirando y, vinculado, el botón ya no cambia el estado.
         actual: {
-            cicloEstados: ['Pendiente', 'Mirando', 'Terminado', 'Pendiente'],
+            cicloEstados: ['Pendiente', 'Terminado', 'Pendiente', 'Terminado'],
             filasBacklogTrasCrearSerie: 0, seriesTrasCambiarBacklog: 1, statusSerieSinCambio: 'Nueva',
+            vinculado: { estadoTitulo: 'Mirando', etiqueta: 'En Cat video · Nueva', botonCambiaEstado: false, aviso: 'Vinculado' },
         },
-        comportamiento: 'Pendiente es una lista independiente: el botón de estado rota Pendiente → Mirando → Terminado → Pendiente y no toca series; crear una serie no crea nada en Pendiente',
+        comportamiento: 'sin vínculo, el botón alterna Pendiente ↔ Terminado (nunca Mirando a mano); una serie creada "De Pendiente" queda vinculada: el título pasa a Mirando con la etiqueta del estado de la serie, no se crean filas nuevas y el botón ya no cambia su estado (lo mueve la serie)',
     },
     {
         id: 'C14', titulo: 'Pausa de categoría (video, cuota 1 diaria desde hoy-6)',
@@ -206,7 +214,7 @@ const extraer = (archivo, nombre) => extraerPantalla(archivo, nombre);
 // que use la pantalla se inyectan siempre con la versión REAL: backlogUtils y, desde la 7.3, el
 // motor puro (src/entertainment/queue.ts y seriesDetail.ts).
 function instanciar(ext, depsDelCaso) {
-    return instanciarPantalla(ext, { ...utils, ...motorCola, ...motorDetalle, ...motorCategoria, ...depsDelCaso });
+    return instanciarPantalla(ext, { ...utils, ...motorCola, ...motorDetalle, ...motorCategoria, ...motorVinculo, ...FORM_SIN_VINCULO, ...depsDelCaso });
 }
 
 const PANTALLA = {
@@ -313,7 +321,7 @@ async function nuevoEntorno() {
     };
 
     // "Agregar serie" del detalle (handleSave real) con el estado del formulario.
-    const agregarSerie = async (cat, { name, temporadas, status = 'Nueva', T = 1, E = 1, archivo = PANTALLA.detalle, editar = null }) => {
+    const agregarSerie = async (cat, { name, temporadas, status = 'Nueva', T = 1, E = 1, archivo = PANTALLA.detalle, editar = null, link = null }) => {
         const A = crearAlert();
         const originalList = await cargarLista(cat, archivo);
         const recarga = crearRecarga();
@@ -321,6 +329,7 @@ async function nuevoEntorno() {
             name, description: '', status, seasons: temporadas.map((n, i) => ({ number: i + 1, episodes: String(n) })),
             currentSeason: T, currentEpisode: E, isEditing: !!editar, editingSeriesId: editar,
             originalList, category: cat, currentCategory: cat, db, Alert: A.Alert, ...hojasDesdeAlert(A.Alert), setModalVisible: () => {}, fetchSeries: recarga.fn, resetForm: () => {},
+            link, // Fase 7.5: null = serie sin vínculo (como en la 1.3.9); C13 crea una 'De Pendiente'
         });
         await quiet(() => handleSave());
         return { alertas: A.registro.map((a) => a.titulo), mensajes: A.registro.map((a) => a.mensaje) };
@@ -735,18 +744,38 @@ const ESCENARIOS = {
         const E = await nuevoEntorno();
         E.ok(await E.db.addBacklogItem(UID, { type: 'series', title: 'Pendiente X' }), 'addBacklogItem');
         const ciclo = [];
-        const estado = async () => (E.ok(await E.db.getBacklogItems(UID, 'series', 'Total'), 'getBacklogItems')).data.find((b) => b.title === 'Pendiente X');
+        const estado = async (titulo = 'Pendiente X') => (E.ok(await E.db.getBacklogItems(UID, 'series', 'Total'), 'getBacklogItems')).data.find((b) => b.title === titulo);
+        const tocarBoton = async (item) => {
+            const A = crearAlert();
+            const handleUpdateStatus = instanciar(extraer(PANTALLA.pendiente, 'handleUpdateStatus'), { db: E.db, loadItems: () => {}, ...hojasDesdeAlert(A.Alert) });
+            await quiet(() => handleUpdateStatus(item));
+            return A.registro.map((a) => a.titulo);
+        };
         ciclo.push((await estado()).status);
         for (let i = 0; i < 3; i++) {
-            const actual = await estado();
-            const handleUpdateStatus = instanciar(extraer(PANTALLA.pendiente, 'handleUpdateStatus'), { db: E.db, loadItems: () => {} });
-            await quiet(() => handleUpdateStatus(actual));
+            await tocarBoton(await estado());
             ciclo.push((await estado()).status);
         }
+        // Fase 7.5: la serie se crea "De Pendiente" con un título en estado Pendiente.
+        E.ok(await E.db.addBacklogItem(UID, { type: 'series', title: 'Pendiente Y' }), 'addBacklogItem');
         const cat = await E.crearCategoria({});
-        await E.agregarSerie(cat, { name: 'Pendiente X', temporadas: [2] });
+        const y = await estado('Pendiente Y');
+        const antes = (E.ok(await E.db.getBacklogItems(UID, 'series', 'Total'), 'getBacklogItems')).data.length;
+        await E.agregarSerie(cat, { name: 'Pendiente Y', temporadas: [2], link: { mode: 'pendiente', backlogId: y.id, title: y.title } });
         const filas = (E.ok(await E.db.getBacklogItems(UID, 'series', 'Total'), 'getBacklogItems')).data.length;
-        return { cicloEstados: ciclo, filasBacklogTrasCrearSerie: filas - 1, seriesTrasCambiarBacklog: (await E.cargarLista(cat)).length, statusSerieSinCambio: (await E.serie(cat, 'Pendiente X')).status };
+        const vinculado = await estado('Pendiente Y');
+        const alertas = await tocarBoton(vinculado);
+        const despues = await estado('Pendiente Y');
+        return {
+            cicloEstados: ciclo, filasBacklogTrasCrearSerie: filas - antes, seriesTrasCambiarBacklog: (await E.cargarLista(cat)).length,
+            statusSerieSinCambio: (await E.serie(cat, 'Pendiente Y')).status,
+            vinculado: {
+                estadoTitulo: vinculado.status,
+                etiqueta: motorVinculo.linkLabel({ seriesStatus: vinculado.linked_series_status, categoryName: vinculado.linked_category_name }),
+                botonCambiaEstado: despues.status !== vinculado.status,
+                aviso: alertas[0] || null,
+            },
+        };
     },
 
     async C14() {

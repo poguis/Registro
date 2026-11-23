@@ -17,6 +17,9 @@ import {
     planChapterTap, restartWatchedCount, decideTogglePause, categoryPauseDates, seriesWatchedTotal, activeLimit,
 } from '../entertainment/seriesDetail';
 import { watchedCount } from '../entertainment/queue';
+// Fase 7.5: vínculo con Pendiente (alta "De Pendiente" o "Nuevo título"; borrado en los dos lados).
+import { validateNewTitle, SUBTYPE_LABELS } from '../entertainment/link';
+import PendientePicker from '../components/PendientePicker';
 
 export default function ReadingDetailScreen({ user, category, onBack, onNavigateRegistry }) {
     const { theme } = useTheme();
@@ -50,6 +53,14 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
     const [currentStatusTab, setCurrentStatusTab] = useState('Viendo'); // 'Viendo' | 'En espera' | 'Terminado'
     const [originalList, setOriginalList] = useState([]);
     const [currentCategory, setCurrentCategory] = useState(category);
+
+    // Fase 7.5: de dónde sale la serie nueva. null (edición) | { mode: 'pendiente', backlogId, title }
+    // | { mode: 'nuevo' }; en "Nuevo título", el tipo (serie/anime o el subtipo de lectura) y el año.
+    const [link, setLink] = useState(null);
+    const [newType, setNewType] = useState(null);
+    const [newStartYear, setNewStartYear] = useState('');
+    const [pickerVisible, setPickerVisible] = useState(false);
+    const [candidates, setCandidates] = useState([]);
 
     const refreshCategory = async () => {
         const result = await db.getEntertainmentCategories(user.id);
@@ -131,6 +142,7 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
     const updateSeasonEpisodes = (index, value) => { const newS = [...seasons]; newS[index].episodes = value; setSeasons(newS); };
 
     const handleEdit = (series) => {
+        clearLinkChoice(); // Fase 7.5: la edición nunca arrastra la elección de "Agregar"
         setIsEditing(true);
         setEditingSeriesId(series.id);
         setName(series.name);
@@ -167,9 +179,11 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
     const getFilteredSeries = () => filterSeriesByTab(originalList, currentStatusTab);
 
     const handleDelete = (seriesId) => {
+        // Vinculada solo si su título de Pendiente ya está en el celular (linked_title_alive).
+        const linked = !!(originalList.find((s) => s.id === seriesId) || {}).linked_title_alive;
         confirm({
             titulo: 'Eliminar Obra',
-            mensaje: '¿Estás seguro?',
+            mensaje: linked ? 'Se borrarán la obra y su título en Pendiente. Se pierde el progreso.' : '¿Estás seguro?',
             acciones: [
                 { clave: 'cancelar', texto: 'Cancelar', variante: 'cancelar' },
                 { clave: 'eliminar', texto: 'Eliminar', variante: 'destructiva' },
@@ -199,6 +213,21 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
             return;
         }
 
+        // Fase 7.5: el vínculo con Pendiente (solo al crear). "Nuevo título" valida su tipo y año.
+        let linkArg = null;
+        if (!isEditing && link && link.mode === 'pendiente') linkArg = { backlogId: link.backlogId };
+        if (!isEditing && link && link.mode === 'nuevo') {
+            const linkErrors = {
+                titulo: 'El nombre es obligatorio',
+                tipo: 'Elige si es serie o anime.',
+                subtipo: 'Elige el subtipo: libro, cómic o manga.',
+                anio: 'El año de inicio debe tener 4 cifras.',
+            };
+            const nt = validateNewTitle({ categoryType: category.type, title: name, type: newType, subtype: newType, startYear: newStartYear });
+            if (nt.error) { informar('Error', linkErrors[nt.error]); return; }
+            linkArg = { newTitle: nt.newTitle };
+        }
+
         const { seriesData, seasonsData } = buildSeriesSave({
             category, name, description, status, currentSeason, currentEpisode, validSeasons, isEditing, originalList,
         });
@@ -207,7 +236,7 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
         if (isEditing) {
             result = await db.updateSeriesWithSeasons(editingSeriesId, seriesData, seasonsData);
         } else {
-            result = await db.addSeriesWithSeasons(seriesData, seasonsData);
+            result = await db.addSeriesWithSeasons(seriesData, seasonsData, linkArg);
         }
 
         if (result.success) {
@@ -215,7 +244,7 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
             fetchSeries();
             resetForm();
         } else {
-            informar('Error', 'No se pudo guardar');
+            informar('Error', linkArg ? (result.error || 'No se pudo guardar') : 'No se pudo guardar');
         }
     };
 
@@ -228,6 +257,33 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
         setSeasons([{ number: 1, episodes: '' }]);
         setCurrentSeason(1);
         setCurrentEpisode(1);
+        clearLinkChoice();
+    };
+
+    // Fase 7.5: la elección de "Agregar" (De Pendiente / Nuevo título) vale solo para ese alta: se
+    // limpia al guardar (resetForm), al editar y al cerrar o cancelar el formulario.
+    const clearLinkChoice = () => {
+        setLink(null);
+        setNewType(null);
+        setNewStartYear('');
+    };
+    const closeForm = () => {
+        setModalVisible(false);
+        clearLinkChoice();
+    };
+
+    // Qué muestra el formulario sobre el vínculo. Al editar nunca se usa `link`: solo cuenta si la
+    // serie editada está vinculada y su título ya está en el celular.
+    const formLinkView = () => {
+        if (isEditing) {
+            const s = originalList.find((x) => x.id === editingSeriesId);
+            return s && s.linked_title_alive
+                ? { chip: true, texto: 'El nombre se cambia también en Pendiente', tipos: false }
+                : { chip: false, texto: null, tipos: false };
+        }
+        if (link && link.mode === 'pendiente') return { chip: true, texto: `De Pendiente: ${link.title}`, tipos: false };
+        if (link && link.mode === 'nuevo') return { chip: false, texto: null, tipos: true };
+        return { chip: false, texto: null, tipos: false };
     };
 
     const updateToChapter = async (seriesId, sNum, eNum) => {
@@ -317,10 +373,40 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
     };
 
     // "+ Nueva Obra": con el límite alcanzado, el aviso sale antes de abrir el formulario (O1).
-    const handleAddPress = () => {
+    const handleAddPress = async () => {
         const check = canAddSeries(originalList, currentCategory || category);
         if (!check.ok) { informar('Límite Alcanzado', `Máximo ${check.limit} obras activas.`); return; }
+        // Fase 7.5: elegir un título de Pendiente o crear uno nuevo (que nace vinculado).
+        const modo = await confirm({
+            titulo: 'Agregar obra',
+            mensaje: 'Elige un título que ya está en Pendiente o crea uno nuevo.',
+            acciones: [
+                { clave: 'pendiente', texto: 'De Pendiente', variante: 'primaria' },
+                { clave: 'nuevo', texto: 'Nuevo título', variante: 'secundaria' },
+                { clave: 'cancelar', texto: 'Cancelar', variante: 'cancelar' },
+            ],
+        });
+        if (modo === 'pendiente') {
+            const res = await db.getBacklogCandidates(user.id, category.type);
+            const list = res.success ? res.data : [];
+            if (list.length === 0) { informar('Sin títulos en Pendiente', 'No hay lecturas en estado Pendiente. Usa "Nuevo título".'); return; }
+            setCandidates(list);
+            setPickerVisible(true);
+            return;
+        }
+        if (modo !== 'nuevo') return;
         resetForm();
+        setLink({ mode: 'nuevo' });
+        setModalVisible(true);
+    };
+
+    // Elegido en el selector: el formulario de siempre, con el nombre del título (editable; el
+    // título de Pendiente se actualiza igual, D4).
+    const handlePickCandidate = (item) => {
+        setPickerVisible(false);
+        resetForm();
+        setLink({ mode: 'pendiente', backlogId: item.id, title: item.title });
+        setName(item.title);
         setModalVisible(true);
     };
 
@@ -478,13 +564,53 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
                 )}
             />
 
+            {/* Fase 7.5: selector "De Pendiente" */}
+            <PendientePicker
+                visible={pickerVisible}
+                candidates={candidates}
+                titulo="Elegir de Pendiente"
+                onPick={handlePickCandidate}
+                onClose={() => setPickerVisible(false)}
+            />
+
             {/* Creation/Edit Modal */}
-            <Modal visible={modalVisible} animationType="slide" transparent={true}>
+            <Modal visible={modalVisible} animationType="slide" transparent={true} onRequestClose={closeForm}>
                 <View style={[styles.modalOverlay, { backgroundColor: theme.overlay }]}>
                     <View style={[styles.modalContent, { backgroundColor: theme.surface }]}>
                         <Text style={[styles.modalTitle, { color: theme.ink }]}>{isEditing ? 'Editar Obra' : 'Añadir Obra'}</Text>
                         <ScrollView style={{ maxHeight: 400 }}>
+                            {formLinkView().chip ? (
+                                <View style={styles.linkRow}>
+                                    <View style={[styles.linkChip, { backgroundColor: theme.soft }]}>
+                                        <Text style={[styles.linkChipText, { color: theme.accent }]} numberOfLines={1}>Vinculado</Text>
+                                    </View>
+                                    <Text style={[styles.linkText, { color: theme.muted }]} numberOfLines={1} ellipsizeMode="tail">
+                                        {formLinkView().texto}
+                                    </Text>
+                                </View>
+                            ) : null}
                             <TextInput placeholder="Nombre" style={[styles.input, { color: theme.ink, backgroundColor: theme.raised, borderColor: theme.lineStrong }]} placeholderTextColor={theme.muted} value={name} onChangeText={setName} />
+                            {formLinkView().tipos ? (
+                                <View>
+                                    <Text style={[styles.modalSubtitle, { color: theme.ink }]}>Subtipo en Pendiente</Text>
+                                    <View style={styles.typeRow}>
+                                        {Object.entries(SUBTYPE_LABELS).map(([clave, texto]) => {
+                                            const activo = newType === clave;
+                                            return (
+                                                <TouchableOpacity
+                                                    key={clave}
+                                                    accessibilityRole="button"
+                                                    onPress={() => setNewType(clave)}
+                                                    style={[styles.typeChip, { backgroundColor: activo ? theme.accent : theme.raised, borderColor: activo ? theme.accent : theme.lineStrong }]}
+                                                >
+                                                    <Text style={[styles.typeChipText, { color: activo ? theme.onAccent : theme.ink }]} numberOfLines={1}>{texto}</Text>
+                                                </TouchableOpacity>
+                                            );
+                                        })}
+                                    </View>
+                                    <TextInput placeholder="Año de inicio (opcional)" keyboardType="numeric" maxLength={4} style={[styles.input, { color: theme.ink, backgroundColor: theme.raised, borderColor: theme.lineStrong }]} placeholderTextColor={theme.muted} value={newStartYear} onChangeText={setNewStartYear} />
+                                </View>
+                            ) : null}
                             <TextInput placeholder="Descripción" style={[styles.input, { color: theme.ink, backgroundColor: theme.raised, borderColor: theme.lineStrong }]} placeholderTextColor={theme.muted} value={description} onChangeText={setDescription} />
                             
                             <Text style={[styles.modalSubtitle, { color: theme.ink, marginTop: 10 }]}>Partes y Tomos</Text>
@@ -520,7 +646,7 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
                         </ScrollView>
 
                         <View style={styles.modalButtons}>
-                            <TouchableOpacity style={[styles.modalButton, { backgroundColor: theme.raised }]} onPress={() => setModalVisible(false)}>
+                            <TouchableOpacity style={[styles.modalButton, { backgroundColor: theme.raised }]} onPress={closeForm}>
                                 <Text style={{ color: theme.ink }}>Cancelar</Text>
                             </TouchableOpacity>
                             <TouchableOpacity style={[styles.modalButton, { backgroundColor: theme.accent }]} onPress={handleSave}>
@@ -625,6 +751,14 @@ const styles = StyleSheet.create({
     modalOverlay: { flex: 1, justifyContent: 'center', padding: 20 },
     modalContent: { borderRadius: RADIUS.base, padding: 20, elevation: 5 },
     modalTitle: { fontSize: 20, fontFamily: FONT.bold, marginBottom: 20 },
+    // Fase 7.5: marca "Vinculado" y tipo del nuevo título.
+    linkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+    linkChip: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: RADIUS.sm, flexShrink: 0 },
+    linkChipText: { fontFamily: FONT.semibold, fontSize: 12 },
+    linkText: { flex: 1, minWidth: 0, fontSize: 13 },
+    typeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6, marginBottom: 10 },
+    typeChip: { minHeight: 44, paddingHorizontal: 16, borderRadius: RADIUS.sm, borderWidth: 1, justifyContent: 'center', flexShrink: 0 },
+    typeChipText: { fontFamily: FONT.semibold, fontSize: 14 },
     modalSubtitle: { fontSize: 14, fontFamily: FONT.bold, marginBottom: 10 },
     input: { borderWidth: 1, borderRadius: RADIUS.sm, padding: 12, marginBottom: 15 },
     seasonRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },

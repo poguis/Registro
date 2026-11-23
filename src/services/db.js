@@ -489,10 +489,12 @@ class DatabaseService {
         }
     }
 
-    async addSeriesWithSeasons(seriesData, seasonsData) {
+    // Fase 7.5: `link` = { backlogId } (vincular un título de Pendiente) o { newTitle } (crear el
+    // título nuevo en Pendiente); sin `link`, serie sin vínculo como en la 1.3.9.
+    async addSeriesWithSeasons(seriesData, seasonsData, link = null) {
         if (!this.db) await this.init();
         try {
-            await mutate(() => series.addSeriesWithSeasons(seriesData, seasonsData));
+            await mutate(() => series.addSeriesWithSeasons(seriesData, seasonsData, link));
             return ok();
         } catch (error) {
             return failed('Error adding series:', error);
@@ -573,7 +575,8 @@ class DatabaseService {
         }
     }
 
-    // Borrado lógico con cascada a temporadas e historial.
+    // Borrado lógico con cascada a temporadas e historial y, si está vinculada, a su título de
+    // Pendiente (Fase 7.5).
     async deleteSeries(id) {
         if (!this.db) await this.init();
         try {
@@ -665,21 +668,41 @@ class DatabaseService {
         }
     }
 
-    async getBacklogItems(userId, type, status = null, sortBy = 'title', order = 'ASC', franchise = 'Todos') {
+    async getBacklogItems(userId, type, status = null, sortBy = 'title', order = 'ASC', franchise = 'Todos', subtype = 'Todos') {
         if (!this.db) await this.init();
         try {
-            return ok({ data: await backlog.getBacklogItems(userId, type, status, sortBy, order, franchise) });
+            return ok({ data: await backlog.getBacklogItems(userId, type, status, sortBy, order, franchise, subtype) });
         } catch (error) {
             return failed('Error getBacklogItems:', error);
         }
     }
 
-    async getBacklogCounts(userId, type, franchise = 'Todos') {
+    async getBacklogCounts(userId, type, franchise = 'Todos', subtype = 'Todos') {
         if (!this.db) await this.init();
         try {
-            return ok({ counts: await backlog.getBacklogCounts(userId, type, franchise) });
+            return ok({ counts: await backlog.getBacklogCounts(userId, type, franchise, subtype) });
         } catch (error) {
             return failed('Error getBacklogCounts:', error);
+        }
+    }
+
+    // Fase 7.5: candidatos del selector "De Pendiente" para una categoría ('video' o 'reading').
+    async getBacklogCandidates(userId, categoryType) {
+        if (!this.db) await this.init();
+        try {
+            return ok({ data: await backlog.getBacklogCandidates(userId, categoryType) });
+        } catch (error) {
+            return failed('Error getBacklogCandidates:', error);
+        }
+    }
+
+    // Fase 7.5 (D5): títulos de Pendiente vinculados a series vivas de una categoría.
+    async countLinkedTitlesInCategory(categoryId) {
+        if (!this.db) await this.init();
+        try {
+            return ok({ count: await backlog.countLinkedTitlesInCategory(categoryId) });
+        } catch (error) {
+            return failed('Error countLinkedTitlesInCategory:', error);
         }
     }
 
@@ -703,6 +726,7 @@ class DatabaseService {
         }
     }
 
+    // Fase 7.5: si el título está vinculado, también borra su serie (temporadas e historial).
     async deleteBacklogItem(id) {
         if (!this.db) await this.init();
         try {

@@ -426,9 +426,14 @@ seccion('7. Migración 6 sobre una BD v5 con datos (creada con la app 1.3.7)');
     const filasQ = (await dev.svc.db.getFirstAsync('SELECT COUNT(*) n FROM entertainment_quotas_history')).n;
     const resumen = await dev.svc.db.getFirstAsync("SELECT payload FROM _migration_log WHERE version = 6 AND kind = 'summary'");
     const p6 = resumen ? JSON.parse(resumen.payload) : null;
+    // Desde la 7.5 la apertura sigue hasta LATEST_VERSION (como probar-fase6-7 desde la 7.4b): la
+    // migración 6 se comprueba igual (columna, primera copia pre-migracion-v6, conteos, NULL) y
+    // después corren las siguientes, cada una con su copia previa.
+    const { LATEST_VERSION } = await import('../src/services/migrations.js');
+    const copiasEsperadas = Array.from({ length: LATEST_VERSION - 5 }, (_, i) => `pre-migracion-v${6 + i}`);
     tabla('migración 6', [{
-        caso: 'v5 con datos → v6',
-        esperado: { uv5: 5, falla: { abre: false, uv: 5, col: false }, migra: { uv: 6, col: true }, copia: ['pre-migracion-v6'], conteosIguales: true, frecuenciasNulas: true },
+        caso: `v5 con datos → v6 (y hasta v${LATEST_VERSION})`,
+        esperado: { uv5: 5, falla: { abre: false, uv: 5, col: false }, migra: { uv: LATEST_VERSION, col: true }, copia: copiasEsperadas, conteosIguales: true, frecuenciasNulas: true },
         obtenido: {
             uv5, falla: { abre: fallo === null, ...leer(falla) }, migra: leer(migra), copia: copias,
             conteosIguales: !!p6 && igual(p6.before, p6.after) && despues.reduce((a, n) => a + n, 0) > 0,
@@ -451,7 +456,7 @@ seccion('7. Migración 6 sobre una BD v5 con datos (creada con la app 1.3.7)');
         const meta = JSON.parse(readFileSync(bk.json.path, 'utf8')).meta;
         return { ok: res.status === 0 && /Respaldo válido/.test(res.stdout), uv: meta.userVersion };
     };
-    tabla('validar-respaldo', [{ caso: 'respaldos v5 y v6', esperado: [{ ok: true, uv: 5 }, { ok: true, uv: 6 }], obtenido: [await validar(v5b, 'v5'), await validar(migra, 'v6')] }]);
+    tabla('validar-respaldo', [{ caso: `respaldos v5 y v${LATEST_VERSION}`, esperado: [{ ok: true, uv: 5 }, { ok: true, uv: LATEST_VERSION }], obtenido: [await validar(v5b, 'v5'), await validar(migra, 'v6')] }]);
 }
 
 // =============================================================================================
@@ -468,7 +473,10 @@ async function servidor({ conNueva = true } = {}) {
 seccion('8. Servidor: privilegios idénticos y verificar-fase7-4b.sql');
 {
     const S = await servidor({ conNueva: false });
-    check('la migración nueva existe y es la 5.ª del directorio', readdirSync('supabase/migrations').filter((x) => x.endsWith('.sql')).sort().at(-1) === MIGRACION_NUEVA && S.files.length === 4);
+    // Desde la 7.5 ya no es la última del directorio: se comprueba que es la 5.ª en orden y que sin
+    // ella quedan todas las demás.
+    const todas = readdirSync('supabase/migrations').filter((x) => x.endsWith('.sql')).sort();
+    check('la migración nueva existe (la 5.ª en orden) y sin ella quedan las demás', todas[4] === MIGRACION_NUEVA && S.files.length === todas.length - 1 && !S.files.includes(MIGRACION_NUEVA));
     // Privilegios de la tabla (ACL explotada) y de cada columna (ACL propia + información derivada),
     // para anon, authenticated, PUBLIC y service_role.
     const ROLES = "('anon', 'authenticated', 'PUBLIC', 'service_role')";

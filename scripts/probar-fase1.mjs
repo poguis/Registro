@@ -184,7 +184,8 @@ await op('updateCard', () => svc.updateCard(cardAdd.id, { name: 'C2', type: 'cre
 await op('deleteCard', () => svc.deleteCard(cardAdd.id));
 await op('addBacklogItem', () => svc.addBacklogItem(user, { type: 'anime', title: 'T' }));
 const bl = firstOf("SELECT id FROM backlog WHERE user_id = ? AND type = 'anime' AND deleted_at IS NULL", user);
-await op('updateBacklogStatus', () => svc.updateBacklogStatus(bl.id, 'Mirando'));
+// Fase 7.5 (D6): un anime sin vínculo solo pasa a mano a Pendiente o Terminado (Mirando lo pone su serie).
+await op('updateBacklogStatus', () => svc.updateBacklogStatus(bl.id, 'Terminado'));
 check('updateBacklogStatus rechaza un estado no canónico', (await quiet(() => svc.updateBacklogStatus(bl.id, 'Visto'))).result.success === false);
 await op('updateBacklogItem', () => svc.updateBacklogItem(bl.id, { title: 'T2' }));
 await op('deleteBacklogItem', () => svc.deleteBacklogItem(bl.id));

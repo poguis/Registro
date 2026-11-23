@@ -50,7 +50,9 @@ export function enqueue<T>(task: () => Promise<T>): Promise<T> {
 
 // Transacción (withTransactionAsync, no exclusiva). Llamar solo dentro de `enqueue`.
 // Con DEV_FAIL_TX (solo __DEV__) falla justo antes de confirmar, para probar el rollback.
-export async function tx<T>(task: () => Promise<T>): Promise<T> {
+// `silent` (Fase 7.5): no avisa al listener de la outbox. Lo usa la reconciliación que corre la
+// propia sync al terminar el pull (sube lo que encola en el mismo ciclo), así no dispara otro ciclo.
+export async function tx<T>(task: () => Promise<T>, opts: { silent?: boolean } = {}): Promise<T> {
     const db = getConnection();
     let result: T | undefined;
     const state: TxState = { touched: new Set() };
@@ -63,7 +65,7 @@ export async function tx<T>(task: () => Promise<T>): Promise<T> {
     } finally {
         currentTx = null;
     }
-    if (state.touched.size > 0 && outboxCommitListener) {
+    if (state.touched.size > 0 && outboxCommitListener && !opts.silent) {
         try { outboxCommitListener(); } catch { /* la sync nunca rompe una escritura */ }
     }
     return result as T;
@@ -71,3 +73,7 @@ export async function tx<T>(task: () => Promise<T>): Promise<T> {
 
 // Mutación de dominio: cola + transacción.
 export const mutate = <T>(task: () => Promise<T>): Promise<T> => enqueue(() => tx(task));
+
+// Mutación que lanza la propia sync (Fase 7.5): igual que `mutate` (cola + transacción + outbox),
+// pero sin avisar al listener de la outbox, porque el motor sube lo encolado en el mismo ciclo.
+export const mutateFromSync = <T>(task: () => Promise<T>): Promise<T> => enqueue(() => tx(task, { silent: true }));

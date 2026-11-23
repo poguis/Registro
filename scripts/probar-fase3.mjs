@@ -86,6 +86,9 @@ function snapshot(path, { withoutUserId = false } = {}) {
         if (withoutUserId) rows = rows.map(({ user_id, ...r }) => r);
         // Fase 7.4b: la columna frequency que agrega la migración 6 (NULL) no es contenido nuevo.
         if (t === 'entertainment_quotas_history') rows = rows.map(({ frequency, ...r }) => (frequency == null ? r : { ...r, frequency }));
+        // Fase 7.5: igual con las columnas de la migración 7 (series.backlog_id, backlog.subtype), NULL al migrar.
+        if (t === 'series') rows = rows.map(({ backlog_id, ...r }) => (backlog_id == null ? r : { ...r, backlog_id }));
+        if (t === 'backlog') rows = rows.map(({ subtype, ...r }) => (subtype == null ? r : { ...r, subtype }));
         s.counts[t] = rows.length;
         s.hashes[t] = hashRows(rows);
     }
@@ -397,8 +400,8 @@ section('Variantes y URL de retorno');
     const dev = evalVariant('development');
     check('producción: com.poguis.Registro, "Registro", poguis-registro', prod.android.package === 'com.poguis.Registro' && prod.name === 'Registro' && prod.scheme === 'poguis-registro');
     check('desarrollo: com.poguis.Registro.dev, "Registro Dev", poguis-registro-dev', dev.android.package === 'com.poguis.Registro.dev' && dev.name === 'Registro Dev' && dev.scheme === 'poguis-registro-dev');
-    // Misma versión en las dos variantes (la vigente de app.json; 1.3.9 / 13 desde la dirección visual).
-    check('versión 1.3.9 / versionCode 13 en ambas', [prod, dev].every((c) => c.version === '1.3.9' && c.android.versionCode === 13));
+    // Misma versión en las dos variantes (la vigente de app.json; 1.4.0 / 14 desde la Fase 7.5).
+    check('versión 1.4.0 / versionCode 14 en ambas', [prod, dev].every((c) => c.version === '1.4.0' && c.android.versionCode === 14));
     check('plugin de firma: eas en producción, debug solo en dev', JSON.stringify(prod.plugins.at(-1)) === JSON.stringify(['./plugins/withReleaseSigning', { mode: 'eas' }])
         && JSON.stringify(dev.plugins.at(-1)) === JSON.stringify(['./plugins/withReleaseSigning', { mode: 'debug' }]));
     check('expo-secure-store excluido del Auto Backup (configureAndroidBackup: true)', prod.plugins.some((p) => Array.isArray(p) && p[0] === 'expo-secure-store' && p[1].configureAndroidBackup === true));

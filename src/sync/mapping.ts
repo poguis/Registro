@@ -19,15 +19,19 @@ export const COLUMNS: Record<string, Record<string, Kind>> = {
     // frequency (Fase 7.4b, migración local 6 / Supabase 20261121000100): frecuencia de lectura del período; NULL en video
     // y en los períodos de lectura de antes (= la de la categoría).
     entertainment_quotas_history: { category_id: 'uuid', quotas: 'json_object', start_date: 'date', end_date: 'date', frequency: 'int' },
+    // Fase 7.5: backlog va ANTES que series (series.backlog_id → backlog) para que el push suba el
+    // título antes que la serie y el pull lo baje antes. subtype (migración local 7 / Supabase
+    // 20261122000100): subtipo de lectura 'book' | 'comic' | 'manga'; NULL fuera de lectura.
+    backlog: { type: 'text', title: 'text', status: 'text', year: 'int', format: 'text', start_year: 'int', end_year: 'int', franchise: 'text', subtype: 'text' },
+    // backlog_id (Fase 7.5): título de Pendiente vinculado; NULL = serie sin vínculo.
     series: {
         category_id: 'uuid', name: 'text', description: 'text', status: 'text', current_season: 'int', current_episode: 'int',
         initial_season: 'int', initial_episode: 'int', total_seasons: 'int', sort_order: 'int', cycle_offset: 'int',
-        interleave_offset: 'int', last_watched_at: 'epoch_ms_or_zero',
+        interleave_offset: 'int', last_watched_at: 'epoch_ms_or_zero', backlog_id: 'uuid',
     },
     seasons: { series_id: 'uuid', season_number: 'int', episode_count: 'int' },
     watch_history: { series_id: 'uuid', season_number: 'int', episode_number: 'int', watched_at: 'epoch_ms' },
     reading_history: { series_id: 'uuid', season_number: 'int', episode_number: 'int', read_at: 'epoch_ms' },
-    backlog: { type: 'text', title: 'text', status: 'text', year: 'int', format: 'text', start_year: 'int', end_year: 'int', franchise: 'text' },
     work_people: { name: 'text', start_date: 'date', cycle: 'json_array', sort_order: 'int' },
     cards: { name: 'text', type: 'text', cutoff_date: 'int', payment_due_date: 'int', limit_amount: 'money' },
 };
@@ -44,7 +48,7 @@ export const PARENT_FKS: Record<string, { column: string; parent: string }[]> = 
     finance_transactions: [{ column: 'contact_id', parent: 'finance_contacts' }],
     entertainment_pauses: [{ column: 'category_id', parent: 'entertainment_categories' }],
     entertainment_quotas_history: [{ column: 'category_id', parent: 'entertainment_categories' }],
-    series: [{ column: 'category_id', parent: 'entertainment_categories' }],
+    series: [{ column: 'category_id', parent: 'entertainment_categories' }, { column: 'backlog_id', parent: 'backlog' }],
     seasons: [{ column: 'series_id', parent: 'series' }],
     watch_history: [{ column: 'series_id', parent: 'series' }],
     reading_history: [{ column: 'series_id', parent: 'series' }],
@@ -207,9 +211,11 @@ const canonicalJson = (text: any): string => {
         : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sortDeep(v[k])])) : v;
     try { return JSON.stringify(sortDeep(JSON.parse(text))); } catch { return String(text); }
 };
-export function sameAsLocal(table: string, local: Record<string, any>, remoteAsLocal: Record<string, any>): boolean {
+// `only` (Fase 7.5): comparar solo esas columnas (las que trajo la fila remota).
+export function sameAsLocal(table: string, local: Record<string, any>, remoteAsLocal: Record<string, any>, only?: string[]): boolean {
     const cols = columnsOf(table);
     for (const [c, kind] of Object.entries(cols)) {
+        if (only && !only.includes(c)) continue;
         const a = local[c] ?? null;
         const b = remoteAsLocal[c] ?? null;
         if (kind === 'days_of_week' || kind === 'json_object' || kind === 'json_array') {

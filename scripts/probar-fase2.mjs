@@ -66,7 +66,7 @@ async function insert(db, table, values) {
 // ---------------------------------------------------------------------------
 section('Criterio 1: las migraciones se aplican desde cero (dos bases nuevas)');
 // Fase 7.4b: 5 archivos (el 5.º, 20261121000100_frecuencia_cuotas.sql, agrega entertainment_quotas_history.frequency).
-check('archivos de migración con formato <YYYYMMDDHHMMSS>_<nombre>.sql', migrationFiles.length === 5, migrationFiles.join(', '));
+check('archivos de migración con formato <YYYYMMDDHHMMSS>_<nombre>.sql', migrationFiles.length === 6, migrationFiles.join(', ')); // 6.º: Fase 7.5
 let db;
 for (const attempt of [1, 2]) {
     const err = await fails(async () => { db = await freshDb(); });

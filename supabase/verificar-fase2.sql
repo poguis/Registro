@@ -2,6 +2,8 @@
 -- aplicar las 4 migraciones de supabase/migrations/. No modifica nada.
 -- Devuelve una fila por chequeo: chequeo | valor | esperado | ok. Todo debe salir ok = true.
 -- (No va en supabase/migrations/: no es una migración.)
+-- Fase 7.5: la migración 20261122000100_vinculo_pendiente.sql agrega una FK compuesta
+-- (series_backlog_fkey), así que el chequeo 18 espera 8 (eran 7 en la Fase 2).
 
 with
 tablas(t) as (
@@ -87,7 +89,7 @@ chequeos(orden, chequeo, valor, esperado) as (
     union all select 18, 'FK compuestas (parent_id, user_id) diferidas, sin on delete',
         (select count(*) from fks
           where confrelid <> 'auth.users'::regclass and array_length(conkey, 1) = 2
-            and condeferrable and condeferred and confdeltype = 'a')::text, '7'
+            and condeferrable and condeferred and confdeltype = 'a')::text, '8'
     union all select 19, 'índices de pull (user_id, server_updated_at, id)',
         (select count(*) from pg_indexes where schemaname = 'public' and indexname like '%\_pull\_idx')::text, '15'
     union all select 20, 'has_schema_privilege(''authenticated'', ''public'', ''USAGE'')',

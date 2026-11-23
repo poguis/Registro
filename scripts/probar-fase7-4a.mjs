@@ -44,6 +44,10 @@ const mapping = await import('../src/sync/mapping.ts');
 const utils = await import('../src/services/backlogUtils.js');
 const motorCola = await import('../src/entertainment/queue.ts');
 const motorDetalle = await import('../src/entertainment/seriesDetail.ts');
+// Fase 7.5: el motor del vínculo con Pendiente se inyecta igual que los demás; el formulario de serie
+// arranca sin vínculo (link null), como una serie de la 1.3.9 (mecanismo: CASOS no cambia por esto).
+const motorVinculo = await import('../src/entertainment/link.ts');
+const FORM_SIN_VINCULO = { link: null, newType: null, newStartYear: '' };
 const motorCategoria = await import('../src/entertainment/category.ts');
 const { getLocalDateString } = utils;
 
@@ -63,17 +67,17 @@ const tabla = (titulo, filas) => {
 const seccion = (t) => console.log(`\n== ${t} ==`);
 const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const instanciar = (ext, deps) => instanciarPantalla(ext, { ...utils, ...motorCola, ...motorDetalle, ...motorCategoria, ...deps });
+const instanciar = (ext, deps) => instanciarPantalla(ext, { ...utils, ...motorCola, ...motorDetalle, ...motorCategoria, ...motorVinculo, ...FORM_SIN_VINCULO, ...deps });
 
 const VARIANTES = {
     video: {
         type: 'video', registro: 'src/screens/ChapterRegistryScreen.js', detalle: 'src/screens/SeriesDetailScreen.js',
-        unidadLimite: 'series', confirmar: 'Marcar vistos', final: '¡Serie Completada!', finalRegistro: '¡Completada!',
+        unidadLimite: 'series', agregar: 'Agregar serie', confirmar: 'Marcar vistos', final: '¡Serie Completada!', finalRegistro: '¡Completada!',
         mensajeMarcar: (n, a, b) => `¿Marcar ${n} capítulos como vistos (${a} → ${b})?`, etq: (s, e) => `T${s}C${e}`, historial: 'watch_history', ts: 'watched_at',
     },
     reading: {
         type: 'reading', registro: 'src/screens/ReadingRegistryScreen.js', detalle: 'src/screens/ReadingDetailScreen.js',
-        unidadLimite: 'obras', confirmar: 'Marcar leídos', final: '¡Obra Completada!', finalRegistro: '¡Completada!',
+        unidadLimite: 'obras', agregar: 'Agregar obra', confirmar: 'Marcar leídos', final: '¡Obra Completada!', finalRegistro: '¡Completada!',
         mensajeMarcar: (n, a, b) => `¿Marcar ${n} tomos como leídos (${a} → ${b})?`, etq: (s, e) => `P${s}T${e}`, historial: 'reading_history', ts: 'read_at',
     },
 };
@@ -292,16 +296,19 @@ async function entorno(uid = UID) {
     };
 
     // "+ Nueva Serie" (handleAddPress real): ¿abrió el formulario?
+    // Fase 7.5: tras el aviso de límite (O1, que va primero), la hoja "Agregar serie/obra" pregunta
+    // De Pendiente / Nuevo título; aquí se elige "Nuevo título", que abre el formulario de siempre.
     const botonAgregar = async (cat, { categoriaProp = cat } = {}) => {
         usar();
         const originalList = await lista(cat);
-        const A = crearAlert();
+        const A = crearAlert('Nuevo título');
         let abrio = false, reseteo = false;
         const handleAddPress = instanciar(extraer(V(cat).detalle, 'handleAddPress'), {
             originalList, category: categoriaProp, currentCategory: cat, Alert: A.Alert, ...hojasDesdeAlert(A.Alert),
             resetForm: () => { reseteo = true; }, setModalVisible: (x) => { if (x) abrio = true; },
+            db, user, setLink: () => {}, setPickerVisible: () => {}, setCandidates: () => {},
         });
-        handleAddPress();
+        await quiet(() => handleAddPress());
         return { abrio, reseteo, alertas: A.registro.map((a) => ({ titulo: a.titulo, mensaje: a.mensaje })) };
     };
 
@@ -829,7 +836,9 @@ for (const tipo of ['video', 'reading']) {
     await E.agregar(cat, { name: 'A', temporadas: [2] });
     await E.agregar(cat, { name: 'T', temporadas: [1] });
     await E.tocar(cat, 'T', 1, 1, 'Terminado'); // terminada: no cuenta
-    filas.push({ caso: 'límite 2, 1 activa + 1 terminada', esperado: { abrio: true, reseteo: true, alertas: [] }, obtenido: await E.botonAgregar(cat) });
+    // Fase 7.5: bajo el límite, la única hoja es la de "Agregar serie/obra" (sin aviso de límite).
+    const hojaAgregar = { titulo: v.agregar, mensaje: 'Elige un título que ya está en Pendiente o crea uno nuevo.' };
+    filas.push({ caso: 'límite 2, 1 activa + 1 terminada', esperado: { abrio: true, reseteo: true, alertas: [hojaAgregar] }, obtenido: await E.botonAgregar(cat) });
     await E.agregar(cat, { name: 'B', temporadas: [2] });
     const aviso = { titulo: 'Límite Alcanzado', mensaje: `Máximo 2 ${v.unidadLimite} activas.` };
     filas.push({ caso: 'límite 2, 2 activas', esperado: { abrio: false, reseteo: false, alertas: [aviso] }, obtenido: await E.botonAgregar(cat) });
