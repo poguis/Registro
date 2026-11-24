@@ -30,6 +30,27 @@ export function backlogStatusFor(seriesStatuses: string[]): 'Mirando' | 'Termina
     return 'Terminado';
 }
 
+// Estado que le corresponde a un título según TODAS sus series vinculadas (Fase 7.5, corrección):
+//   - con series vivas: backlogStatusFor (Mirando / Terminado);
+//   - sin series vivas, con al menos una vinculada borrada y en Mirando: vuelve a Pendiente (D5
+//     nueva: sin serie, el título queda en Pendiente sin vínculo). Cubre la edición del título en
+//     otro dispositivo que sube la fila entera con el estado viejo y la serie borrada mientras su
+//     título aún no había llegado;
+//   - en otro caso, null (no se toca): un Terminado sin serie viva puede ser a mano (D6) y un
+//     Mirando sin ninguna serie vinculada es anterior a la 7.5 (D6 los conserva).
+export function titleStatusFor(args: { current: string | null | undefined; liveStatuses: string[]; deletedLinked: number }): 'Pendiente' | 'Mirando' | 'Terminado' | null {
+    let next: 'Pendiente' | 'Mirando' | 'Terminado' | null = null;
+    if (args.liveStatuses.length > 0) next = backlogStatusFor(args.liveStatuses);
+    else if (args.deletedLinked > 0 && args.current === 'Mirando') next = 'Pendiente';
+    return next && next !== args.current ? next : null;
+}
+
+// D6 (corrección): pasar a Terminado a mano un título de serie, anime o lectura SIN vínculo pide
+// confirmación; de Terminado a Pendiente y las películas, no; un vinculado no cambia a mano.
+export function needsFinishConfirm(item: Row): boolean {
+    return !!item && item.type !== 'movie' && !isLinked(item) && nextManualStatus(item) === 'Terminado';
+}
+
 // Etiqueta del estado detallado que se muestra en Pendiente para un título vinculado.
 export function linkLabel(args: { seriesStatus: string | null | undefined; categoryName: string | null | undefined }): string {
     const cat = String(args.categoryName ?? '').trim();

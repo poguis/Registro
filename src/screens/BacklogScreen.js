@@ -8,7 +8,7 @@ import { useSyncRefresh } from '../sync/useSyncRefresh';
 import { useTheme, FONT, RADIUS } from '../contexts/ThemeContext';
 // Fase 7.5: vínculo con Series/Lectura (estado que mueve la serie, borrado en los dos lados) y
 // subtipo de lectura.
-import { nextManualStatus, isLinked, linkLabel, validateBacklogForm, SUBTYPE_LABELS } from '../entertainment/link';
+import { nextManualStatus, needsFinishConfirm, isLinked, linkLabel, validateBacklogForm, SUBTYPE_LABELS } from '../entertainment/link';
 
 const { width } = Dimensions.get('window');
 
@@ -143,6 +143,18 @@ export default function BacklogScreen({ user, onBack }) {
             const quien = item.type === 'reading' ? 'la obra' : 'la serie';
             informar('Vinculado', `El estado lo cambia ${quien} en «${item.linked_category_name || 'su categoría'}».`);
             return;
+        }
+        // D6 (corrección): pasar a Terminado una serie, anime o lectura sin vínculo se confirma antes.
+        if (needsFinishConfirm(item)) {
+            const clave = await confirm({
+                titulo: 'Marcar como Terminado',
+                mensaje: `¿Marcar «${item.title}» como Terminado?`,
+                acciones: [
+                    { clave: 'terminado', texto: 'Terminado', variante: 'primaria' },
+                    { clave: 'cancelar', texto: 'Cancelar', variante: 'cancelar' },
+                ],
+            });
+            if (clave !== 'terminado') return;
         }
 
         const res = await db.updateBacklogStatus(item.id, nextStatus);

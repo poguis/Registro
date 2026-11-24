@@ -15,7 +15,8 @@
 //   3. reflejo de estado en cada camino que escribe series.status
 //   4. comprobación estática del punto único (+ control negativo)
 //   5. etiqueta y selector (filtro y los 3 órdenes)
-//   6. borrado en los dos sentidos y de la categoría (D5), sin recursión, textos de las hojas
+//   6. borrado en los dos sentidos y de la categoría (D5 corregida: los títulos vuelven a Pendiente),
+//      sin recursión, textos de las hojas; borrar una categoría igual que en c2c42c2 en todo lo demás
 //   7. edición del título y del nombre (D4)
 //   8. subtipo (D7) y botón de estado (D6)
 //   9. migración 7 sobre una BD v6 de la 1.3.9; series sin vínculo como en la 1.3.9
@@ -25,6 +26,10 @@
 //  12. carreras del pull (seasons → series hoy; backlog → series sin FK local; título que todavía
 //      no llegó: el detalle y Pendiente cargan, sin efectos sobre el título, borrado en una copia)
 //  16. unblockAll: qué libera y qué no (constante PARENT_BLOCKED compartida con el motor)
+//  17. borrar una categoría: todo lo demás igual que en c2c42c2 (categoría, pausas, ritmo, series sin
+//      vínculo con temporadas e historial; sin vinculados, mismas filas y misma outbox)
+//  18. reconciliación de la D5 corregida: dos dispositivos (borrar la categoría y editar el título sin
+//      red) y un Mirando sin ninguna serie vinculada (anterior a la 7.5) que no se toca
 //  13. 23503: backlog_id NULL no es un padre que falta; un padre que falta se encola
 //  14. compatibilidad a (1.3.9 contra el servidor nuevo) y b (1.4.0 contra el servidor viejo)
 //
@@ -383,9 +388,16 @@ seccion('4. Comprobación estática: punto único de escritura (series y status/
     archivos.push('App.js');
     const REGLAS = {
         series: { insertRow: ['insertSeriesRow'], updateRow: ['updateSeriesRow'], reviveRow: [], softDelete: ['deleteSeriesRows'], softDeleteWhere: [] },
-        backlog: { insertRow: ['addBacklogItem', 'insertLinkedBacklogTitle'], updateRow: ['reflectLinkedBacklogStatus', 'updateBacklogStatus', 'setLinkedBacklogTitle', 'updateBacklogItem'], reviveRow: [], softDelete: ['softDeleteLinkedTitle'], softDeleteWhere: [] },
+        backlog: { insertRow: ['addBacklogItem', 'insertLinkedBacklogTitle'], updateRow: ['writeBacklogStatus', 'updateBacklogStatus', 'setLinkedBacklogTitle', 'updateBacklogItem'], reviveRow: [], softDelete: ['softDeleteLinkedTitle'], softDeleteWhere: [] },
     };
-    const CON_STATUS = ['reflectLinkedBacklogStatus', 'updateBacklogStatus'];
+    const CON_STATUS = ['writeBacklogStatus', 'updateBacklogStatus'];
+    // Corrección de la 7.5: quién puede llamar a las escrituras internas. El estado de un título
+    // vinculado solo lo escribe writeBacklogStatus, y solo desde el reflejo, la liberación (D5) y la
+    // reconciliación; el borrado de filas de series solo desde las tres cascadas.
+    const LLAMADAS = {
+        writeBacklogStatus: ['reflectLinkedBacklogStatus', 'releaseLinkedTitles', 'reconcileLinkedTitles'],
+        deleteSeriesRows: ['deleteSeriesCascade', 'deleteTitleCascade', 'deleteCategorySeries'],
+    };
     const CON_TITLE = ['setLinkedBacklogTitle', 'updateBacklogItem'];
     // Devuelve las violaciones de un código fuente.
     const revisar = (codigo, archivo) => {
@@ -396,13 +408,14 @@ seccion('4. Comprobación estática: punto único de escritura (series y status/
                 const callee = p.node.callee;
                 const nombre = callee.type === 'Identifier' ? callee.name : null;
                 const arg = p.node.arguments[0];
-                if (!nombre || !arg || arg.type !== 'StringLiteral' || !REGLAS[arg.value] || !REGLAS[arg.value][nombre]) return;
                 const fn = p.getFunctionParent();
                 let dueño = null;
                 if (fn) {
                     if (fn.node.id) dueño = fn.node.id.name;
                     else if (fn.parentPath && fn.parentPath.node.type === 'VariableDeclarator') dueño = fn.parentPath.node.id.name;
                 }
+                if (nombre && LLAMADAS[nombre] && !LLAMADAS[nombre].includes(dueño)) { malas.push(`${archivo}:${p.node.loc.start.line} ${nombre}() en ${dueño}`); return; }
+                if (!nombre || !arg || arg.type !== 'StringLiteral' || !REGLAS[arg.value] || !REGLAS[arg.value][nombre]) return;
                 if (!REGLAS[arg.value][nombre].includes(dueño)) { malas.push(`${archivo}:${p.node.loc.start.line} ${nombre}('${arg.value}') en ${dueño}`); return; }
                 if (arg.value === 'backlog' && nombre === 'updateRow') {
                     const vals = p.node.arguments[2];
@@ -427,9 +440,11 @@ seccion('4. Comprobación estática: punto único de escritura (series y status/
         async function cualquiera(id) { await updateRow('series', id, { status: 'Terminado' }); }
         async function otra(id) { await softDeleteWhere('series', 'id = ?', [id]); await softDelete('backlog', id); }
         async function updateBacklogStatus(id) { await updateRow('backlog', id, { title: 'x' }); }
-        const z = async (id) => db.runAsync('UPDATE backlog SET status = ? WHERE id = ?', ['x', id]);`;
+        const z = async (id) => db.runAsync('UPDATE backlog SET status = ? WHERE id = ?', ['x', id]);
+        async function deleteEntertainmentCategory(id) { await writeBacklogStatus(id, 'Pendiente'); await deleteSeriesRows(id); }
+        async function reflectLinkedBacklogStatus(id) { await updateRow('backlog', id, { status: 'Mirando' }); }`;
     const negativas = revisar(malo, 'control');
-    check('control negativo: el revisor detecta las 5 violaciones sembradas', negativas.length === 5, negativas.join(' | '));
+    check('control negativo: el revisor detecta las 8 violaciones sembradas', negativas.length === 8, negativas.join(' | '));
 }
 
 // =============================================================================================
@@ -501,36 +516,68 @@ seccion('6. Borrado en los dos sentidos y de la categoría (D5), sin recursión;
         { caso: 'desde Pendiente (deleteBacklogItem → deleteTitleCascade, sin recursión)', esperado: { ok: true, outbox: { porTabla: { backlog: 1, seasons: 1, series: 1, watch_history: 3 }, unaPorFila: true }, vivos: { titulo: 0, serie: 0, temporadas: 0, historial: 0 } }, obtenido: { ok: rB.success, outbox: obB, vivos: vivosB } },
         { caso: 'título sin vínculo', esperado: { porTabla: { backlog: 1 }, unaPorFila: true }, obtenido: obC },
     ]);
-    // Categoría (D5): borra los títulos vinculados de sus series; no toca los demás.
+    // Categoría (D5 corregida): borra sus series vinculadas con su progreso; sus títulos vuelven a
+    // Pendiente sin vínculo (también uno que estaba en Terminado) y vuelven al selector.
     const cat2 = await E.crearCategoria({ type: 'video', name: 'Para borrar' });
-    await E.guardar(cat2, { name: 'Ligada 1', linkEstado: { mode: 'nuevo' }, newType: 'series' });
-    await E.guardar(cat2, { name: 'Ligada 2', linkEstado: { mode: 'nuevo' }, newType: 'anime' });
-    await E.guardar(cat2, { name: 'Sin vínculo', linkEstado: null });
+    await E.guardar(cat2, { name: 'Ligada 1', temporadas: [2], linkEstado: { mode: 'nuevo' }, newType: 'series' });
+    await E.guardar(cat2, { name: 'Ligada 2', temporadas: [2], linkEstado: { mode: 'nuevo' }, newType: 'anime' });
+    await E.guardar(cat2, { name: 'Sin vínculo', temporadas: [2], linkEstado: null });
+    const l2 = await E.serie(cat2, 'Ligada 2');
+    E.ok(await E.db.markEpisodesWatched(l2.id, 'video', [{ season: 1, episode: 1 }, { season: 1, episode: 2 }], { season: 1, episode: 2, status: 'Terminado' }, Date.now()), 'markEpisodesWatched');
+    const l1 = await E.serie(cat2, 'Ligada 1');
+    E.ok(await E.db.markEpisodesWatched(l1.id, 'video', [{ season: 1, episode: 1 }], { season: 1, episode: 2, status: 'Mirando' }, Date.now()), 'markEpisodesWatched');
     const ajeno = await E.nuevoTitulo('series', 'Ajeno');
     // Textos de la hoja de la categoría (handleDelete real de SeriesAnimeScreen): 0, 1 y 2 vinculados.
     const hojaCategoria = async (c) => {
         const A = crearAlert(); // sin elegir: cancela
         const fn = instanciar(extraer(PANT.categorias, 'handleDelete'), { db: E.db, ...hojasDesdeAlert(A.Alert), fetchCategories: () => {} });
         E.usar();
-        await quiet(() => fn(c.id));
+        await quiet(() => fn(c.id, c.type));
         await vaciar();
         return A.registro[0] && A.registro[0].mensaje;
     };
     const cat1 = await E.crearCategoria({ type: 'video', name: 'Una' });
     await E.guardar(cat1, { name: 'Única', linkEstado: { mode: 'nuevo' }, newType: 'series' });
     const cat0 = await E.crearCategoria({ type: 'video', name: 'Cero' });
+    const lec1 = await E.crearCategoria({ type: 'reading', name: 'Lectura una' });
+    await E.guardar(lec1, { name: 'Obra única', linkEstado: { mode: 'nuevo' }, newType: 'book' });
+    const lec2 = await E.crearCategoria({ type: 'reading', name: 'Lectura dos' });
+    await E.guardar(lec2, { name: 'Obra A', linkEstado: { mode: 'nuevo' }, newType: 'book' });
+    await E.guardar(lec2, { name: 'Obra B', linkEstado: { mode: 'nuevo' }, newType: 'manga' });
     const base = '¿Estás seguro de que quieres eliminar esta categoría?';
-    tabla('texto de la hoja al borrar una categoría (D5)', [
-        { caso: '0 vinculados', esperado: base, obtenido: await hojaCategoria(cat0) },
-        { caso: '1 vinculado', esperado: `${base} También se borrará su título vinculado en Pendiente y se pierde el progreso.`, obtenido: await hojaCategoria(cat1) },
-        { caso: '2 vinculados', esperado: `${base} También se borrarán sus 2 títulos vinculados en Pendiente y se pierde el progreso.`, obtenido: await hojaCategoria(cat2) },
+    tabla('texto de la hoja al borrar una categoría (D5 corregida)', [
+        { caso: '0 vinculados (texto de siempre)', esperado: base, obtenido: await hojaCategoria(cat0) },
+        { caso: 'video, 1 vinculada', esperado: `${base} Se borrará su serie vinculada con todo su progreso y su título volverá a Pendiente, sin vínculo.`, obtenido: await hojaCategoria(cat1) },
+        { caso: 'video, 2 vinculadas', esperado: `${base} Se borrarán sus 2 series vinculadas con todo su progreso y sus títulos volverán a Pendiente, sin vínculo.`, obtenido: await hojaCategoria(cat2) },
+        { caso: 'lectura, 1 vinculada', esperado: `${base} Se borrará su obra vinculada con todo su progreso y su título volverá a Pendiente, sin vínculo.`, obtenido: await hojaCategoria(lec1) },
+        { caso: 'lectura, 2 vinculadas', esperado: `${base} Se borrarán sus 2 obras vinculadas con todo su progreso y sus títulos volverán a Pendiente, sin vínculo.`, obtenido: await hojaCategoria(lec2) },
     ]);
-    const ids = (await E.lista(cat2)).map((x) => x.backlog_id).filter(Boolean);
+    const vinc = (await E.lista(cat2)).filter((x) => x.backlog_id);
+    const ids = vinc.map((x) => x.backlog_id);
+    const seriesIds = (await E.lista(cat2)).map((x) => x.id);
+    const enSerie = (t) => `series_id IN (${seriesIds.map(() => '?').join(',')})` + (t ? ' AND deleted_at IS NULL' : '');
+    const progresoAntes = await E.contar('watch_history', enSerie(true), seriesIds);
+    await E.limpiarOutbox();
     E.ok(await E.db.deleteEntertainmentCategory(cat2.id), 'deleteEntertainmentCategory');
-    tabla('borrar la categoría (D5)', [{
-        caso: 'sus 2 títulos vinculados borrados; el ajeno vivo',
-        esperado: { vinculadosVivos: 0, ajenoVivo: 1, seriesVivas: 0 },
-        obtenido: { vinculadosVivos: await E.contar('backlog', `id IN (${ids.map(() => '?').join(',')}) AND deleted_at IS NULL`, ids), ajenoVivo: await E.contar('backlog', 'id = ? AND deleted_at IS NULL', [ajeno.id]), seriesVivas: await E.contar('series', 'category_id = ? AND deleted_at IS NULL', [cat2.id]) },
+    const obCat = await E.resumenOutbox();
+    const titulosTras = (await E.titulos('series')).concat(await E.titulos('anime')).filter((b) => ids.includes(b.id));
+    E.usar();
+    const candidatosTras = (E.ok(await E.db.getBacklogCandidates(E.uid, 'video'), 'getBacklogCandidates')).data.map((b) => b.id);
+    tabla('borrar la categoría (D5 corregida)', [{
+        caso: 'series y progreso borrados; los 2 títulos vuelven a Pendiente sin vínculo y al selector; el ajeno intacto',
+        esperado: {
+            progresoAntes: 3, seriesVivas: 0, temporadasVivas: 0, historialVivo: 0,
+            titulos: [{ vivo: true, estado: 'Pendiente', vinculado: false, candidato: true }, { vivo: true, estado: 'Pendiente', vinculado: false, candidato: true }],
+            ajenoVivo: 1,
+            outbox: { porTabla: { backlog: 2, entertainment_categories: 1, entertainment_quotas_history: 1, seasons: 3, series: 3, watch_history: 3 }, unaPorFila: true },
+        },
+        obtenido: {
+            progresoAntes, seriesVivas: await E.contar('series', 'category_id = ? AND deleted_at IS NULL', [cat2.id]),
+            temporadasVivas: await E.contar('seasons', enSerie(true), seriesIds), historialVivo: await E.contar('watch_history', enSerie(true), seriesIds),
+            titulos: titulosTras.map((b) => ({ vivo: !b.deleted_at, estado: b.status, vinculado: link.isLinked(b), candidato: candidatosTras.includes(b.id) })),
+            ajenoVivo: await E.contar('backlog', 'id = ? AND deleted_at IS NULL', [ajeno.id]),
+            outbox: obCat,
+        },
     }]);
     // Textos de borrado en el detalle y en Pendiente (vinculado / sin vínculo; serie / obra).
     const L = await E.crearCategoria({ type: 'reading' });
@@ -676,15 +723,15 @@ seccion('8. Subtipo (D7) y botón de estado (D6)');
         { caso: 'editar el subtipo', esperado: 'comic', obtenido: (E.ok(await E.db.updateBacklogItem((await E.titulo('reading', 'L4 vieja')).id, { title: 'L4 vieja', subtype: 'comic', franchise: 'Otros' }), 'updateBacklogItem'), (await E.titulo('reading', 'L4 vieja')).subtype) },
     ]);
     // Botón de estado (handleUpdateStatus real de BacklogScreen).
-    const boton = async (item) => {
-        const A = crearAlert();
+    const boton = async (item, eleccion = null) => {
+        const A = crearAlert(eleccion);
         const fn = instanciar(extraer(PANT.pendiente, 'handleUpdateStatus'), { db: E.db, loadItems: () => {}, ...hojasDesdeAlert(A.Alert) });
         await quiet(() => fn(item));
         return A.registro.map((a) => `${a.titulo} | ${a.mensaje}`);
     };
     await E.nuevoTitulo('movie', 'Peli');
     await E.nuevoTitulo('anime', 'Anime suelto');
-    const ciclo = async (type, title) => { const out = [(await E.titulo(type, title)).status]; for (let i = 0; i < 3; i++) { await boton(await E.titulo(type, title)); out.push((await E.titulo(type, title)).status); } return out; };
+    const ciclo = async (type, title, eleccion = null) => { const out = [(await E.titulo(type, title)).status]; for (let i = 0; i < 3; i++) { await boton(await E.titulo(type, title), eleccion); out.push((await E.titulo(type, title)).status); } return out; };
     const cat = await E.crearCategoria({ type: 'video' });
     await E.guardar(cat, { name: 'Anime ligado', linkEstado: { mode: 'nuevo' }, newType: 'anime' });
     const L = await E.crearCategoria({ type: 'reading' });
@@ -694,11 +741,35 @@ seccion('8. Subtipo (D7) y botón de estado (D6)');
     const sueltoId = (await E.titulo('anime', 'Anime suelto')).id;
     tabla('botón de estado (D6)', [
         { caso: 'película: rota como siempre', esperado: ['Pendiente', 'Mirando', 'Terminado', 'Pendiente'], obtenido: await ciclo('movie', 'Peli') },
-        { caso: 'anime sin vínculo: Pendiente ↔ Terminado', esperado: ['Pendiente', 'Terminado', 'Pendiente', 'Terminado'], obtenido: await ciclo('anime', 'Anime suelto') },
+        { caso: 'anime sin vínculo: Pendiente ↔ Terminado (confirmando con "Terminado")', esperado: ['Pendiente', 'Terminado', 'Pendiente', 'Terminado'], obtenido: await ciclo('anime', 'Anime suelto', 'Terminado') },
         { caso: 'vinculado (serie): no cambia y avisa', esperado: { avisos: ['Vinculado | El estado lo cambia la serie en «Cat video».'], estado: 'Mirando' }, obtenido: { avisos: await boton(ligado), estado: (await E.titulo('anime', 'Anime ligado')).status } },
         { caso: 'vinculado (obra)', esperado: ['Vinculado | El estado lo cambia la obra en «Cat reading».'], obtenido: await boton(obra) },
         { caso: 'el repositorio también lo protege', esperado: [false, false], obtenido: [(await quiet(() => E.db.updateBacklogStatus(ligado.id, 'Terminado'))).success, (await quiet(() => E.db.updateBacklogStatus(sueltoId, 'Mirando'))).success] },
     ]);
+    // D6 (corrección): la hoja "Marcar como Terminado" antes de pasar a Terminado un título sin vínculo.
+    const l = await E.nuevoTitulo('reading', 'Libro por terminar', { subtype: 'book' });
+    const conCancelar = await boton(l, 'Cancelar');
+    const trasCancelar = (await E.titulo('reading', 'Libro por terminar')).status;
+    const conTerminado = await boton(await E.titulo('reading', 'Libro por terminar'), 'Terminado');
+    const trasTerminado = (await E.titulo('reading', 'Libro por terminar')).status;
+    const deVuelta = await boton(await E.titulo('reading', 'Libro por terminar'));
+    const trasVuelta = (await E.titulo('reading', 'Libro por terminar')).status;
+    const peli = await E.nuevoTitulo('movie', 'Peli 2');
+    const hojasPeli = [];
+    for (let i = 0; i < 2; i++) hojasPeli.push(...(await boton(await E.titulo('movie', 'Peli 2'))));
+    const hoja = 'Marcar como Terminado | ¿Marcar «Libro por terminar» como Terminado?';
+    tabla('hoja "Marcar como Terminado" (D6)', [
+        { caso: 'Cancelar: muestra la hoja y no cambia', esperado: { hojas: [hoja], estado: 'Pendiente' }, obtenido: { hojas: conCancelar, estado: trasCancelar } },
+        { caso: 'Terminado: muestra la hoja y cambia', esperado: { hojas: [hoja], estado: 'Terminado' }, obtenido: { hojas: conTerminado, estado: trasTerminado } },
+        { caso: 'de Terminado a Pendiente: sin hoja', esperado: { hojas: [], estado: 'Pendiente' }, obtenido: { hojas: deVuelta, estado: trasVuelta } },
+        { caso: 'película (Pendiente → Mirando → Terminado): sin hoja', esperado: { hojas: [], estado: 'Terminado' }, obtenido: { hojas: hojasPeli, estado: (await E.titulo('movie', 'Peli 2')).status } },
+        { caso: 'motor puro: needsFinishConfirm', esperado: [true, false, false, false, true], obtenido: [
+            link.needsFinishConfirm({ type: 'series', status: 'Pendiente' }), link.needsFinishConfirm({ type: 'series', status: 'Terminado' }),
+            link.needsFinishConfirm({ type: 'movie', status: 'Mirando' }), link.needsFinishConfirm({ type: 'anime', status: 'Mirando', linked_series_id: 'x' }),
+            link.needsFinishConfirm({ type: 'reading', status: 'Mirando' }),
+        ] },
+    ]);
+    check('la película se creó (control)', !!peli);
 }
 
 // =============================================================================================
@@ -1076,8 +1147,8 @@ seccion('12. Carreras del pull: una hija que llega antes que su padre en el mism
         const tA2 = await A2.titulo('series', 'Carrera vinculada');
         tabla('(b) borrar la serie mientras su título no llegó (copia aparte)', [{
             caso: 'el borrado no toca el título; luego el título llega vivo y se comporta como sin vínculo',
-            esperado: { borrado: true, backlogEnOutbox: 0, backlogFilas: backlogFilasA2, ciclo: 'ok', tituloVivo: true, vinculado: false, boton: 'Terminado' },
-            obtenido: { borrado: borrado.success, backlogEnOutbox: obBorrado.porTabla.backlog || 0, backlogFilas: backlogFilasA2Despues, ciclo: sync2.status, tituloVivo: !!tA2, vinculado: !!tA2 && link.isLinked(tA2), boton: tA2 && link.nextManualStatus(tA2) },
+            esperado: { borrado: true, backlogEnOutbox: 0, backlogFilas: backlogFilasA2, ciclo: 'ok', tituloVivo: true, vinculado: false, estado: 'Pendiente', reconciliados: 1, boton: 'Terminado' },
+            obtenido: { borrado: borrado.success, backlogEnOutbox: obBorrado.porTabla.backlog || 0, backlogFilas: backlogFilasA2Despues, ciclo: sync2.status, tituloVivo: !!tA2, vinculado: !!tA2 && link.isLinked(tA2), estado: tA2 && tA2.status, reconciliados: sync2.reconciledTitles, boton: tA2 && link.nextManualStatus(tA2) },
         }]);
         A.usar();
         const sigue = await quiet(() => engine.syncOnce(CFG, S.T));
@@ -1241,6 +1312,132 @@ seccion('15. Compatibilidad b: la app 1.4.0 contra un servidor SIN las columnas'
         },
     }]);
     check('primer ciclo contra el servidor viejo: termina, baja las 15 tablas y reporta bloqueadas (no se cuelga ni descarta nada)', o1.status === 'ok' && o1.push && o1.push.blocked > 0, JSON.stringify({ estado: o1.status, push: o1.push }));
+}
+
+// =============================================================================================
+seccion('17. Borrar una categoría: todo lo demás igual que en c2c42c2');
+{
+    const REF_75 = 'c2c42c2';
+    const app75 = await cargarAppVieja(REF_75, WORK);
+    // El mismo escenario en una app cualquiera (svc + cómo activar su conexión): categoría con dos
+    // períodos de ritmo, una pausa cerrada y una abierta, dos series sin vínculo con temporadas e
+    // historial y, opcionalmente (solo la app nueva), una serie vinculada.
+    const escenario = async (svc, usar, uid, { conVinculo = false } = {}) => {
+        usar();
+        const datos = { name: 'Categoría a borrar', type: 'video', startDate: dia(-9), daysOfWeek: todas(1), frequency: 0, seriesCount: 9, description: null };
+        const cat = (await quiet(() => svc.addEntertainmentCategory(uid, datos))).id;
+        await quiet(() => svc.updateEntertainmentCategory(cat, { ...datos, daysOfWeek: todas(2) }));
+        await quiet(() => svc.pauseCategory(cat, dia(-5)));
+        await quiet(() => svc.resumeCategory(cat, dia(-4)));
+        await quiet(() => svc.pauseCategory(cat, dia(-1)));
+        for (const name of ['S1', 'S2']) {
+            await quiet(() => svc.addSeriesWithSeasons({ category_id: cat, name, description: '', status: 'Nueva', current_season: 1, current_episode: 1, total_seasons: 2 }, [{ season_number: 1, episode_count: 2 }, { season_number: 2, episode_count: 1 }]));
+        }
+        const s1 = (await svc.getSeriesByCategory(cat)).series.find((s) => s.name === 'S1');
+        await quiet(() => svc.markEpisodesWatched(s1.id, 'video', [{ season: 1, episode: 1 }, { season: 1, episode: 2 }], { season: 2, episode: 1, status: 'Mirando' }, Date.now()));
+        if (conVinculo) await quiet(() => svc.addSeriesWithSeasons({ category_id: cat, name: 'Ligada', description: '', status: 'Nueva', current_season: 1, current_episode: 1, total_seasons: 1 }, [{ season_number: 1, episode_count: 2 }], { newTitle: { type: 'series', subtype: null, start_year: null } }));
+        const vivos = async () => Object.fromEntries(await Promise.all(TABLES.map(async (t) => [t, (await svc.db.getFirstAsync(`SELECT COUNT(*) n FROM ${t} WHERE deleted_at IS NULL`)).n])));
+        await svc.db.runAsync('DELETE FROM outbox');
+        const antes = await vivos();
+        const r = await quiet(() => svc.deleteEntertainmentCategory(cat));
+        const despues = await vivos();
+        const ob = await svc.db.getAllAsync('SELECT table_name t, row_id r, COUNT(*) n FROM outbox GROUP BY table_name, row_id');
+        const porTabla = {};
+        for (const f of ob) porTabla[f.t] = (porTabla[f.t] || 0) + 1;
+        const borradas = Object.fromEntries(TABLES.map((t) => [t, antes[t] - despues[t]]).filter(([, n]) => n !== 0));
+        const restoDeLaCategoria = {
+            categoria: (await svc.db.getFirstAsync('SELECT COUNT(*) n FROM entertainment_categories WHERE id = ? AND deleted_at IS NULL', [cat])).n,
+            pausas: (await svc.db.getFirstAsync('SELECT COUNT(*) n FROM entertainment_pauses WHERE category_id = ? AND deleted_at IS NULL', [cat])).n,
+            ritmo: (await svc.db.getFirstAsync('SELECT COUNT(*) n FROM entertainment_quotas_history WHERE category_id = ? AND deleted_at IS NULL', [cat])).n,
+            series: (await svc.db.getFirstAsync('SELECT COUNT(*) n FROM series WHERE category_id = ? AND deleted_at IS NULL', [cat])).n,
+            temporadas: (await svc.db.getFirstAsync('SELECT COUNT(*) n FROM seasons WHERE series_id IN (SELECT id FROM series WHERE category_id = ?) AND deleted_at IS NULL', [cat])).n,
+            historial: (await svc.db.getFirstAsync('SELECT COUNT(*) n FROM watch_history WHERE series_id IN (SELECT id FROM series WHERE category_id = ?) AND deleted_at IS NULL', [cat])).n,
+        };
+        const tituloLigado = conVinculo ? await svc.db.getFirstAsync("SELECT status, deleted_at FROM backlog WHERE title = 'Ligada'") : null;
+        return { ok: !!(r && r.success), borradas, outbox: { porTabla, unaPorFila: ob.every((f) => f.n === 1) }, restoDeLaCategoria, tituloLigado: tituloLigado && { estado: tituloLigado.status, vivo: !tituloLigado.deleted_at } };
+    };
+    const uid17 = '00000000-0000-4000-8000-000000007570';
+    const O = await app75.dispositivo(uid17, __setDatabasePath);
+    const viejo = await escenario(O.svc, O.usar, uid17);
+    const N = await entorno(uid17);
+    const nuevo = await escenario(N.db, N.usar, uid17);
+    const N2 = await entorno(uid17);
+    const nuevoConVinculo = await escenario(N2.db, N2.usar, uid17, { conVinculo: true });
+    const nada = { categoria: 0, pausas: 0, ritmo: 0, series: 0, temporadas: 0, historial: 0 };
+    tabla(`borrar una categoría frente a ${REF_75}`, [
+        { caso: 'sin vinculados: mismas filas borradas y misma outbox que la 1.4.0', esperado: viejo, obtenido: nuevo },
+        { caso: 'sin vinculados: no queda nada vivo de la categoría', esperado: nada, obtenido: nuevo.restoDeLaCategoria },
+        { caso: 'con una vinculada: lo mismo, más su serie, y el título vuelve a Pendiente (vivo)', esperado: { ok: true, resto: nada, titulo: { estado: 'Pendiente', vivo: true }, backlogEnOutbox: 1, unaPorFila: true }, obtenido: { ok: nuevoConVinculo.ok, resto: nuevoConVinculo.restoDeLaCategoria, titulo: nuevoConVinculo.tituloLigado, backlogEnOutbox: nuevoConVinculo.outbox.porTabla.backlog || 0, unaPorFila: nuevoConVinculo.outbox.unaPorFila } },
+    ]);
+    check(`app 1.4.0 cargada de ${REF_75} (${app75.archivos} archivos de src/)`, app75.archivos > 50 && app75.migrations.LATEST_VERSION === 7);
+}
+
+// =============================================================================================
+seccion('18. Reconciliación de la D5 corregida');
+{
+    const { reconcileLinkedTitles } = await import('../src/data/repositories/series.ts');
+    const { mutate } = await import('../src/data/db/connection.ts');
+    // (a) Dos dispositivos: A borra la categoría (el título vuelve a Pendiente) y B, sin red, edita el
+    // título (sube la fila entera con Mirando, el estado viejo) después. Tras la sync de B, el título
+    // queda en Pendiente en los dos y en el servidor; la segunda vuelta no escribe nada.
+    const S = await servidor();
+    const uid = '00000000-0000-4000-8000-000000007580';
+    await nuevoUsuario(S, uid);
+    const A = await entorno(uid);
+    const cat = await A.crearCategoria({ type: 'video', name: 'D5 compartida' });
+    await A.guardar(cat, { name: 'Título compartido', linkEstado: { mode: 'nuevo' }, newType: 'series' });
+    A.usar(); await quiet(() => engine.ensureInitialUpload(CFG)); await quiet(() => engine.syncOnce(CFG, S.T));
+    const B = await entorno(uid);
+    B.usar(); await quiet(() => engine.ensureInitialUpload(CFG)); await quiet(() => engine.syncOnce(CFG, S.T));
+    const tB = await B.titulo('series', 'Título compartido');
+    A.usar();
+    A.ok(await A.db.deleteEntertainmentCategory(cat.id), 'deleteEntertainmentCategory');
+    await quiet(() => engine.syncOnce(CFG, S.T));
+    B.usar();
+    B.ok(await B.db.updateBacklogItem(tB.id, { title: 'Título compartido', format: '40 min', franchise: 'Otros' }), 'updateBacklogItem');
+    const ob = await quiet(() => engine.syncOnce(CFG, S.T));
+    const srv = (await S.pg.query('select status, format from public.backlog where id = $1', [tB.id])).rows[0];
+    A.usar(); await quiet(() => engine.syncOnce(CFG, S.T));
+    const cmp = compareSnapshots(snapshotDb(A.dev.path), snapshotDb(B.dev.path));
+    A.usar(); const a2 = await quiet(() => engine.syncOnce(CFG, S.T));
+    B.usar(); const b2 = await quiet(() => engine.syncOnce(CFG, S.T));
+    const enA = await A.titulo('series', 'Título compartido');
+    A.usar();
+    const candA = (A.ok(await A.db.getBacklogCandidates(uid, 'video'), 'getBacklogCandidates')).data.map((b) => b.id);
+    tabla('(a) borrar la categoría en A y editar el título en B sin red', [{
+        caso: 'tras la sync: Pendiente en los dos y en el servidor, candidato del selector, segunda vuelta en 0',
+        esperado: { reconciliados: 1, servidor: { status: 'Pendiente', format: '40 min' }, enA: { estado: 'Pendiente', vinculado: false, candidato: true }, identicos: true, segunda: [0, 0, 0, 0, 0, 0] },
+        obtenido: {
+            reconciliados: ob.reconciledTitles, servidor: srv, enA: { estado: enA.status, vinculado: link.isLinked(enA), candidato: candA.includes(enA.id) }, identicos: cmp.identical,
+            segunda: [a2.remoteWrites, a2.localWrites, a2.reconciledTitles, b2.remoteWrites, b2.localWrites, b2.reconciledTitles],
+        },
+    }]);
+    // (b) No se tocan: un Mirando sin ninguna serie vinculada (puesto a mano antes de la 7.5) y un
+    // Terminado sin serie viva (puede ser a mano, D6).
+    const C = await entorno(uid);
+    const manual = await C.nuevoTitulo('series', 'Mirando de antes');
+    await C.db.db.runAsync("UPDATE backlog SET status = 'Mirando' WHERE id = ?", [manual.id]); // simula la 1.3.9 (Mirando a mano)
+    const catC = await C.crearCategoria({ type: 'video' });
+    await C.guardar(catC, { name: 'Terminada a mano', linkEstado: { mode: 'nuevo' }, newType: 'anime' });
+    const sT = await C.serie(catC, 'Terminada a mano');
+    C.usar();
+    C.ok(await C.db.updateSeriesProgress(sT.id, 1, 2, 'Terminado'), 'updateSeriesProgress');
+    await C.db.db.runAsync('UPDATE series SET deleted_at = ? WHERE id = ?', [new Date().toISOString(), sT.id]); // la serie se borra "por fuera"
+    C.usar();
+    const n = await mutate(() => reconcileLinkedTitles(uid));
+    tabla('(b) lo que la reconciliación no toca', [{
+        caso: 'Mirando sin ninguna serie vinculada y Terminado sin serie viva',
+        esperado: { reconciliados: 0, mirandoManual: 'Mirando', terminado: 'Terminado' },
+        obtenido: { reconciliados: n, mirandoManual: (await C.titulo('series', 'Mirando de antes')).status, terminado: (await C.titulo('anime', 'Terminada a mano')).status },
+    }]);
+    check('motor puro: titleStatusFor', igual([
+        link.titleStatusFor({ current: 'Mirando', liveStatuses: [], deletedLinked: 1 }),
+        link.titleStatusFor({ current: 'Terminado', liveStatuses: [], deletedLinked: 1 }),
+        link.titleStatusFor({ current: 'Mirando', liveStatuses: [], deletedLinked: 0 }),
+        link.titleStatusFor({ current: 'Pendiente', liveStatuses: ['Nueva'], deletedLinked: 1 }),
+        link.titleStatusFor({ current: 'Mirando', liveStatuses: ['Terminado'], deletedLinked: 0 }),
+        link.titleStatusFor({ current: 'Mirando', liveStatuses: ['Pausado'], deletedLinked: 2 }),
+    ], ['Pendiente', null, null, 'Mirando', 'Terminado', null]));
 }
 
 // =============================================================================================

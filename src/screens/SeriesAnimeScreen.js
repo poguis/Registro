@@ -279,15 +279,18 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
         }
     };
 
-    // Fase 7.5 (D5): borrar la categoría borra también los títulos de Pendiente de sus series
-    // vinculadas; la confirmación lo dice (singular o plural). Sin vinculados, el texto de siempre.
-    const handleDelete = async (id) => {
+    // Fase 7.5 (D5, corrección): borrar la categoría borra sus series u obras vinculadas con su
+    // progreso, y sus títulos vuelven a Pendiente sin vínculo; la confirmación lo dice (singular o
+    // plural, serie u obra según el tipo). Sin vinculados, el texto de siempre.
+    const handleDelete = async (id, type) => {
         const linked = await db.countLinkedTitlesInCategory(id);
         const n = linked && linked.success ? linked.count : 0;
         const base = '¿Estás seguro de que quieres eliminar esta categoría?';
+        const una = type === 'reading' ? 'su obra vinculada' : 'su serie vinculada';
+        const varias = type === 'reading' ? `sus ${n} obras vinculadas` : `sus ${n} series vinculadas`;
         const mensaje = n === 0 ? base
-            : n === 1 ? `${base} También se borrará su título vinculado en Pendiente y se pierde el progreso.`
-            : `${base} También se borrarán sus ${n} títulos vinculados en Pendiente y se pierde el progreso.`;
+            : n === 1 ? `${base} Se borrará ${una} con todo su progreso y su título volverá a Pendiente, sin vínculo.`
+            : `${base} Se borrarán ${varias} con todo su progreso y sus títulos volverán a Pendiente, sin vínculo.`;
         confirm({
             titulo: 'Eliminar',
             mensaje,
@@ -370,7 +373,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                                     style={styles.iconButton}
                                     onPress={(e) => {
                                         e.stopPropagation();
-                                        handleDelete(item.id);
+                                        handleDelete(item.id, item.type);
                                     }}
                                 >
                                     <Text style={styles.iconButtonText}>🗑️</Text>

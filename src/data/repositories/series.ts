@@ -1,7 +1,7 @@
 import { getConnection, type Row } from '../db/connection';
 import { insertRow, updateRow, reviveRow, softDelete, softDeleteWhere, ownerOf } from './rows';
 import { addHistoryRows, removeLatestHistoryRows, type HistoryKind } from './history';
-import { backlogStatusFor, isCompatible, checkSubtype, type NewTitle } from '../../entertainment/link';
+import { titleStatusFor, isCompatible, checkSubtype, type NewTitle } from '../../entertainment/link';
 
 // Series (video y lectura) y sus temporadas.
 
@@ -14,17 +14,43 @@ const db = () => getConnection();
 // lo comprueba de forma estática: ninguna otra función escribe series ni el status/title/borrado
 // de backlog.
 
-// Estado de Pendiente del título según sus series VIVAS vinculadas (backlogStatusFor). Escribe solo
-// si cambia (sin entrada de outbox de más). Un título borrado o que aún no llegó por la sync no se
-// toca; tampoco uno sin series vivas (se comporta como sin vínculo). Devuelve si escribió.
+// Única escritura del estado de un título vinculado (la llaman solo reflectLinkedBacklogStatus,
+// releaseLinkedTitles y reconcileLinkedTitles; la comprobación estática de probar-fase7-5 lo exige).
+async function writeBacklogStatus(backlogId: string, status: string): Promise<boolean> {
+    return updateRow('backlog', backlogId, { status });
+}
+
+// Estado de Pendiente del título según TODAS sus series vinculadas (titleStatusFor: con vivas,
+// Mirando/Terminado; sin vivas y con alguna borrada, de Mirando a Pendiente). Escribe solo si
+// cambia. Un título borrado o que aún no llegó por la sync no se toca. Devuelve si escribió.
 export async function reflectLinkedBacklogStatus(backlogId: string | null | undefined): Promise<boolean> {
     if (!backlogId) return false;
     const title = await db().getFirstAsync<Row>('SELECT id, status FROM backlog WHERE id = ? AND deleted_at IS NULL', [backlogId]);
     if (!title) return false;
-    const live = await db().getAllAsync<Row>('SELECT status FROM series WHERE backlog_id = ? AND deleted_at IS NULL', [backlogId]);
-    const next = backlogStatusFor(live.map((s) => s.status));
-    if (!next || next === title.status) return false;
-    return updateRow('backlog', backlogId, { status: next });
+    const linked = await db().getAllAsync<Row>('SELECT status, deleted_at FROM series WHERE backlog_id = ?', [backlogId]);
+    const next = titleStatusFor({
+        current: title.status,
+        liveStatuses: linked.filter((s) => !s.deleted_at).map((s) => s.status),
+        deletedLinked: linked.filter((s) => s.deleted_at).length,
+    });
+    return next ? writeBacklogStatus(backlogId, next) : false;
+}
+
+// D5 (corrección de la 7.5): al borrar una categoría, los títulos de sus series vinculadas vuelven
+// a Pendiente, sin vínculo (desde Mirando o Terminado), si no les queda ninguna serie viva. Una
+// consulta para todos; escribe solo los que cambian. Devuelve cuántos escribió.
+export async function releaseLinkedTitles(backlogIds: string[]): Promise<number> {
+    const ids = [...new Set((backlogIds || []).filter(Boolean))];
+    if (ids.length === 0) return 0;
+    const rows = await db().getAllAsync<Row>(
+        `SELECT b.id, b.status,
+                (SELECT COUNT(*) FROM series s WHERE s.backlog_id = b.id AND s.deleted_at IS NULL) AS vivas
+         FROM backlog b WHERE b.id IN (${ids.map(() => '?').join(', ')}) AND b.deleted_at IS NULL`,
+        ids
+    );
+    let n = 0;
+    for (const t of rows) if (t.vivas === 0 && t.status !== 'Pendiente' && await writeBacklogStatus(t.id, 'Pendiente')) n++;
+    return n;
 }
 
 // D4: el nombre de la serie y el título de Pendiente vinculado se mantienen iguales.
@@ -73,6 +99,16 @@ async function softDeleteLinkedTitle(backlogId: string): Promise<void> {
     await softDelete('backlog', backlogId);
 }
 
+// D5 (corrección): borrar las series vivas de una categoría con sus temporadas e historial; los
+// títulos de las vinculadas NO se borran: vuelven a Pendiente sin vínculo (releaseLinkedTitles).
+// Las series sin vínculo se borran igual que antes (deleteSeriesRows es lo mismo que hacía
+// deleteSeriesCascade con ellas).
+export async function deleteCategorySeries(categoryId: string): Promise<void> {
+    const live = await db().getAllAsync<Row>('SELECT id, backlog_id FROM series WHERE category_id = ? AND deleted_at IS NULL', [categoryId]);
+    for (const s of live) await deleteSeriesRows(s.id);
+    await releaseLinkedTitles(live.map((s) => s.backlog_id));
+}
+
 // Borrar un título vinculado desde Pendiente: sus series vivas (con temporadas e historial) y el
 // título, sin recursión (deleteSeriesRows no vuelve a tocar el título).
 export async function deleteTitleCascade(backlogId: string): Promise<void> {
@@ -91,15 +127,29 @@ export async function setLinkedSeriesName(backlogId: string, name: string): Prom
 
 // Reconciliación tras la sync (D2): con "gana la última escritura" por fila, un título vinculado
 // puede quedar con el estado viejo (p. ej. otro dispositivo editó el título y subió la fila entera
-// mientras este cambiaba la serie). Recalcula todos los títulos con series vivas vinculadas y
-// escribe solo los desalineados. Devuelve cuántos corrigió (0 = no escribió nada).
+// mientras este cambiaba o borraba la serie). Recalcula los títulos vivos con series vinculadas
+// (vivas y borradas) con UNA consulta (sin una por serie) y escribe solo los desalineados (regla de
+// titleStatusFor). Devuelve cuántos corrigió (0 = no escribió nada).
 export async function reconcileLinkedTitles(userId: string): Promise<number> {
-    const ids = await db().getAllAsync<Row>(
-        'SELECT DISTINCT backlog_id FROM series WHERE user_id = ? AND backlog_id IS NOT NULL AND deleted_at IS NULL',
+    const rows = await db().getAllAsync<Row>(
+        `SELECT b.id AS backlog_id, b.status AS backlog_status, s.status AS series_status, s.deleted_at AS series_deleted_at
+         FROM backlog b JOIN series s ON s.backlog_id = b.id
+         WHERE b.user_id = ? AND b.deleted_at IS NULL
+         ORDER BY b.id`,
         [userId]
     );
+    const porTitulo = new Map<string, { current: string; live: string[]; deleted: number }>();
+    for (const r of rows) {
+        const t = porTitulo.get(r.backlog_id) || { current: r.backlog_status, live: [], deleted: 0 };
+        if (r.series_deleted_at) t.deleted++;
+        else t.live.push(r.series_status);
+        porTitulo.set(r.backlog_id, t);
+    }
     let n = 0;
-    for (const r of ids) if (await reflectLinkedBacklogStatus(r.backlog_id)) n++;
+    for (const [id, t] of porTitulo) {
+        const next = titleStatusFor({ current: t.current, liveStatuses: t.live, deletedLinked: t.deleted });
+        if (next && await writeBacklogStatus(id, next)) n++;
+    }
     return n;
 }
 

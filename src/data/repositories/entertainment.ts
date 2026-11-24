@@ -1,6 +1,6 @@
 import { getConnection, type Row } from '../db/connection';
 import { insertRow, updateRow, softDelete, softDeleteWhere, ownerOf } from './rows';
-import { deleteSeriesCascade } from './series';
+import { deleteCategorySeries } from './series';
 import { getLocalDateString } from '../../services/backlogUtils';
 import { planRhythmChange, planStartDateChange, type RhythmAction } from '../../entertainment/rhythm';
 import { canEditStartDate, decideResume } from '../../entertainment/category';
@@ -210,13 +210,10 @@ export async function updateEntertainmentCategory(id: string, data: CategoryInpu
 }
 
 // Borrado lógico de la categoría y, en cascada, de sus pausas, cuotas, series,
-// temporadas e historial. Cada fila con su entrada en la outbox.
+// temporadas e historial. Cada fila con su entrada en la outbox. Fase 7.5 (D5, corrección): los
+// títulos de Pendiente de las series vinculadas NO se borran; vuelven a Pendiente sin vínculo.
 export async function deleteEntertainmentCategory(id: string): Promise<void> {
-    const series = await db().getAllAsync<Row>(
-        'SELECT id FROM series WHERE category_id = ? AND deleted_at IS NULL',
-        [id]
-    );
-    for (const s of series) await deleteSeriesCascade(s.id);
+    await deleteCategorySeries(id);
     await softDeleteWhere('entertainment_pauses', 'category_id = ?', [id]);
     await softDeleteWhere('entertainment_quotas_history', 'category_id = ?', [id]);
     await softDelete('entertainment_categories', id);

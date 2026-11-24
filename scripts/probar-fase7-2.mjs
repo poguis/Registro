@@ -747,6 +747,7 @@ const ESCENARIOS = {
         const estado = async (titulo = 'Pendiente X') => (E.ok(await E.db.getBacklogItems(UID, 'series', 'Total'), 'getBacklogItems')).data.find((b) => b.title === titulo);
         const tocarBoton = async (item) => {
             const A = crearAlert();
+            A.elegir('Terminado'); // corrección de la 7.5 (D6): pasar a Terminado se confirma en una hoja
             const handleUpdateStatus = instanciar(extraer(PANTALLA.pendiente, 'handleUpdateStatus'), { db: E.db, loadItems: () => {}, ...hojasDesdeAlert(A.Alert) });
             await quiet(() => handleUpdateStatus(item));
             return A.registro.map((a) => a.titulo);
