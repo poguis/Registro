@@ -101,7 +101,7 @@ Cerrado: el punto 7 (7.1, ver §5). Los demás siguen pendientes.
      - la reconexión dentro de los 60 s de enfriamiento de auth-js seguida del ciclo por `TOKEN_REFRESHED` (solo en `probar-fase5`);
      - una cuenta Google distinta bloqueada (solo en `probar-fase3`).
    - **Descartado:** el cursor para las tablas vacías (DECISIONES.md, Descartado).
-9. **Rediseño de entretenimiento (subfases 7.3–7.10):** ver `claude/DISENO-ENTRETENIMIENTO.md`. El análisis previo (7.2, §6), el motor puro (7.3, §7), la 7.4a (§8), la 7.4b (§9), la dirección visual (§10) y la 7.5 (§11) están cerrados; el orden siguiente está [PENDIENTE de confirmar] en el diseño (7.5b Pendiente, 7.6, 7.7 Lectura, 7.7b Películas, 7.8…). El rediseño completo de las pantallas va al final, después de la 7.11 (decisión del usuario, 2026-11-22).
+9. **Rediseño de entretenimiento (subfases 7.3–7.10):** ver `claude/DISENO-ENTRETENIMIENTO.md`. El análisis previo (7.2, §6), el motor puro (7.3, §7), la 7.4a (§8), la 7.4b (§9), la dirección visual (§10) y la 7.5 (§11) están cerrados; el orden siguiente quedó [OK] el 2026-11-23 en el diseño (7.5b Pendiente, 7.6, 7.7 Lectura, 7.7b Películas, 7.8…). El rediseño completo de las pantallas va al final, después de la 7.11 (decisión del usuario, 2026-11-22).
 10. **FK local `seasons → series` en el pull** (hallazgo de la 7.5, anterior a ella; sin corregir). Las FK locales de la migración 2 son diferidas: si otro dispositivo sube una serie y sus temporadas entre el pull de `series` y el de `seasons` de este, la página de `seasons` falla al confirmar. La excepción sale de `localTx` sin capturar y el runner solo la escribe en la consola: ese ciclo no deja `last_error`, no bloquea filas y no baja las tablas siguientes. El ciclo siguiente lo corrige solo. Probado en `probar-fase7-5` §12a. La 7.5 evitó el mismo problema en `series.backlog_id` dejándolo sin FK local.
 
 ## 4. [PENDIENTE] vigentes (DECISIONES.md)
@@ -283,5 +283,5 @@ Cerrado: el punto 7 (7.1, ver §5). Los demás siguen pendientes.
   - **Límite conocido:** si se borra una serie mientras su título todavía no llegó al celular (solo con dos dispositivos), el título vuelve a Pendiente sin vínculo por la reconciliación. No se pierde nada.
   - **Respaldo "antes" de Registro Dev perdido.** Sin impacto: era solo Dev, y la migración se verificó con `verificar-fase7-5` (15/15), `auditar-fase6` (todos los estrictos ok), `verificar-fase2` (22/22) y las pruebas del celular. En producción el "antes" sigue siendo obligatorio.
   - **Formulario de categorías de lectura:** el límite (`series_count`) aparece dos veces, como "Límite (Viendo)" y como "Límite Simultáneo (Viendo)". Es el mismo campo. → 7.7.
-- **Observaciones del celular:** O8–O14 en `claude/DISENO-ENTRETENIMIENTO.md` (Observaciones), con el orden propuesto [PENDIENTE de confirmar].
-- **Siguiente:** confirmar el orden propuesto en el diseño. La propuesta es la 7.5b (Pendiente: O8–O12), después la 7.6.
+- **Observaciones del celular:** O8–O14 en `claude/DISENO-ENTRETENIMIENTO.md` (Observaciones). El orden tras la 7.5 y O11, O13 y O14 quedaron [OK] el 2026-11-23.
+- **Siguiente:** la 7.5b (Pendiente: O8–O12), según el diseño.

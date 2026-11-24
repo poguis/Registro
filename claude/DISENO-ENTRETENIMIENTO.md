@@ -4,12 +4,12 @@ Estados: [OK] decidido por el usuario · [PROPUESTA] sugerido, se confirma en la
 
 Origen: respuestas del usuario del 2026-11-17 y resultados de la 7.2 (commit `d55b5e1`: `docs/ENTRETENIMIENTO-ACTUAL.md` y `scripts/probar-fase7-2.mjs`, 17 OK). R1–R14 y C1–C14 remiten a ese documento y a esa suite.
 
-**Estado: vigente.** 7.5 cerrada (2026-11-23, `c2c42c2` y la corrección `1f1eec8`, app 1.4.1 / vc 15); el orden siguiente está [PENDIENTE de confirmar] (ver Orden de trabajo). Se actualiza al cerrar cada subfase, y cualquier cambio de criterio se marca aquí.
+**Estado: vigente.** 7.5 cerrada (2026-11-23, `c2c42c2` y la corrección `1f1eec8`, app 1.4.1 / vc 15); sigue la 7.5b (orden confirmado el 2026-11-23, ver Orden de trabajo). Se actualiza al cerrar cada subfase, y cualquier cambio de criterio se marca aquí.
 
 ## Alcance y datos
 - [OK] Datos existentes de entretenimiento en producción (1 categoría de video, 1 serie, 1 temporada y 11 filas en `watch_history`): el usuario los borra desde la app (borrado lógico) y el rediseño no los migra. Sus tombstones quedan en el celular y en Poguis, igual que los de la 6.8. Las migraciones nuevas tienen que tolerar tombstones.
 - [OK] No hay datos de lectura. `backlog` solo tiene los 4 tombstones de prueba.
-- [OK] Películas no se conectan con nada; siguen manuales en Pendiente. **[PENDIENTE] O14 propone cambiarlo** (películas con ritmo, ver Observaciones); esta decisión sigue vigente hasta que el usuario lo apruebe.
+- [REEMPLAZADA por O14 (7.7b), 2026-11-23] ~~Películas no se conectan con nada; siguen manuales en Pendiente.~~ Así funciona la app hasta la 7.7b, que agrega una sola categoría de Películas con ritmo (ver O14 en Observaciones).
 - [OK] Se conectan: serie/anime de Pendiente ↔ categorías de video; lectura de Pendiente ↔ categorías de lectura.
 
 ## Pendiente ↔ Series/Lectura
@@ -71,6 +71,7 @@ Origen: respuestas del usuario del 2026-11-17 y resultados de la 7.2 (commit `d5
 - [OK] Ritmo: "N capítulos por día" o "1 capítulo cada N días".
 - [OK] "1 cada N días" cuenta solo los días seleccionados como activos en la categoría (como hoy). Ejemplo: lunes a viernes activos y N = 2 → lunes, miércoles, viernes, martes…
 - [OK] Bloque de alternancia K, independiente del ritmo. Ejemplo: 3 por día con K = 4 → lunes A1–A3; martes A4, B1, B2.
+- [OK] Por obra: la agrupación K de la categoría o "completa" (O13, 2026-11-23; ver Observaciones).
 - [OK] Unidad, ritmo y K son por categoría. Para ritmos distintos se usa una categoría por tipo (por ejemplo "Libros" con 1 capítulo cada 2 días y "Cómics" con 3 por día y K = 3).
 - [OK] Video y lectura comparten un solo motor. Hoy las pantallas de lectura son copias de las de video (R13).
 
@@ -145,18 +146,20 @@ Lista viva. Cada observación se asigna a una subfase cuando se planifica; las d
   - filtro por franquicia o etiqueta.
 
   → 7.5b.
-- O11 (prueba 7.5). Franquicias / etiquetas por sección (Películas, Series, Anime, Lectura), creadas por el usuario:
-  - se quitan Marvel y DC Comics fijas;
-  - al crear un título se ofrecen las etiquetas de su sección y se sugieren las de las otras secciones;
-  - los filtros usan las etiquetas creadas en cada sección.
+- O11 (prueba 7.5). Franquicias / etiquetas por sección (Películas, Series, Anime, Lectura), creadas por el usuario.
 
-  [PROPUESTA]
+  [OK] (2026-11-23)
+  - Un título puede tener **varias etiquetas o ninguna** (por ejemplo Shounen + Isekai).
+  - Se empieza **sin etiquetas**: se quitan Marvel y DC Comics fijas.
+  - El usuario las crea desde la app, por sección. Al crear o editar un título se ofrecen las de su sección y se sugieren las de las otras secciones.
+  - Los filtros usan las etiquetas creadas en cada sección.
+
+  [PROPUESTA] (para el plan de la 7.5b)
   - Llamarlas "Etiqueta", para que no choquen con "Categoría", que ya es el contenedor con ritmo.
-  - Una tabla sincronizada nueva con clave natural (usuario, sección, nombre), para que dos dispositivos no creen duplicados.
+  - Modelo: como un título puede tener varias, una tabla de etiquetas y una de relación título–etiqueta. Las dos sincronizadas y con clave natural (etiqueta: usuario, sección, nombre; relación: título, etiqueta), para que dos dispositivos no creen duplicados.
 
-  [PENDIENTE]
-  - ¿Una etiqueta por título o varias (por ejemplo Shounen + Isekai)?
-  - ¿Empezar sin etiquetas, o con Marvel y DC creadas pero vacías?
+  [PENDIENTE] (para el plan de la 7.5b)
+  - Qué pasa con la columna `backlog.franchise` y sus valores actuales ("Otros", "Marvel", "DC Comics"…) al pasar a etiquetas. Contexto: en producción `backlog` solo tiene tombstones, y en Registro Dev se borraron los datos de prueba.
 
   → 7.5b.
 - O12 (prueba 7.5). Pendiente más compacto: la cabecera ocupa mucho espacio.
@@ -169,26 +172,26 @@ Lista viva. Cada observación se asigna a una subfase cuando se planifica; las d
 - O13 (prueba 7.5). Lectura (7.7):
   - el ritmo pasa a dos modos en el formulario, "N capítulos por día" o "1 capítulo cada N días", sin números negativos en la pantalla;
   - la agrupación K ya estaba decidida en el diseño;
-  - **nuevo:** cada obra puede "leer completa" en vez de seguir la agrupación, respetando el atraso y el adelanto. Si K es mayor o igual al número de capítulos, la opción no se ofrece.
 
-  [PENDIENTE]
-  - ¿Generalizarlo a "agrupación de la categoría / completa / número propio"?
-  - ¿Se oculta cuando K ≥ el total de capítulos, o cuando K ≥ los que faltan?
-  - ¿El capítulo que pasa de la meta del día cuenta como adelanto?
-- O14 (prueba 7.5). Películas con ritmo. **Cambia la decisión [OK] "Películas no se conectan con nada"** (Alcance), que sigue vigente hasta que se apruebe.
+  [OK] (2026-11-23)
+  - Cada obra usa la agrupación K de la categoría o se lee **"completa"** (seguida, en un solo bloque).
+  - "Completa" se ofrece solo si el total de capítulos de la obra es mayor que K.
+  - Los capítulos que pasan de la meta del día cuentan como adelanto; la meta no cambia.
+  - No hay número propio por obra (se puede agregar más adelante).
+  - Ejemplo: categoría con K = 3, con Batman (categoría), Saga de 4 capítulos (completa) y Spider-Man (categoría) → Batman 1–3, Saga 1–4, Spider-Man 1–3, Batman 4–6…
+- O14 (prueba 7.5). Películas con ritmo. → 7.7b, antes de la 7.9 y la 7.11.
 
-  [PROPUESTA]
+  [OK] (2026-11-23)
+  - Películas con ritmo, con **una sola categoría de Películas**.
+  - Cada película muestra sus etiquetas (O11) y se puede filtrar por ellas.
+  - Reemplaza la decisión de Alcance "Películas no se conectan con nada".
+
+  [PROPUESTA] (para el plan de la 7.7b)
   - **Categoría:** de tipo Películas, sin límite. Contiene sola todas las películas en estado Pendiente, con los filtros de Pendiente.
   - **Ritmo:** "N películas por semana" (lunes a domingo) o "N por día". El atraso se calcula por semanas cerradas, y aparte se muestra "esta semana: X de N". Con pausas e historial de ritmo.
   - **Estados:** "Empezar" la pasa a Mirando (puede haber varias a la vez). "Vista" la pasa a Terminado y cuenta para el ritmo; también se puede marcar directamente.
   - **Por dentro:** cada película empezada o vista crea una serie vinculada de 1 unidad. Así reutiliza el vínculo, el historial, el ritmo, "Hoy te toca" y las notificaciones.
   - **Esquema:** migración para el tipo nuevo de categoría y para el ritmo semanal.
-
-  [PENDIENTE]
-  - ¿Una sola categoría de Películas o varias?
-  - Aprobar la propuesta.
-
-  → 7.7b, antes de la 7.9 y la 7.11.
 
 ## Ideas nuevas [OK] (aceptadas por el usuario el 2026-11-18, todas con un diseño visual mejorado)
 - I1 "Hoy te toca" en el inicio: lo que toca ver y leer hoy en todas las categorías, para marcar con un toque. → 7.9.
@@ -235,22 +238,14 @@ Cada subfase con su plan, su aprobación y su ciclo completo. Si surge algo nuev
    - 7.4b: **cerrada** (`20ad1cb`, cierre `bd17bb9`). Con migración (primero en Supabase): historial de todo el ritmo desde mañana, sin períodos vacíos (R10), con comparación por contenido (R11); fecha de inicio fija con registros; R12.
    - Dirección visual (antes de la 7.5): **cerrada** (`c8eb200` y el commit de este cierre). Tema A, Plus Jakarta Sans, hojas propias (O5 y O6) y nombres largos, con APK 1.3.9 / vc 13. Solo la base visual.
 5. 7.5 Vínculo Pendiente↔Series/Lectura y subtipo de lectura: **cerrada** (`c2c42c2`, corrección `1f1eec8` con D5 final y la confirmación de D6, y el commit de este cierre). Migración 6 de Supabase y local 7, con APK 1.4.1 / vc 15.
-6. 7.6 Punto de inicio (T0/C0), "Continuar" y "Volver a ver" desde En espera y Terminado (O3), deslizar para marcar con "Deshacer" (I6).
-7. 7.7 Lectura por capítulos, tomo opcional y K.
-8. 7.8 API, portadas y progreso con portada (I3).
-9. 7.9 Visualización del ritmo, "Hoy te toca" (I1) y fecha estimada de fin (I2).
-10. 7.10 Estadísticas de entretenimiento, rachas y mapa de calor (I4).
-11. 7.11 Recordatorio diario local (I5).
-12. Rediseño completo de las pantallas, después de la 7.11, cuando toda la lógica esté terminada (decisión del usuario, 2026-11-22; ver Dirección visual A).
+6. 7.5b Pendiente: O8–O12 (ajustes visuales O8 y O9, selector "De Pendiente" dinámico O10, etiquetas O11, Pendiente compacto O12).
+7. 7.6 Punto de inicio (T0/C0), "Continuar" y "Volver a ver" desde En espera y Terminado (O3), deslizar para marcar con "Deshacer" (I6).
+8. 7.7 Lectura por capítulos, tomo opcional y K, con O13 (obra "completa") y el límite repetido del formulario de categorías de lectura.
+9. 7.7b Películas con ritmo (O14).
+10. 7.8 API, portadas y progreso con portada (I3).
+11. 7.9 Visualización del ritmo, "Hoy te toca" (I1) y fecha estimada de fin (I2).
+12. 7.10 Estadísticas de entretenimiento, rachas y mapa de calor (I4).
+13. 7.11 Recordatorio diario local (I5).
+14. Rediseño completo de las pantallas, después de la 7.11, cuando toda la lógica esté terminada (decisión del usuario, 2026-11-22; ver Dirección visual A).
 
-Subfase de pulido (O7, B1 y B2): sin lugar decidido en el orden; se planifica aparte.
-
-### Orden propuesto tras la 7.5 [PENDIENTE de confirmar]
-1. Cierre de la 7.5 (hecho).
-2. 7.5b Pendiente: O8–O12.
-3. 7.6 tal como está planificada.
-4. 7.7 Lectura, con O13 y el límite repetido del formulario.
-5. 7.7b Películas: O14 (si se aprueba).
-6. 7.8 en adelante, sin cambios.
-
-La subfase de pulido (O7, B1, B2) sigue sin lugar fijo. Hasta que el usuario lo confirme, rige el Orden de trabajo de arriba.
+El orden tras la 7.5 (puntos 6–9) lo confirmó el usuario el 2026-11-23. Subfase de pulido (O7, B1 y B2): sin lugar decidido en el orden; se planifica aparte.
