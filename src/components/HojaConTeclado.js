@@ -1,46 +1,46 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { View, Pressable, Keyboard, StyleSheet, ScrollView, FlatList } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../contexts/ThemeContext';
-import { registrarHoja } from '../hooks/hojasAbiertas';
+import { ponerHoja, quitarHoja, leerHojas, suscribirHojas } from '../hooks/almacenHojas';
+import { alturaHoja } from './alturaHoja';
 import { inputConFoco } from './AppText';
 
-// Hoja con campos de texto (Fase 7.5b1, corrección 1.4.3): el teclado nunca tapa el campo con el
-// foco. Es el ÚNICO mecanismo para los formularios y hojas con TextInput del módulo de
-// entretenimiento; las pantallas no saben qué técnica usa.
+// Hoja con campos de texto (Fase 7.5b1; correcciones 1.4.3 y 1.4.4): el teclado nunca tapa el campo
+// con el foco. Es el ÚNICO mecanismo para los formularios y hojas con TextInput del módulo de
+// entretenimiento; las pantallas lo usan igual que antes (<HojaConTeclado visible onClose
+// [centrada]>) y no saben qué técnica usa.
 //
-// Por qué no es un Modal de React Native: en Android, con borde a borde (edgeToEdgeEnabled, Expo
-// SDK 54), el Modal vive en su propia ventana (Dialog) a la que RN 0.81 le pone
-// setDecorFitsSystemWindows(false) (ReactModalHostView.kt + WindowUtil.kt), así que el teclado ya
-// no la redimensiona, y los eventos de teclado de RN se calculan en la ventana de la ACTIVIDAD
-// (ReactRootView.checkForKeyboardEvents). Esta hoja se dibuja dentro del árbol de la pantalla, en
-// la ventana de la actividad, donde esos eventos sí corresponden al teclado de sus campos.
+// Por qué no es un Modal de React Native (1.4.3): en Android, con borde a borde (Expo SDK 54), el
+// Modal vive en su propia ventana (Dialog) con setDecorFitsSystemWindows(false), el teclado no la
+// redimensiona y los eventos de teclado de RN 0.81 se calculan en la ventana de la ACTIVIDAD.
 //
-// Técnica (sin KeyboardAvoidingView ni measureInWindow, que en RN 0.81 no son confiables con borde
-// a borde):
-//   - alto del teclado = e.endCoordinates.height de keyboardDidShow (en RN 0.81: insets del IME
-//     menos la barra de navegación) y 0 en keyboardDidHide;
-//   - debajo de la tarjeta, un relleno del color de la hoja: con el teclado cerrado mide
-//     insets.bottom (la tarjeta llega detrás de la barra de navegación); abierto, alto + insets.bottom
-//     (queda justo debajo del teclado: nada de doble espacio);
-//   - arriba deja insets.top + 24, así una tarjeta alta nunca queda debajo de la barra de estado;
-//   - el campo con el foco se lleva a la vista dentro del ScrollView / FlatList de la hoja
-//     (useScrollConTeclado) con measureLayout relativo a su contenido y scrollTo.
-// Cobertura: se monta como ÚLTIMO hijo de la vista raíz de la pantalla y ocupa toda la ventana con
-// position absolute (StyleSheet.absoluteFill no se corre por el padding del SafeAreaView), por
-// encima de todo con zIndex y elevation (el "+" de Pendiente tiene elevation 10).
-// Atrás: no escucha hardwareBackPress; se apila en src/hooks/hojasAbiertas.js y App.js (el único
-// listener) la cierra antes de navegar.
+// Dónde se dibuja (1.4.4, D2): HojaConTeclado no dibuja nada donde la usa la pantalla; publica sus
+// props en src/hooks/almacenHojas.js (id estable, en useLayoutEffect) y HojasHost, último hijo de
+// la View raíz de App.js (la ventana entera, SIN padding), la dibuja. Así cubre también la barra de
+// estado y llega al borde inferior aunque la pantalla use SafeAreaView (el padding de ese
+// SafeAreaView ya no deja una franja), y queda por encima de todo el contenido de la pantalla (el
+// "+" incluido); el aviso y las hojas de confirmación se dibujan después (SheetContext).
+//
+// Alturas (1.4.4, D1): alturaHoja (función pura, src/components/alturaHoja.js) da el tope de
+// arriba, el relleno de abajo y el alto máximo de la tarjeta en dp (85 % de la ventana con el
+// teclado cerrado, el área libre con el teclado abierto). La tarjeta mide lo que su contenido hasta
+// ese máximo y después su lista hace scroll; las tarjetas de las pantallas no llevan porcentajes ni
+// altos fijos (un porcentaje contra un padre que mide su contenido la achicaba: era D1).
+//
+// Teclado: alto = e.endCoordinates.height de keyboardDidShow (en RN 0.81, IME menos la barra de
+// navegación) y 0 en keyboardDidHide; sin KeyboardAvoidingView ni measureInWindow. El campo con el
+// foco se lleva a la vista dentro de ScrollDeHoja / ListaDeHoja con measureLayout relativo al
+// contenido del scroll. Atrás: el almacén apila cada hoja en hojasAbiertas y App.js (el único
+// listener de hardwareBackPress) la cierra antes de navegar.
 
-const ELEVACION = 30;
-const MARGEN_ARRIBA = 24;
 const MARGEN_FOCO = 24;
+let siguienteId = 0;
 
 const ScrollCtx = createContext(null);
 
-// Props para el ScrollView o la FlatList de la hoja: así la hoja puede llevar el campo con el foco
-// a la vista. Tiene que usarse DENTRO de la hoja (lee su contexto); las pantallas usan
-// ScrollDeHoja / ListaDeHoja, que lo hacen por ellas.
+// Props para el ScrollView o la FlatList de la hoja (deben usarse DENTRO de la hoja: leen su
+// contexto); las pantallas usan ScrollDeHoja / ListaDeHoja, que lo hacen por ellas.
 export function useScrollConTeclado() {
     const registrar = useContext(ScrollCtx);
     const estado = useRef({ alto: 0, y: 0 });
@@ -55,8 +55,8 @@ export function useScrollConTeclado() {
     }), []);
 }
 
-// ScrollView y FlatList de una hoja (en lugar de los de react-native): encogen con la tarjeta y
-// dejan a la hoja llevar el campo con el foco a la vista.
+// ScrollView y FlatList de una hoja: encogen con la tarjeta (sin alto fijo) y dejan a la hoja
+// llevar el campo con el foco a la vista.
 export function ScrollDeHoja({ style, ...props }) {
     const p = useScrollConTeclado();
     return <ScrollView {...p} {...props} style={[styles.scroll, style]} />;
@@ -87,44 +87,64 @@ function llevarAlFoco({ ref, estado }) {
     }, () => {});
 }
 
-// `centrada`: tarjeta centrada (formularios de serie y de obra) en vez de anclada abajo; el relleno
-// de abajo es transparente (solo reserva el espacio del teclado y de la barra de navegación).
+// Lo que usan las pantallas. No dibuja nada aquí: publica sus props en el almacén con un id estable
+// (mientras está visible) y HojasHost las dibuja. La publicación va en useLayoutEffect, así el
+// anfitrión se actualiza en el mismo commit, antes de pintar (al escribir, sin retraso).
 export default function HojaConTeclado({ visible, onClose, centrada = false, children }) {
+    const id = useRef(null);
+    if (id.current === null) id.current = `hoja-${++siguienteId}`;
+    useLayoutEffect(() => {
+        if (visible) ponerHoja(id.current, { onClose, centrada, children });
+        else quitarHoja(id.current);
+    });
+    // Al desmontar la pantalla con la hoja abierta: fuera del almacén y de la pila de Atrás.
+    useLayoutEffect(() => () => quitarHoja(id.current), []);
+    return null;
+}
+
+// Anfitrión: último hijo de la View raíz de App.js. Dibuja las hojas visibles con key = su id
+// estable. Hasta tener su alto (onLayout) no dibuja ninguna tarjeta: nunca con alto 0.
+export function HojasHost() {
+    const hojas = useSyncExternalStore(suscribirHojas, leerHojas, leerHojas);
+    const [ventana, setVentana] = useState(0);
+    return (
+        <View style={[StyleSheet.absoluteFill, styles.anfitrion]} pointerEvents="box-none" onLayout={(e) => setVentana(e.nativeEvent.layout.height)}>
+            {ventana > 0 ? hojas.map((h) => <CapaHoja key={h.id} ventana={ventana} {...h.props} />) : null}
+        </View>
+    );
+}
+
+// Una hoja dibujada en el anfitrión: fondo, tarjeta con su alto máximo y relleno de abajo.
+function CapaHoja({ ventana, onClose, centrada, children }) {
     const { theme } = useTheme();
     const insets = useSafeAreaInsets();
     const [altoTeclado, setAltoTeclado] = useState(0);
     const scrolls = useRef(new Set());
-    const cerrar = useRef(onClose);
-    cerrar.current = onClose;
 
-    // Atrás (App.js) y teclado, solo mientras está visible.
     useEffect(() => {
-        if (!visible) return undefined;
-        const quitar = registrarHoja(() => { if (cerrar.current) cerrar.current(); });
         const alMostrar = Keyboard.addListener('keyboardDidShow', (e) => {
             setAltoTeclado(Math.max(0, (e && e.endCoordinates && e.endCoordinates.height) || 0));
         });
         const alOcultar = Keyboard.addListener('keyboardDidHide', () => setAltoTeclado(0));
-        return () => { quitar(); alMostrar.remove(); alOcultar.remove(); setAltoTeclado(0); };
-    }, [visible]);
+        return () => { alMostrar.remove(); alOcultar.remove(); };
+    }, []);
 
     // Con el teclado ya abierto y la tarjeta reacomodada, el campo con el foco a la vista.
     useEffect(() => {
-        if (!visible || altoTeclado === 0) return undefined;
+        if (altoTeclado === 0) return undefined;
         const t = setTimeout(() => { for (const s of scrolls.current) llevarAlFoco(s); }, 60);
         return () => clearTimeout(t);
-    }, [visible, altoTeclado]);
+    }, [altoTeclado]);
 
     const registrar = useCallback((s) => { scrolls.current.add(s); return () => scrolls.current.delete(s); }, []);
+    const { tope, relleno, maxAlto } = alturaHoja({ ventana, insets, teclado: altoTeclado, variante: centrada ? 'centrada' : 'inferior' });
 
-    if (!visible) return null;
-    const relleno = altoTeclado > 0 ? altoTeclado + insets.bottom : insets.bottom;
     return (
         <ScrollCtx.Provider value={registrar}>
-            <View style={[StyleSheet.absoluteFill, styles.capa]}>
+            <View style={StyleSheet.absoluteFill}>
                 <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: theme.overlay }]} onPress={onClose} accessibilityLabel="Cerrar" />
-                <View style={[styles.area, centrada && styles.areaCentrada, { paddingTop: insets.top + MARGEN_ARRIBA }]} pointerEvents="box-none">
-                    <View style={styles.tarjeta}>{children}</View>
+                <View style={[styles.area, centrada && styles.areaCentrada, { paddingTop: tope }]} pointerEvents="box-none">
+                    <View style={[styles.tarjeta, { maxHeight: maxAlto }]}>{children}</View>
                 </View>
                 <View style={{ height: relleno, backgroundColor: centrada ? 'transparent' : theme.surface }} pointerEvents="none" />
             </View>
@@ -133,9 +153,9 @@ export default function HojaConTeclado({ visible, onClose, centrada = false, chi
 }
 
 const styles = StyleSheet.create({
-    capa: { zIndex: 1000, elevation: ELEVACION },
+    anfitrion: { zIndex: 1000, elevation: 30 },
     area: { flex: 1, justifyContent: 'flex-end' },
     areaCentrada: { justifyContent: 'center', paddingHorizontal: 20, paddingBottom: 20 },
-    tarjeta: { maxHeight: '100%', flexShrink: 1 },
+    tarjeta: { flexShrink: 1 },
     scroll: { flexShrink: 1 },
 });

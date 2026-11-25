@@ -104,7 +104,8 @@ export default function EtiquetasGestionHoja({ visible, catalog, section, sectio
 }
 
 const styles = StyleSheet.create({
-    hoja: { borderTopLeftRadius: RADIUS.sheet, borderTopRightRadius: RADIUS.sheet, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 16, maxHeight: '85%', flexShrink: 1 },
+    // 1.4.4 (D1): sin maxHeight en porcentaje: el alto máximo (85 % de la ventana) lo pone HojaConTeclado.
+    hoja: { borderTopLeftRadius: RADIUS.sheet, borderTopRightRadius: RADIUS.sheet, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 16, flexShrink: 1 },
     asa: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, marginBottom: 14 },
     titulo: { fontFamily: FONT.bold, fontSize: 22, lineHeight: 28, marginBottom: 12 },
     input: { borderRadius: RADIUS.sm, padding: 15, borderWidth: 1, fontSize: 16 },

@@ -898,5 +898,53 @@ seccion('14. Corrección 1.4.3: título completo en Pendiente (C1) y Atrás con 
     ]);
 }
 
+// =============================================================================================
+seccion('15. Corrección 1.4.4: alturas de la hoja (D1, D2) y almacén de hojas (identidad estable y limpieza)');
+{
+    const { alturaHoja } = await import('../src/components/alturaHoja.js');
+    // Ventana de 800 dp; gestos: insets top 32 / bottom 24; 3 botones: top 32 / bottom 48.
+    // Contenido de la hoja de etiquetas ≈ 250 + 52 por fila: 0 → 250, 3 → 406, 20 → 1290.
+    const G = { top: 32, bottom: 24 }, B = { top: 32, bottom: 48 };
+    const h = (insets, teclado, variante, contenido, ventana = 800) => alturaHoja({ ventana, insets, teclado, variante, contenido });
+    tabla('alturaHoja (función pura)', [
+        { caso: 'gestos, teclado cerrado, 0 etiquetas: mide su contenido; relleno = insets.bottom (llega al borde)', esperado: { tope: 56, relleno: 24, maxAlto: 680, alto: 250, scroll: false }, obtenido: h(G, 0, 'inferior', 250) },
+        { caso: 'gestos, teclado cerrado, 3 etiquetas: mide su contenido', esperado: { tope: 56, relleno: 24, maxAlto: 680, alto: 406, scroll: false }, obtenido: h(G, 0, 'inferior', 406) },
+        { caso: 'gestos, teclado cerrado, 20 etiquetas: 85 % de la ventana y scroll', esperado: { tope: 56, relleno: 24, maxAlto: 680, alto: 680, scroll: true }, obtenido: h(G, 0, 'inferior', 1290) },
+        { caso: '3 botones, teclado cerrado, 20 etiquetas: 85 % (cabe en el área libre de 696)', esperado: { tope: 56, relleno: 48, maxAlto: 680, alto: 680, scroll: true }, obtenido: h(B, 0, 'inferior', 1290) },
+        { caso: 'gestos, teclado de 300 abierto, 3 etiquetas: el área libre (420); relleno = teclado + insets.bottom, sin doble espacio', esperado: { tope: 56, relleno: 324, maxAlto: 420, alto: 406, scroll: false }, obtenido: h(G, 300, 'inferior', 406) },
+        { caso: 'gestos, teclado abierto, 20 etiquetas: el área libre y scroll', esperado: { tope: 56, relleno: 324, maxAlto: 420, alto: 420, scroll: true }, obtenido: h(G, 300, 'inferior', 1290) },
+        { caso: '3 botones, teclado abierto, 3 etiquetas: el área libre (396) y scroll', esperado: { tope: 56, relleno: 348, maxAlto: 396, alto: 396, scroll: true }, obtenido: h(B, 300, 'inferior', 406) },
+        { caso: 'centrada, gestos, teclado cerrado: 85 % (área libre 700 con el margen de 20)', esperado: { tope: 56, relleno: 24, maxAlto: 680, alto: 600, scroll: false }, obtenido: h(G, 0, 'centrada', 600) },
+        { caso: 'centrada, gestos, teclado abierto: el área libre (400)', esperado: { tope: 56, relleno: 324, maxAlto: 400, alto: 400, scroll: true }, obtenido: h(G, 300, 'centrada', 600) },
+        { caso: 'ventana chica (600), 3 botones: el máximo nunca pasa del área libre (496 < 510)', esperado: { tope: 56, relleno: 48, maxAlto: 496 }, obtenido: h(B, 0, 'inferior', undefined, 600) },
+        { caso: 'sin contenido: solo tope, relleno y máximo', esperado: { tope: 56, relleno: 24, maxAlto: 680 }, obtenido: h(G, 0, 'inferior', undefined) },
+    ]);
+    // Almacén (puro): identidad estable, orden, limpieza y pila de Atrás.
+    const A = await import('../src/hooks/almacenHojas.js');
+    const P = await import('../src/hooks/hojasAbiertas.js');
+    let avisos = 0;
+    const desuscribir = A.suscribirHojas(() => { avisos++; });
+    const cerradas = [];
+    A.ponerHoja('h1', { onClose: () => cerradas.push('h1 v1'), texto: 'a' });
+    A.ponerHoja('h2', { onClose: () => cerradas.push('h2'), texto: 'x' });
+    const antes = A.leerHojas();
+    A.ponerHoja('h1', { onClose: () => cerradas.push('h1 v2'), texto: 'ab' }); // la pantalla re-renderiza (escribir)
+    const despues = A.leerHojas();
+    const estado1 = { ids: despues.map((e) => e.id), texto: despues[0].props.texto, otraIdentidad: antes !== despues, mismaH2: antes[1] === despues[1], pila: P.hayHojaAbierta() };
+    P.cerrarHojaAbierta(); // Atrás: cierra la de arriba (h2) con su onClose
+    A.quitarHoja('h2'); // la pantalla la oculta (visible = false)
+    P.cerrarHojaAbierta(); // Atrás otra vez: h1 con su onClose MÁS RECIENTE
+    A.quitarHoja('h1'); // la pantalla se desmonta con la hoja abierta
+    const avisosAntes = avisos;
+    A.quitarHoja('no-existe');
+    desuscribir();
+    tabla('almacén de hojas (puro)', [
+        { caso: 'mismo id: se actualiza en su lugar (no otra entrada), el orden se mantiene y la otra entrada no cambia', esperado: { ids: ['h1', 'h2'], texto: 'ab', otraIdentidad: true, mismaH2: true, pila: true }, obtenido: estado1 },
+        { caso: 'Atrás cierra la de arriba y después la otra con su onClose más reciente', esperado: ['h2', 'h1 v2'], obtenido: cerradas },
+        { caso: 'al ocultar y al desmontar: fuera del almacén y de la pila de Atrás', esperado: { hojas: 0, pila: false }, obtenido: { hojas: A.leerHojas().length, pila: P.hayHojaAbierta() } },
+        { caso: 'quitar una que no está no avisa a nadie', esperado: 0, obtenido: avisos - avisosAntes },
+    ]);
+}
+
 console.log(fallas === 0 ? `\nFASE 7.5b1: ${total} OK.` : `\n${fallas} de ${total} prueba(s) fallaron.`);
 process.exit(fallas === 0 ? 0 : 1);

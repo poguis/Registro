@@ -578,7 +578,7 @@ export default function ReadingDetailScreen({ user, category, onBack, onNavigate
             <HojaConTeclado visible={modalVisible} onClose={closeForm} centrada>
                     <View style={[styles.modalContent, styles.formCard, { backgroundColor: theme.surface }]}>
                         <Text style={[styles.modalTitle, { color: theme.ink }]}>{isEditing ? 'Editar Obra' : 'Añadir Obra'}</Text>
-                        <ScrollDeHoja style={{ maxHeight: 400 }}>
+                        <ScrollDeHoja>
                             {formLinkView().chip ? (
                                 <View style={styles.linkRow}>
                                     <View style={[styles.linkChip, { backgroundColor: theme.soft }]}>

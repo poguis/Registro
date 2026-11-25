@@ -628,7 +628,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
             <HojaConTeclado visible={modalVisible} onClose={closeForm} centrada>
                     <View style={[styles.modalContent, styles.formCard, { backgroundColor: theme.surface }]}>
                         <Text style={[styles.modalTitle, { color: theme.ink }]}>{isEditing ? 'Editar Serie' : 'Añadir Serie'}</Text>
-                        <ScrollDeHoja style={{ maxHeight: 400 }}>
+                        <ScrollDeHoja>
                             {formLinkView().chip ? (
                                 <View style={styles.linkRow}>
                                     <View style={[styles.linkChip, { backgroundColor: theme.soft }]}>

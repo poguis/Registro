@@ -29,6 +29,7 @@ import { SheetProvider } from './src/contexts/SheetContext';
 import { useSheet } from './src/hooks/useSheet';
 import SystemBars from './src/components/SystemBars';
 import { cerrarHojaAbierta } from './src/hooks/hojasAbiertas';
+import { HojasHost } from './src/components/HojaConTeclado';
 
 // Variante dev (app.config.js): habilita herramientas de prueba que nunca van en producción.
 const IS_DEV_VARIANT = getVariant() === 'development';
@@ -66,6 +67,8 @@ function Root() {
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       <SystemBars />
       {ready ? <AppContent /> : null}
+      {/* 1.4.4: las hojas con teclado se dibujan aquí (la ventana entera, sin padding), encima de la pantalla */}
+      <HojasHost />
     </View>
   );
 }

@@ -210,13 +210,18 @@ const SUPA = readdirSync(join(RAIZ, 'supabase/migrations')).sort();
 const ESPERADAS = ['20261026000100_server_updated_at.sql', '20261026000200_tablas.sql', '20261026000300_indices_triggers.sql', '20261026000400_rls_grants.sql', '20261121000100_frecuencia_cuotas.sql', '20261122000100_vinculo_pendiente.sql', '20261124000100_etiquetas.sql'];
 check('supabase/migrations: los 7 archivos esperados (7.º de la Fase 7.5b1)', JSON.stringify(SUPA) === JSON.stringify(ESPERADAS), SUPA.join(', '));
 
-console.log('\n== 8. Teclado: el campo con el foco nunca queda tapado (corrección 1.4.3) ==');
+console.log('\n== 8. Teclado: el campo con el foco nunca queda tapado (correcciones 1.4.3 y 1.4.4) ==');
 const HCT = sinComentarios(leer('src/components/HojaConTeclado.js'));
-const elev = Number((/const ELEVACION = (\d+)/.exec(HCT) || [])[1] || 0);
-check('HojaConTeclado: alto de keyboardDidShow/keyboardDidHide (endCoordinates.height) + insets de safe-area, toda la ventana (absoluteFill) por encima del "+" (elevation > 10, zIndex); sin KeyboardAvoidingView, measureInWindow, BackHandler ni Modal',
+const ALT = sinComentarios(leer('src/components/alturaHoja.js'));
+const elev = Number((/anfitrion:\s*\{[^}]*elevation:\s*(\d+)/.exec(HCT) || [])[1] || 0);
+// 1.4.4: alturas en la función pura alturaHoja (insets.top + 24 arriba; insets.bottom, + el teclado,
+// abajo; 85 % de la ventana) y publicación en el almacén (ponerHoja) desde useLayoutEffect.
+check('HojaConTeclado: alto de keyboardDidShow/keyboardDidHide (endCoordinates.height) + insets de safe-area por alturaHoja, toda la ventana (absoluteFill) por encima del "+" (elevation > 10, zIndex), publicada en el almacén desde useLayoutEffect; sin KeyboardAvoidingView, measureInWindow, BackHandler ni Modal',
     /Keyboard\.addListener\('keyboardDidShow'/.test(HCT) && /Keyboard\.addListener\('keyboardDidHide'/.test(HCT) && /endCoordinates\.height/.test(HCT)
-    && /useSafeAreaInsets\(\)/.test(HCT) && /insets\.bottom/.test(HCT) && /insets\.top/.test(HCT) && /StyleSheet\.absoluteFill/.test(HCT)
-    && elev > 10 && /zIndex:\s*\d+/.test(HCT) && /registrarHoja\(/.test(HCT)
+    && /useSafeAreaInsets\(\)/.test(HCT) && /alturaHoja\(\{ ventana, insets, teclado: altoTeclado/.test(HCT) && /maxHeight: maxAlto/.test(HCT)
+    && /arriba \+ MARGEN_ARRIBA/.test(ALT) && /tecla \+ abajo : abajo/.test(ALT) && /FRACCION_MAXIMA = 0\.85/.test(ALT)
+    && /StyleSheet\.absoluteFill/.test(HCT) && elev > 10 && /zIndex:\s*\d+/.test(HCT)
+    && /useLayoutEffect\(\(\) => \{\s*if \(visible\) ponerHoja\(/.test(HCT) && /useLayoutEffect\(\(\) => \(\) => quitarHoja\(/.test(HCT)
     && !/KeyboardAvoidingView|measureInWindow|BackHandler|<Modal\b/.test(HCT), `elevation ${elev}`);
 // Atrás: un solo listener (App.js) y su handleBack cierra primero la hoja abierta.
 const conListener = TODO_SRC.flatMap((f) => lineasCon(f, /BackHandler\.addEventListener\s*\(/));
@@ -225,8 +230,8 @@ const cuerpoBack = (/const handleBack = useCallback\(\(\) => \{\s*([^\n]*)/.exec
 check('Atrás: un solo listener de hardwareBackPress (App.js) y lo primero de handleBack es cerrar la hoja abierta (cerrarHojaAbierta)',
     conListener.length === 1 && conListener[0].startsWith('App.js:') && /^if \(cerrarHojaAbierta\(\)\) return true;/.test(cuerpoBack.trim()), conListener.join(', ') || 'ninguno');
 // Babel: en los formularios del módulo, todo TextInput (y todo EtiquetasCampo) va dentro de una
-// HojaConTeclado; ningún Modal tiene campos; la hoja (o EtiquetasGestionHoja) cuelga directamente
-// de la vista raíz de la pantalla (SafeAreaView) o es la raíz de su componente.
+// HojaConTeclado; ningún Modal tiene campos ni hojas. Desde la 1.4.4 da igual dónde la monte la
+// pantalla: la hoja se dibuja en HojasHost, último hijo de la View raíz de App.js.
 const ARCHIVOS_TECLADO = ['src/screens/BacklogScreen.js', 'src/components/EtiquetasCampo.js', 'src/components/EtiquetasGestionHoja.js',
     'src/screens/SeriesAnimeScreen.js', 'src/screens/SeriesDetailScreen.js', 'src/screens/ReadingDetailScreen.js'];
 const CAMPOS = new Set(['TextInput', 'EtiquetasCampo']);
@@ -261,16 +266,17 @@ function revisarTeclado(codigo, archivo) {
             const linea = `${archivo}:${p.node.loc.start.line}`;
             if (CAMPOS.has(nombre) && !(componenteDeCampo && nombre === 'TextInput') && !ancestros.includes('HojaConTeclado') && !enRenderDeHoja(p)) malas.push(`${linea} ${nombre} fuera de HojaConTeclado`);
             if (CAMPOS.has(nombre) && ancestros.includes('Modal')) malas.push(`${linea} ${nombre} dentro de un Modal`);
-            if (nombre === 'HojaConTeclado' || nombre === 'EtiquetasGestionHoja') {
-                const ok = ancestros.length === 0 || (ancestros.length === 1 && ancestros[0] === 'SafeAreaView');
-                if (!ok) malas.push(`${linea} ${nombre} no cuelga de la vista raíz (${ancestros.join(' < ')})`);
-            }
+            if ((nombre === 'HojaConTeclado' || nombre === 'EtiquetasGestionHoja') && ancestros.includes('Modal')) malas.push(`${linea} ${nombre} dentro de un Modal`);
         },
     });
     return malas;
 }
 const malasTeclado = ARCHIVOS_TECLADO.flatMap((f) => revisarTeclado(leer(f), f));
-check(`formularios del módulo: todo campo dentro de HojaConTeclado, ningún Modal con campos, hoja en la vista raíz (${ARCHIVOS_TECLADO.length} archivos)`, malasTeclado.length === 0, malasTeclado.join(' | '));
+const ROOT = (/function Root\(\) \{[\s\S]*?\n\}/.exec(APPB) || [''])[0];
+// (sinComentarios deja el comentario JSX como "{}")
+const raizOk = /\{ready \? <AppContent \/> : null\}\s*(\{\s*(\/\*[^*]*\*\/)?\s*\}\s*)?<HojasHost \/>\s*<\/View>/.test(ROOT)
+    && /export default function HojaConTeclado[\s\S]*?\n    return null;\n\}/.test(HCT);
+check(`formularios del módulo: todo campo dentro de HojaConTeclado, ningún Modal con campos ni hojas (${ARCHIVOS_TECLADO.length} archivos); la hoja se dibuja en HojasHost, último hijo de la View raíz de App.js (HojaConTeclado no dibuja en su lugar)`, malasTeclado.length === 0 && raizOk, malasTeclado.join(' | ') || (raizOk ? '' : 'HojasHost no es el último hijo de Root o HojaConTeclado dibuja en su lugar'));
 const sembrado = `function P() { return (
     <SafeAreaView>
         <TextInput value="a" />
@@ -279,7 +285,49 @@ const sembrado = `function P() { return (
         <EtiquetasCampo />
     </SafeAreaView>); }`;
 const negativasTeclado = revisarTeclado(sembrado, 'control');
-check('control negativo: el revisor encuentra las 5 violaciones sembradas (campo fuera, campo y hoja dentro de un Modal, hoja anidada, EtiquetasCampo fuera)', negativasTeclado.length === 5, negativasTeclado.join(' | '));
+check('control negativo: el revisor encuentra las 4 violaciones sembradas (campo fuera, campo y hoja dentro de un Modal, EtiquetasCampo fuera; una hoja dentro de otra View ya no es violación)', negativasTeclado.length === 4, negativasTeclado.join(' | '));
+// 1.4.4 (D1): ninguna hoja tiene un alto fijo o en porcentaje en su tarjeta (el hijo directo de
+// HojaConTeclado) ni en su ScrollDeHoja / ListaDeHoja: el máximo lo pone HojaConTeclado (alturaHoja).
+function revisarAltos(codigo, archivo) {
+    const malas = [];
+    const ast = parse(codigo, { sourceType: 'module', plugins: ['jsx'] });
+    const estilos = new Map(); // nombre de estilo → claves de su objeto
+    traverse(ast, {
+        ObjectProperty(p) {
+            if (p.node.key && p.node.key.type === 'Identifier' && p.node.value.type === 'ObjectExpression') {
+                estilos.set(p.node.key.name, p.node.value.properties.filter((q) => q.key).map((q) => q.key.name || q.key.value));
+            }
+        },
+    });
+    const clavesDe = (expr) => {
+        if (!expr) return [];
+        if (expr.type === 'ArrayExpression') return expr.elements.flatMap(clavesDe);
+        if (expr.type === 'ObjectExpression') return expr.properties.filter((q) => q.key).map((q) => q.key.name || q.key.value);
+        if (expr.type === 'MemberExpression' && expr.object.name === 'styles' && expr.property.name) return estilos.get(expr.property.name) || [];
+        if (expr.type === 'LogicalExpression') return clavesDe(expr.right);
+        return [];
+    };
+    const revisar = (el, que) => {
+        const s = el.openingElement.attributes.find((a) => a.name && a.name.name === 'style');
+        const claves = s && s.value && s.value.expression ? clavesDe(s.value.expression) : [];
+        const malas2 = claves.filter((k) => k === 'height' || k === 'maxHeight');
+        if (malas2.length) malas.push(`${archivo}:${el.loc.start.line} ${que} con ${malas2.join('/')}`);
+    };
+    traverse(ast, {
+        JSXElement(p) {
+            const n = nombreJsx(p.node);
+            if (n === 'ScrollDeHoja' || n === 'ListaDeHoja') revisar(p.node, n);
+            if (n === 'HojaConTeclado') for (const c of p.node.children) if (c.type === 'JSXElement') revisar(c, 'tarjeta de la hoja');
+        },
+    });
+    return malas;
+}
+const malasAltos = ARCHIVOS_TECLADO.flatMap((f) => revisarAltos(leer(f), f));
+check(`ninguna hoja con alto fijo o en porcentaje en su tarjeta ni en su lista (${ARCHIVOS_TECLADO.length} archivos)`, malasAltos.length === 0, malasAltos.join(' | '));
+const sembradoAltos = `const styles = { tarjeta: { padding: 20, maxHeight: '85%' }, lista: { height: 300 } };
+function P() { return (<HojaConTeclado visible><View style={[styles.tarjeta]}><ScrollDeHoja style={{ maxHeight: 400 }} /><ListaDeHoja style={styles.lista} /></View></HojaConTeclado>); }`;
+const negativasAltos = revisarAltos(sembradoAltos, 'control');
+check('control negativo: el revisor de altos encuentra las 3 violaciones sembradas (tarjeta en porcentaje, ScrollDeHoja de 400, ListaDeHoja de 300)', negativasAltos.length === 3, negativasAltos.join(' | '));
 
 console.log(`\n${fallas === 0 ? 'TEMA' : 'TEMA CON FALLAS'}: ${oks} OK, ${fallas} FALLA.`);
 process.exit(fallas === 0 ? 0 : 1);

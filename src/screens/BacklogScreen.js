@@ -866,8 +866,7 @@ const makeStyles = (t) => StyleSheet.create({
         borderTopLeftRadius: RADIUS.sheet,
         borderTopRightRadius: RADIUS.sheet,
         padding: 30,
-        maxHeight: '80%',
-        flexShrink: 1, // dentro de HojaConTeclado: encoge con el teclado abierto
+        flexShrink: 1, // 1.4.4 (D1): sin porcentaje; el alto máximo lo pone HojaConTeclado
     },
     filterCard: {
         backgroundColor: t.surface,
