@@ -675,10 +675,12 @@ seccion('6b. Formulario: la elección de "Agregar" no se arrastra al editar, al 
         await quiet(async () => (await fn('handleSave'))());
         filas.push({ caso: `${tipo}: guardar un Nuevo título limpia la elección`, esperado: { guardada: true, link: null, newType: null, modal: false }, obtenido: { guardada: !!(await serieDe('Nueva desde el formulario')), link: S.link, newType: S.newType, modal: S.modalVisible } });
         tabla(`formulario sin arrastre (${tipo})`, filas);
-        // Botón Cancelar y Atrás (onRequestClose) del formulario usan closeForm.
+        // Botón Cancelar y Atrás del formulario usan closeForm. Desde la 1.4.3 el formulario es una
+        // HojaConTeclado: Atrás llega por su onClose (App.js → hojasAbiertas), ya no por onRequestClose.
         const src = readFileSync(archivo, 'utf8');
-        const formulario = src.slice(src.indexOf('{/* Creation/Edit Modal */}'), src.indexOf('</Modal>', src.indexOf('{/* Creation/Edit Modal */}')));
-        check(`${tipo}: el formulario cierra con closeForm (Atrás y el botón Cancelar)`, /<Modal[^>]*onRequestClose=\{closeForm\}/.test(formulario) && /onPress=\{closeForm\}/.test(formulario) && !/onPress=\{\(\) => setModalVisible\(false\)\}/.test(formulario));
+        const ini = src.indexOf('{/* Formulario de alta/edición');
+        const formulario = src.slice(ini, src.indexOf('</HojaConTeclado>', ini));
+        check(`${tipo}: el formulario cierra con closeForm (Atrás y el botón Cancelar)`, ini >= 0 && /<HojaConTeclado[^>]*onClose=\{closeForm\}/.test(formulario) && /onPress=\{closeForm\}/.test(formulario) && !/onPress=\{\(\) => setModalVisible\(false\)\}/.test(formulario));
     }
 }
 

@@ -19,8 +19,17 @@
 //  7. Esquema conocido: la dirección visual no tocó el esquema (LATEST_VERSION 6, 5 archivos de
 //     Supabase); desde la 7.5, LATEST_VERSION = 7 (migraciones 1–7) y 6 archivos en supabase/migrations;
 //     desde la 7.5b1, LATEST_VERSION = 8 y 7 archivos.
+//  8. Teclado (corrección 1.4.3 de la 7.5b1): todo formulario u hoja con TextInput del módulo de
+//     entretenimiento usa src/components/HojaConTeclado.js (alto del teclado de los eventos de RN +
+//     insets de safe-area, sin KeyboardAvoidingView ni Modal), montada directamente en la vista raíz
+//     de la pantalla; Atrás tiene un solo listener (App.js) que primero cierra la hoja abierta.
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join, basename, relative } from 'node:path';
+// @babel/parser y @babel/traverse: dependencias transitivas de Expo (como en extraer-pantalla.mjs).
+import { parse } from '@babel/parser';
+import traverseModule from '@babel/traverse';
+
+const traverse = traverseModule.default || traverseModule;
 
 const RAIZ = new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
 const leer = (p) => readFileSync(join(RAIZ, p), 'utf8');
@@ -200,6 +209,77 @@ check('migraciones locales 1–8 (LATEST_VERSION = 8, Fase 7.5b1)', JSON.stringi
 const SUPA = readdirSync(join(RAIZ, 'supabase/migrations')).sort();
 const ESPERADAS = ['20261026000100_server_updated_at.sql', '20261026000200_tablas.sql', '20261026000300_indices_triggers.sql', '20261026000400_rls_grants.sql', '20261121000100_frecuencia_cuotas.sql', '20261122000100_vinculo_pendiente.sql', '20261124000100_etiquetas.sql'];
 check('supabase/migrations: los 7 archivos esperados (7.º de la Fase 7.5b1)', JSON.stringify(SUPA) === JSON.stringify(ESPERADAS), SUPA.join(', '));
+
+console.log('\n== 8. Teclado: el campo con el foco nunca queda tapado (corrección 1.4.3) ==');
+const HCT = sinComentarios(leer('src/components/HojaConTeclado.js'));
+const elev = Number((/const ELEVACION = (\d+)/.exec(HCT) || [])[1] || 0);
+check('HojaConTeclado: alto de keyboardDidShow/keyboardDidHide (endCoordinates.height) + insets de safe-area, toda la ventana (absoluteFill) por encima del "+" (elevation > 10, zIndex); sin KeyboardAvoidingView, measureInWindow, BackHandler ni Modal',
+    /Keyboard\.addListener\('keyboardDidShow'/.test(HCT) && /Keyboard\.addListener\('keyboardDidHide'/.test(HCT) && /endCoordinates\.height/.test(HCT)
+    && /useSafeAreaInsets\(\)/.test(HCT) && /insets\.bottom/.test(HCT) && /insets\.top/.test(HCT) && /StyleSheet\.absoluteFill/.test(HCT)
+    && elev > 10 && /zIndex:\s*\d+/.test(HCT) && /registrarHoja\(/.test(HCT)
+    && !/KeyboardAvoidingView|measureInWindow|BackHandler|<Modal\b/.test(HCT), `elevation ${elev}`);
+// Atrás: un solo listener (App.js) y su handleBack cierra primero la hoja abierta.
+const conListener = TODO_SRC.flatMap((f) => lineasCon(f, /BackHandler\.addEventListener\s*\(/));
+const APPB = sinComentarios(leer('App.js'));
+const cuerpoBack = (/const handleBack = useCallback\(\(\) => \{\s*([^\n]*)/.exec(APPB) || [])[1] || '';
+check('Atrás: un solo listener de hardwareBackPress (App.js) y lo primero de handleBack es cerrar la hoja abierta (cerrarHojaAbierta)',
+    conListener.length === 1 && conListener[0].startsWith('App.js:') && /^if \(cerrarHojaAbierta\(\)\) return true;/.test(cuerpoBack.trim()), conListener.join(', ') || 'ninguno');
+// Babel: en los formularios del módulo, todo TextInput (y todo EtiquetasCampo) va dentro de una
+// HojaConTeclado; ningún Modal tiene campos; la hoja (o EtiquetasGestionHoja) cuelga directamente
+// de la vista raíz de la pantalla (SafeAreaView) o es la raíz de su componente.
+const ARCHIVOS_TECLADO = ['src/screens/BacklogScreen.js', 'src/components/EtiquetasCampo.js', 'src/components/EtiquetasGestionHoja.js',
+    'src/screens/SeriesAnimeScreen.js', 'src/screens/SeriesDetailScreen.js', 'src/screens/ReadingDetailScreen.js'];
+const CAMPOS = new Set(['TextInput', 'EtiquetasCampo']);
+const nombreJsx = (n) => (n && n.openingElement && n.openingElement.name && n.openingElement.name.name) || null;
+function revisarTeclado(codigo, archivo) {
+    const malas = [];
+    const ast = parse(codigo, { sourceType: 'module', plugins: ['jsx'] });
+    const componenteDeCampo = archivo.endsWith('EtiquetasCampo.js'); // sus TextInput se revisan donde se usa
+    // Funciones que una ListaDeHoja (dentro de una HojaConTeclado) usa como renderItem: sus campos
+    // están dentro de la hoja aunque el JSX esté en otra función (p. ej. renderFila).
+    const renderDeHoja = new Set();
+    traverse(ast, {
+        JSXElement(p) {
+            if (nombreJsx(p.node) !== 'ListaDeHoja') return;
+            let dentro = false;
+            for (let q = p.parentPath; q; q = q.parentPath) if (q.node.type === 'JSXElement' && nombreJsx(q.node) === 'HojaConTeclado') dentro = true;
+            const attr = p.node.openingElement.attributes.find((a) => a.name && a.name.name === 'renderItem');
+            if (dentro && attr && attr.value && attr.value.expression && attr.value.expression.type === 'Identifier') renderDeHoja.add(attr.value.expression.name);
+        },
+    });
+    const enRenderDeHoja = (p) => {
+        for (let q = p.parentPath; q; q = q.parentPath) {
+            if (q.node.type === 'VariableDeclarator' && q.node.id && renderDeHoja.has(q.node.id.name)) return true;
+        }
+        return false;
+    };
+    traverse(ast, {
+        JSXElement(p) {
+            const nombre = nombreJsx(p.node);
+            const ancestros = [];
+            for (let q = p.parentPath; q; q = q.parentPath) if (q.node.type === 'JSXElement') ancestros.push(nombreJsx(q.node));
+            const linea = `${archivo}:${p.node.loc.start.line}`;
+            if (CAMPOS.has(nombre) && !(componenteDeCampo && nombre === 'TextInput') && !ancestros.includes('HojaConTeclado') && !enRenderDeHoja(p)) malas.push(`${linea} ${nombre} fuera de HojaConTeclado`);
+            if (CAMPOS.has(nombre) && ancestros.includes('Modal')) malas.push(`${linea} ${nombre} dentro de un Modal`);
+            if (nombre === 'HojaConTeclado' || nombre === 'EtiquetasGestionHoja') {
+                const ok = ancestros.length === 0 || (ancestros.length === 1 && ancestros[0] === 'SafeAreaView');
+                if (!ok) malas.push(`${linea} ${nombre} no cuelga de la vista raíz (${ancestros.join(' < ')})`);
+            }
+        },
+    });
+    return malas;
+}
+const malasTeclado = ARCHIVOS_TECLADO.flatMap((f) => revisarTeclado(leer(f), f));
+check(`formularios del módulo: todo campo dentro de HojaConTeclado, ningún Modal con campos, hoja en la vista raíz (${ARCHIVOS_TECLADO.length} archivos)`, malasTeclado.length === 0, malasTeclado.join(' | '));
+const sembrado = `function P() { return (
+    <SafeAreaView>
+        <TextInput value="a" />
+        <Modal visible><HojaConTeclado visible><TextInput /></HojaConTeclado></Modal>
+        <View><HojaConTeclado visible><Text>x</Text></HojaConTeclado></View>
+        <EtiquetasCampo />
+    </SafeAreaView>); }`;
+const negativasTeclado = revisarTeclado(sembrado, 'control');
+check('control negativo: el revisor encuentra las 5 violaciones sembradas (campo fuera, campo y hoja dentro de un Modal, hoja anidada, EtiquetasCampo fuera)', negativasTeclado.length === 5, negativasTeclado.join(' | '));
 
 console.log(`\n${fallas === 0 ? 'TEMA' : 'TEMA CON FALLAS'}: ${oks} OK, ${fallas} FALLA.`);
 process.exit(fallas === 0 ? 0 : 1);

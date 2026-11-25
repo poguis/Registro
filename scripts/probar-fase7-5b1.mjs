@@ -825,5 +825,78 @@ seccion('13. Compatibilidad b: la app 1.4.2 contra un servidor SIN la migración
     }]);
 }
 
+// =============================================================================================
+seccion('14. Corrección 1.4.3: título completo en Pendiente (C1) y Atrás con una hoja abierta');
+{
+    // C1 (estático, Babel): el título de la fila sin numberOfLines; el campo de título multilínea
+    // (hasta 5 líneas, Enter cierra el teclado, saltos de línea → espacio); las etiquetas de la fila
+    // siguen en 1 línea con elipsis.
+    const attrs = (el) => Object.fromEntries(el.openingElement.attributes.filter((a) => a.name).map((a) => [a.name.name, a.value]));
+    const fuente = (n) => (n ? (n.type === 'StringLiteral' ? n.value : n.expression ? (n.expression.type === 'NumericLiteral' ? n.expression.value : 'expr') : 'expr') : true);
+    // ¿El atributo style del elemento nombra styles.<estilo>?
+    const usaEstilo = (el, estilo) => JSON.stringify(el.openingElement.attributes.find((a) => a.name && a.name.name === 'style') || {}).includes(`"name":"${estilo}"`);
+    const revisarC1 = (codigo) => {
+        const ast = parse(codigo, { sourceType: 'module', plugins: ['jsx'] });
+        const r = { tituloSinLimite: null, campoMultilinea: false, enterCierra: false, cincoLineas: false, saltosAEspacio: false, etiquetasUnaLinea: null };
+        traverse(ast, {
+            JSXElement(p) {
+                const n = p.node.openingElement.name.name;
+                const a = attrs(p.node);
+                if (n === 'Text' && usaEstilo(p.node, 'itemTitle')) r.tituloSinLimite = !('numberOfLines' in a);
+                if (n === 'Text' && usaEstilo(p.node, 'tagsLine')) r.etiquetasUnaLinea = fuente(a.numberOfLines) === 1 && fuente(a.ellipsizeMode) === 'tail';
+                if (n === 'TextInput' && usaEstilo(p.node, 'titleInput')) {
+                    r.campoMultilinea = 'multiline' in a && a.multiline === null;
+                    r.enterCierra = fuente(a.submitBehavior) === 'blurAndSubmit';
+                    r.saltosAEspacio = /replace\(\/\\s\*\[\\r\\n\]\+\\s\*\/g, ' '\)/.test(codigo.slice(p.node.start, p.node.end));
+                }
+            },
+        });
+        r.cincoLineas = /titleInput:\s*\{[^}]*lineHeight:\s*22[^}]*maxHeight:\s*5 \* 22 \+ 30/.test(codigo);
+        return r;
+    };
+    const SRC = readFileSync(PANT, 'utf8');
+    const real = revisarC1(SRC);
+    tabla('C1 en la pantalla (estático)', [
+        { caso: 'título de la fila sin numberOfLines (se ve completo)', esperado: true, obtenido: real.tituloSinLimite },
+        { caso: 'campo de título: multiline, Enter cierra el teclado (blurAndSubmit), hasta 5 líneas (5 × 22 + 30) y saltos de línea → espacio', esperado: [true, true, true, true], obtenido: [real.campoMultilinea, real.enterCierra, real.cincoLineas, real.saltosAEspacio] },
+        { caso: 'etiquetas de la fila en 1 línea con elipsis', esperado: true, obtenido: real.etiquetasUnaLinea },
+    ]);
+    const sembrar = (de, a) => { if (!SRC.includes(de)) throw new Error(`no está en la pantalla: ${de}`); return SRC.replace(de, a); };
+    const copias = [
+        revisarC1(sembrar('<Text style={[styles.itemTitle, { color: theme.ink }]}>', '<Text style={[styles.itemTitle, { color: theme.ink }]} numberOfLines={2}>')).tituloSinLimite === false,
+        revisarC1(sembrar('                                multiline\n', '')).campoMultilinea === false,
+        revisarC1(sembrar('submitBehavior="blurAndSubmit"', 'submitBehavior="newline"')).enterCierra === false,
+        revisarC1(sembrar('maxHeight: 5 * 22 + 30', 'maxHeight: 400')).cincoLineas === false,
+        revisarC1(sembrar("<Text style={[styles.tagsLine, { color: theme.accent }]} numberOfLines={1} ellipsizeMode=\"tail\">", '<Text style={[styles.tagsLine, { color: theme.accent }]}>')).etiquetasUnaLinea === false,
+    ];
+    check(`control negativo C1: el revisor detecta las ${copias.length} violaciones sembradas en copias`, copias.every(Boolean), copias.map((x, i) => `${i + 1}:${x}`).join(' '));
+    // Atrás (arnés): handleBack REAL de App.js con la pila real de hojas (src/hooks/hojasAbiertas.js).
+    const pila = await import('../src/hooks/hojasAbiertas.js');
+    const crearBack = () => {
+        const llamadas = { setCurrentView: [], setNavigationHistory: [], confirm: 0, salir: 0 };
+        const fn = instanciarPantalla(extraer('App.js', 'handleBack'), {
+            cerrarHojaAbierta: pila.cerrarHojaAbierta, navigationHistory: ['HOME'], currentView: 'BACKLOG',
+            setNavigationHistory: (h) => llamadas.setNavigationHistory.push(h), setCurrentView: (v) => llamadas.setCurrentView.push(v),
+            confirm: async () => { llamadas.confirm++; return null; }, BackHandler: { exitApp: () => { llamadas.salir++; } },
+        });
+        return { fn, llamadas };
+    };
+    const cerradas = [];
+    const q1 = pila.registrarHoja(() => cerradas.push('formulario'));
+    const q2 = pila.registrarHoja(() => cerradas.push('gestión'));
+    const b1 = crearBack();
+    const r1 = b1.fn();
+    q2();
+    const r2 = b1.fn();
+    q1();
+    const b3 = crearBack();
+    const r3 = b3.fn();
+    tabla('Atrás con una hoja abierta (handleBack real de App.js)', [
+        { caso: 'dos hojas abiertas: cierra solo la de arriba y no navega', esperado: { devuelve: true, cerradas: ['gestión'], navega: [] }, obtenido: { devuelve: r1, cerradas: cerradas.slice(0, 1), navega: b1.llamadas.setCurrentView.slice(0, 1) } },
+        { caso: 'queda una: la cierra y sigue sin navegar', esperado: { devuelve: true, cerradas: ['gestión', 'formulario'], navega: [] }, obtenido: { devuelve: r2, cerradas, navega: b1.llamadas.setCurrentView } },
+        { caso: 'sin hojas: navega como siempre (vuelve a HOME)', esperado: { devuelve: true, navega: ['HOME'], abiertas: false }, obtenido: { devuelve: r3, navega: b3.llamadas.setCurrentView, abiertas: pila.hayHojaAbierta() } },
+    ]);
+}
+
 console.log(fallas === 0 ? `\nFASE 7.5b1: ${total} OK.` : `\n${fallas} de ${total} prueba(s) fallaron.`);
 process.exit(fallas === 0 ? 0 : 1);

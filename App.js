@@ -28,6 +28,7 @@ import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
 import { SheetProvider } from './src/contexts/SheetContext';
 import { useSheet } from './src/hooks/useSheet';
 import SystemBars from './src/components/SystemBars';
+import { cerrarHojaAbierta } from './src/hooks/hojasAbiertas';
 
 // Variante dev (app.config.js): habilita herramientas de prueba que nunca van en producción.
 const IS_DEV_VARIANT = getVariant() === 'development';
@@ -136,6 +137,9 @@ function AppContent() {
   }, [user]);
 
   const handleBack = useCallback(() => {
+    // Fase 7.5b1 (1.4.3): con una hoja con teclado abierta, Atrás la cierra y nunca navega. Este es
+    // el único listener de hardwareBackPress de la app; las hojas se apilan en hojasAbiertas.js.
+    if (cerrarHojaAbierta()) return true;
     if (navigationHistory.length > 0) {
       const newHistory = [...navigationHistory];
       const prevView = newHistory.pop();

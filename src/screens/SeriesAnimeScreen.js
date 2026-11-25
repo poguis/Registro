@@ -9,6 +9,7 @@ import { useSyncRefresh } from '../sync/useSyncRefresh';
 import { calculateBacklog, getLocalDateString } from '../services/backlogUtils';
 // Fase 7.4a (O1): el límite de activas es obligatorio (entero ≥ 1), en video y en lectura.
 import { validateCategoryForm, canEditStartDate } from '../entertainment/category';
+import HojaConTeclado, { ScrollDeHoja } from '../components/HojaConTeclado';
 
 const DAYS = [
     { key: 'Monday', label: 'L' },
@@ -499,14 +500,8 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                 <View style={{ height: 100 }} />
             </ScrollView>
 
-            {/* Modal */}
-            <Modal
-                animationType="slide"
-                transparent={true}
-                visible={modalVisible}
-                onRequestClose={() => setModalVisible(false)}
-            >
-                <View style={styles.modalOverlay}>
+            {/* Formulario de categoría (1.4.3, C3: hoja con teclado; ningún campo queda tapado) */}
+            <HojaConTeclado visible={modalVisible} onClose={() => setModalVisible(false)}>
                     <View style={[styles.modalContent, { backgroundColor: theme.surface }]}>
                         <View style={styles.modalHeader}>
                             <Text style={[styles.modalTitle, { color: theme.ink }]}>
@@ -517,7 +512,7 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                             </TouchableOpacity>
                         </View>
 
-                        <ScrollView>
+                        <ScrollDeHoja>
                             {/* Name */}
                             <Text style={[styles.label, { color: theme.ink }]}>Nombre</Text>
                             <TextInput
@@ -669,10 +664,9 @@ export default function SeriesAnimeScreen({ user, onBack, onNavigateDetail, onNa
                                 </Text>
                             </TouchableOpacity>
                             <View style={{ height: 20 }} />
-                        </ScrollView>
+                        </ScrollDeHoja>
                     </View>
-                </View>
-            </Modal>
+            </HojaConTeclado>
 
             {/* Calendar Modal */}
             <CustomCalendar
@@ -818,7 +812,7 @@ const makeStyles = (t) => StyleSheet.create({
         borderTopLeftRadius: 25,
         borderTopRightRadius: 25,
         padding: 20,
-        height: '90%',
+        flexShrink: 1, // dentro de HojaConTeclado: alto del contenido, sin pasar el área libre
     },
     modalHeader: {
         flexDirection: 'row',

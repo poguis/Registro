@@ -14,6 +14,7 @@ import { parseTags, sortForDisplay, isTagFilterActive, deleteTagText, tagKey, TA
 import EtiquetasCampo from '../components/EtiquetasCampo';
 import EtiquetasFiltroHoja from '../components/EtiquetasFiltroHoja';
 import EtiquetasGestionHoja from '../components/EtiquetasGestionHoja';
+import HojaConTeclado, { ScrollDeHoja } from '../components/HojaConTeclado';
 
 const { width } = Dimensions.get('window');
 
@@ -252,7 +253,8 @@ export default function BacklogScreen({ user, onBack }) {
         >
             <View style={styles.cardMain}>
                 <View style={styles.cardHeader}>
-                    <Text style={[styles.itemTitle, { color: theme.ink }]} numberOfLines={2} ellipsizeMode="tail">{item.title}</Text>
+                    {/* C1 (1.4.3): en Pendiente el título se ve completo (sin límite de líneas). */}
+                    <Text style={[styles.itemTitle, { color: theme.ink }]}>{item.title}</Text>
                     <View style={[
                         styles.statusDot, 
                         { backgroundColor: statusTone(item.status).fg }
@@ -518,27 +520,26 @@ export default function BacklogScreen({ user, onBack }) {
                 </View>
             </Modal>
 
-            {/* Add Modal */}
-            <Modal
-                visible={modalVisible}
-                animationType="slide"
-                transparent
-                onRequestClose={() => setModalVisible(false)}
-            >
-                <View style={styles.modalOverlay}>
+            {/* Formulario (1.4.3: hoja con teclado, el campo con el foco nunca queda tapado) */}
+            <HojaConTeclado visible={modalVisible} onClose={() => setModalVisible(false)}>
                     <View style={[styles.modalCard, { backgroundColor: theme.surface }]}>
                         <Text style={[styles.modalTitle, { color: theme.ink }]} numberOfLines={1} ellipsizeMode="tail">
                             {editingItem ? 'Editar' : 'Añadir'} {currentCat.label}
                         </Text>
 
-                        <ScrollView>
+                        <ScrollDeHoja>
                             <Text style={[styles.inputLabel, { color: theme.accent }]}>Título</Text>
+                            {/* C1 (1.4.3): multilínea, crece hasta 5 líneas y luego hace scroll interno; Enter
+                                cierra el teclado y los saltos de línea pegados pasan a espacio. */}
                             <TextInput
-                                style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
+                                style={[styles.input, styles.titleInput, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                                 value={formData.title}
-                                onChangeText={text => setFormData({ ...formData, title: text })}
+                                onChangeText={text => setFormData({ ...formData, title: text.replace(/\s*[\r\n]+\s*/g, ' ') })}
                                 placeholder="Ingresa el título..."
                                 placeholderTextColor={theme.muted}
+                                multiline
+                                submitBehavior="blurAndSubmit"
+                                returnKeyType="done"
                             />
 
                             {/* Fase 7.5b1 (E7): etiquetas de la sección, nuevas y de otras secciones */}
@@ -660,7 +661,7 @@ export default function BacklogScreen({ user, onBack }) {
                                     />
                                 </>
                             )}
-                        </ScrollView>
+                        </ScrollDeHoja>
 
                         <View style={styles.modalButtons}>
                             <TouchableOpacity
@@ -679,8 +680,7 @@ export default function BacklogScreen({ user, onBack }) {
                             </TouchableOpacity>
                         </View>
                     </View>
-                </View>
-            </Modal>
+            </HojaConTeclado>
 
             {/* Fase 7.5b1: hojas de filtro (E8) y gestión (E6) de etiquetas */}
             <EtiquetasFiltroHoja
@@ -788,7 +788,7 @@ const makeStyles = (t) => StyleSheet.create({
     cardHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'center',
+        alignItems: 'flex-start', // C1: con el título completo, el punto de estado queda arriba
         marginBottom: 8,
     },
     itemTitle: {
@@ -808,6 +808,7 @@ const makeStyles = (t) => StyleSheet.create({
         height: 10,
         borderRadius: 5,
         flexShrink: 0,
+        marginTop: 6, // alineado con la primera línea del título
     },
     cardFooter: {
         flexDirection: 'row',
@@ -866,6 +867,7 @@ const makeStyles = (t) => StyleSheet.create({
         borderTopRightRadius: RADIUS.sheet,
         padding: 30,
         maxHeight: '80%',
+        flexShrink: 1, // dentro de HojaConTeclado: encoge con el teclado abierto
     },
     filterCard: {
         backgroundColor: t.surface,
@@ -876,6 +878,8 @@ const makeStyles = (t) => StyleSheet.create({
     modalTitle: { fontSize: 24, fontFamily: FONT.bold, marginBottom: 20 },
     inputLabel: { fontSize: 14, fontFamily: FONT.bold, marginBottom: 8, marginTop: 15 },
     input: { borderRadius: RADIUS.sm, padding: 15, borderWidth: 1, fontSize: 16 },
+    // C1 (1.4.3): título multilínea, hasta 5 líneas visibles (5 × 22 + el relleno de 15 arriba y abajo).
+    titleInput: { lineHeight: 22, maxHeight: 5 * 22 + 30, textAlignVertical: 'top' },
     formatContainer: { flexDirection: 'row', gap: 10, marginTop: 5 },
     formatOption: {
         flex: 1,

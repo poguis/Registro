@@ -1,17 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, View, Pressable, TouchableOpacity, FlatList, StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Text, TextInput } from './AppText';
 import { useTheme, FONT, RADIUS } from '../contexts/ThemeContext';
 import { liveTagsOf, sortForDisplay, TAG_MAX_LENGTH } from '../entertainment/tags';
+import HojaConTeclado, { ListaDeHoja } from './HojaConTeclado';
 
 // Gestión de las etiquetas de una sección (Fase 7.5b1, E6): crear, renombrar en línea y borrar.
 // Solo presentación: las acciones (con sus validaciones, mensajes y la confirmación de borrado) las
 // hace la pantalla (onCreate / onRename / onDelete devuelven true si se aplicaron).
+// 1.4.3 (C2): es una HojaConTeclado: el campo de crear y el de renombrar en línea nunca quedan
+// debajo del teclado (con pocas etiquetas, o al renombrar una de las primeras).
 
 export default function EtiquetasGestionHoja({ visible, catalog, section, sectionLabel, usage, onCreate, onRename, onDelete, onClose }) {
     const { theme } = useTheme();
-    const insets = useSafeAreaInsets();
     const [nombre, setNombre] = useState('');
     const [editando, setEditando] = useState(null); // { id, texto }
     useEffect(() => { if (!visible) { setNombre(''); setEditando(null); } }, [visible]);
@@ -69,10 +70,8 @@ export default function EtiquetasGestionHoja({ visible, catalog, section, sectio
     };
 
     return (
-        <Modal visible={!!visible} transparent animationType="slide" statusBarTranslucent navigationBarTranslucent onRequestClose={onClose}>
-            <View style={styles.contenedor}>
-                <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: theme.overlay }]} onPress={onClose} accessibilityLabel="Cerrar" />
-                <View style={[styles.hoja, { backgroundColor: theme.surface, paddingBottom: 16 + insets.bottom }]}>
+        <HojaConTeclado visible={!!visible} onClose={onClose}>
+                <View style={[styles.hoja, { backgroundColor: theme.surface }]}>
                     <View style={[styles.asa, { backgroundColor: theme.line }]} />
                     <Text style={[styles.titulo, { color: theme.ink }]} numberOfLines={1} ellipsizeMode="tail" accessibilityRole="header">
                         Etiquetas de {sectionLabel || ''}
@@ -89,26 +88,23 @@ export default function EtiquetasGestionHoja({ visible, catalog, section, sectio
                     <TouchableOpacity accessibilityRole="button" onPress={crear} style={[styles.botonAncho, { backgroundColor: theme.accent }]}>
                         <Text style={[styles.botonTexto, { color: theme.onAccent }]}>Crear</Text>
                     </TouchableOpacity>
-                    <FlatList
+                    <ListaDeHoja
                         data={filas}
                         keyExtractor={(item) => String(item.id)}
                         style={styles.lista}
                         renderItem={renderFila}
-                        keyboardShouldPersistTaps="handled"
                         ListEmptyComponent={<Text style={[styles.vacio, { color: theme.muted }]}>Esta sección todavía no tiene etiquetas.</Text>}
                     />
                     <TouchableOpacity accessibilityRole="button" onPress={onClose} style={[styles.botonAncho, { backgroundColor: theme.raised }]}>
                         <Text style={[styles.botonTexto, { color: theme.ink }]}>Cerrar</Text>
                     </TouchableOpacity>
                 </View>
-            </View>
-        </Modal>
+        </HojaConTeclado>
     );
 }
 
 const styles = StyleSheet.create({
-    contenedor: { flex: 1, justifyContent: 'flex-end' },
-    hoja: { borderTopLeftRadius: RADIUS.sheet, borderTopRightRadius: RADIUS.sheet, paddingHorizontal: 20, paddingTop: 10, maxHeight: '85%' },
+    hoja: { borderTopLeftRadius: RADIUS.sheet, borderTopRightRadius: RADIUS.sheet, paddingHorizontal: 20, paddingTop: 10, paddingBottom: 16, maxHeight: '85%', flexShrink: 1 },
     asa: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, marginBottom: 14 },
     titulo: { fontFamily: FONT.bold, fontSize: 22, lineHeight: 28, marginBottom: 12 },
     input: { borderRadius: RADIUS.sm, padding: 15, borderWidth: 1, fontSize: 16 },

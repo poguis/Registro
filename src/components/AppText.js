@@ -27,6 +27,11 @@ export const Text = forwardRef(function Text({ style, ...props }, ref) {
     return <RNText ref={ref} {...props} style={fontStyle(style)} />;
 });
 
+// Campo de texto con el foco ahora mismo (TextInput.State de React Native), o null. Lo usa
+// HojaConTeclado para llevarlo a la vista; vive aquí porque este es el único archivo que importa
+// TextInput de react-native.
+export const inputConFoco = () => (RNTextInput.State && RNTextInput.State.currentlyFocusedInput ? RNTextInput.State.currentlyFocusedInput() : null);
+
 export const TextInput = forwardRef(function TextInput({ style, placeholderTextColor, selectionColor, cursorColor, ...props }, ref) {
     const { theme } = useTheme();
     return (

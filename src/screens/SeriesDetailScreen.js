@@ -19,6 +19,7 @@ import { watchedCount } from '../entertainment/queue';
 // Fase 7.5: vínculo con Pendiente (alta "De Pendiente" o "Nuevo título"; borrado en los dos lados).
 import { validateNewTitle, SUBTYPE_LABELS } from '../entertainment/link';
 import PendientePicker from '../components/PendientePicker';
+import HojaConTeclado, { ScrollDeHoja } from '../components/HojaConTeclado';
 
 export default function SeriesDetailScreen({ user, category, onBack, onNavigateRegistry }) {
     const { theme } = useTheme();
@@ -623,12 +624,11 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                 onClose={() => setPickerVisible(false)}
             />
 
-            {/* Creation/Edit Modal */}
-            <Modal visible={modalVisible} animationType="slide" transparent={true} onRequestClose={closeForm}>
-                <View style={[styles.modalOverlay, { backgroundColor: theme.overlay }]}>
-                    <View style={[styles.modalContent, { backgroundColor: theme.surface }]}>
+            {/* Formulario de alta/edición (1.4.3: hoja con teclado; ningún campo queda tapado) */}
+            <HojaConTeclado visible={modalVisible} onClose={closeForm} centrada>
+                    <View style={[styles.modalContent, styles.formCard, { backgroundColor: theme.surface }]}>
                         <Text style={[styles.modalTitle, { color: theme.ink }]}>{isEditing ? 'Editar Serie' : 'Añadir Serie'}</Text>
-                        <ScrollView style={{ maxHeight: 400 }}>
+                        <ScrollDeHoja style={{ maxHeight: 400 }}>
                             {formLinkView().chip ? (
                                 <View style={styles.linkRow}>
                                     <View style={[styles.linkChip, { backgroundColor: theme.soft }]}>
@@ -693,7 +693,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                                     <TextInput keyboardType="numeric" style={[styles.input, { color: theme.ink, backgroundColor: theme.raised, borderColor: theme.lineStrong }]} value={String(currentEpisode)} onChangeText={setCurrentEpisode} />
                                 </View>
                             </View>
-                        </ScrollView>
+                        </ScrollDeHoja>
 
                         <View style={styles.modalButtons}>
                             <TouchableOpacity style={[styles.modalButton, { backgroundColor: theme.raised }]} onPress={closeForm}>
@@ -704,8 +704,7 @@ export default function SeriesDetailScreen({ user, category, onBack, onNavigateR
                             </TouchableOpacity>
                         </View>
                     </View>
-                </View>
-            </Modal>
+            </HojaConTeclado>
 
             {/* Progress Grid Modal */}
             <Modal visible={progressModalVisible} animationType="fade" transparent={true}>
@@ -804,6 +803,7 @@ const styles = StyleSheet.create({
     totalText: { fontSize: 12 },
     modalOverlay: { flex: 1, justifyContent: 'center', padding: 20 },
     modalContent: { borderRadius: RADIUS.base, padding: 20, elevation: 5 },
+    formCard: { flexShrink: 1 }, // 1.4.3: dentro de HojaConTeclado, encoge con el teclado abierto
     modalTitle: { fontSize: 20, fontFamily: FONT.bold, marginBottom: 20 },
     // Fase 7.5: marca "Vinculado" y tipo del nuevo título.
     linkRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
