@@ -2,6 +2,8 @@ import { getConnection, type Row } from '../db/connection';
 import { insertRow, updateRow } from './rows';
 import { deleteTitleCascade, setLinkedSeriesName } from './series';
 import { allowedManualStatuses, checkSubtype, compatibleBacklogTypes, selectorCandidates } from '../../entertainment/link';
+import { filterByTags, type TagFilter } from '../../entertainment/tags';
+import { ensureTagsForTitle } from './tags';
 
 // Pendientes (películas, series, anime, lectura).
 // Enumerados canónicos (DECISIONES.md): se validan aquí; en Postgres son CHECK (Fase 2; el
@@ -9,6 +11,9 @@ import { allowedManualStatuses, checkSubtype, compatibleBacklogTypes, selectorCa
 // Fase 7.5: un título puede estar vinculado a una serie (series.backlog_id). Su estado lo mueve la
 // serie (src/data/repositories/series.ts, reflectLinkedBacklogStatus); el borrado va en los dos
 // lados (deleteTitleCascade) y el nombre se mantiene igual al de la serie (D4).
+// Fase 7.5b1: etiquetas (backlog.tags, nombres en forma canónica; catálogo en ./tags.ts). Guardar
+// un título con etiquetas escribe catálogo + título en la misma transacción. franchise queda como
+// columna heredada: no se escribe (el DEFAULT 'Otros' llena las altas) ni se filtra.
 
 const db = () => getConnection();
 
@@ -40,14 +45,16 @@ const checkStatus = (status: string) => {
     if (!BACKLOG_STATUSES.includes(status)) throw new Error(`Estado de pendiente no válido: ${status}`);
 };
 
+// `tags`: nombres elegidos en el formulario (undefined = no se tocan al editar).
 type BacklogInput = {
     type?: string; title: string; year?: number | null; format?: string | null;
-    start_year?: number | null; end_year?: number | null; franchise?: string | null; subtype?: string | null;
+    start_year?: number | null; end_year?: number | null; subtype?: string | null; tags?: string[] | null;
 };
 
 export async function addBacklogItem(userId: string, data: BacklogInput): Promise<string> {
     checkType(data.type as string);
     checkSubtypeOf(data.type as string, data.subtype);
+    const tags = await ensureTagsForTitle(userId, data.type as string, data.tags || []);
     return insertRow('backlog', userId, {
         type: data.type,
         title: data.title,
@@ -56,16 +63,20 @@ export async function addBacklogItem(userId: string, data: BacklogInput): Promis
         format: data.format ?? null,
         start_year: data.start_year ?? null,
         end_year: data.end_year ?? null,
-        franchise: data.franchise || 'Otros',
         subtype: data.subtype ?? null,
+        tags,
     });
 }
 
+const asTagFilter = (f: unknown): TagFilter => (f && typeof f === 'object' ? f as TagFilter : null);
+
 // Fase 7.5: `subtype` filtra la pestaña de lectura ('Todos' = sin filtro); cada fila trae su
 // vínculo (linked_series_id, linked_series_status, linked_category_name).
+// Fase 7.5b1: `tagFilter` ({ keys, none }, E8) reemplaza al filtro de franquicia; se aplica con
+// filterByTags (compara por clave).
 export async function getBacklogItems(
     userId: string, type: string, status: string | null = null,
-    sortBy = 'title', order = 'ASC', franchise = 'Todos', subtype = 'Todos'
+    sortBy = 'title', order = 'ASC', tagFilter: TagFilter | string = null, subtype = 'Todos'
 ): Promise<Row[]> {
     const allowedSortBy = new Set(['title', 'year_start', 'created_at']);
     const safeSortBy = allowedSortBy.has(sortBy) ? sortBy : 'title';
@@ -79,36 +90,27 @@ export async function getBacklogItems(
         query += ' AND b.status = ?';
         params.push(status);
     }
-    if (franchise && franchise !== 'Todos') {
-        query += ' AND b.franchise = ?';
-        params.push(franchise);
-    }
     if (subtype && subtype !== 'Todos') {
         query += ' AND b.subtype = ?';
         params.push(subtype);
     }
-    return db().getAllAsync<Row>(`${query} ORDER BY b.${sortCol} ${safeOrder}`, params);
+    const rows = await db().getAllAsync<Row>(`${query} ORDER BY b.${sortCol} ${safeOrder}`, params);
+    return filterByTags(rows, asTagFilter(tagFilter));
 }
 
-export async function getBacklogCounts(userId: string, type: string, franchise = 'Todos', subtype = 'Todos'): Promise<Record<string, number>> {
+export async function getBacklogCounts(userId: string, type: string, tagFilter: TagFilter | string = null, subtype = 'Todos'): Promise<Record<string, number>> {
     const counts: Record<string, number> = { Pendiente: 0, Mirando: 0, Terminado: 0, Total: 0 };
-    let query = 'SELECT status, COUNT(*) AS count FROM backlog WHERE user_id = ? AND type = ? AND deleted_at IS NULL';
+    let query = 'SELECT status, tags FROM backlog WHERE user_id = ? AND type = ? AND deleted_at IS NULL';
     const params: any[] = [userId, type];
-    if (franchise && franchise !== 'Todos') {
-        query += ' AND franchise = ?';
-        params.push(franchise);
-    }
     if (subtype && subtype !== 'Todos') {
         query += ' AND subtype = ?';
         params.push(subtype);
     }
-    const rows = await db().getAllAsync<Row>(`${query} GROUP BY status`, params);
-    let total = 0;
+    const rows = filterByTags(await db().getAllAsync<Row>(query, params), asTagFilter(tagFilter));
     for (const row of rows) {
-        if (Object.prototype.hasOwnProperty.call(counts, row.status)) counts[row.status] = row.count;
-        total += row.count;
+        if (Object.prototype.hasOwnProperty.call(counts, row.status) && row.status !== 'Total') counts[row.status]++;
     }
-    counts.Total = total;
+    counts.Total = rows.length;
     return counts;
 }
 
@@ -141,19 +143,22 @@ export async function updateBacklogStatus(id: string, status: string): Promise<v
 }
 
 // Edición del título. D4: si está vinculado y cambió el título, el nombre de la serie se actualiza
-// en la misma transacción. El tipo no se edita; el subtipo sí (solo lectura).
+// en la misma transacción. El tipo no se edita; el subtipo sí (solo lectura). Fase 7.5b1: las
+// etiquetas (si vienen) pasan por el catálogo en la misma transacción; franchise no se toca.
 export async function updateBacklogItem(id: string, data: BacklogInput): Promise<void> {
     const item = await getItemWithLink(id);
     if (!item) return;
     checkSubtypeOf(item.type, data.subtype);
+    // Sin `tags` en los datos (otra pantalla), se conservan las que tenía.
+    const tags = data.tags !== undefined ? await ensureTagsForTitle(item.user_id, item.type, data.tags || []) : (item.tags ?? null);
     await updateRow('backlog', id, {
         title: data.title,
         year: data.year ?? null,
         format: data.format ?? null,
         start_year: data.start_year ?? null,
         end_year: data.end_year ?? null,
-        franchise: data.franchise || 'Otros',
         subtype: data.subtype ?? null,
+        tags,
     });
     if (item.linked_series_id && data.title !== item.title) await setLinkedSeriesName(id, data.title);
 }

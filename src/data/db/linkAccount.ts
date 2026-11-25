@@ -1,12 +1,13 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { nowIso } from '../clock';
 import { maybeFail } from '../../services/devFlags';
-import { DOMAIN_TABLES } from './migration3';
+import { SYNCED_DOMAIN_TABLES } from './migration8';
 
 // Vinculación de los datos locales con la cuenta de Google (Fase 3). Operación única:
 //   - copia física previa (si falla, no se toca nada);
 //   - en UNA withExclusiveTransactionAsync: users.id → uid (con email y linked_at) y
-//     user_id → uid en las 15 tablas de dominio;
+//     user_id → uid en las tablas de dominio (las 15 de la migración 2 y, desde la Fase 7.5b1,
+//     backlog_tags: init() siempre migra antes, así que la tabla existe);
 //   - verifica conteos idénticos y 0 filas con user_id ≠ uid; resumen en _migration_log;
 //   - NO encola nada en la outbox (el primer sync de la Fase 5 sube todo) y no cambia updated_at.
 // Una cuenta por dispositivo: con varias cuentas locales, o datos ya vinculados a otro uid,
@@ -63,17 +64,17 @@ export async function linkLocalAccount(
         const linkedAt = nowIso();
 
         const before: Record<string, number> = {};
-        for (const t of DOMAIN_TABLES) {
+        for (const t of SYNCED_DOMAIN_TABLES) {
             before[t] = (await txn.getFirstAsync<{ n: number }>(`SELECT COUNT(*) AS n FROM ${t}`))!.n;
         }
         await txn.runAsync('UPDATE users SET id = ?, email = ?, linked_at = ?, updated_at = ? WHERE id = ?',
             [uid, email, linkedAt, linkedAt, localId]);
-        for (const t of DOMAIN_TABLES) {
+        for (const t of SYNCED_DOMAIN_TABLES) {
             await txn.runAsync(`UPDATE ${t} SET user_id = ? WHERE user_id = ?`, [uid, localId]);
         }
 
         // Verificaciones
-        for (const t of DOMAIN_TABLES) {
+        for (const t of SYNCED_DOMAIN_TABLES) {
             const n = (await txn.getFirstAsync<{ n: number }>(`SELECT COUNT(*) AS n FROM ${t}`))!.n;
             if (n !== before[t]) throw new Error(`Verificación: ${t} tenía ${before[t]} filas y ahora ${n}.`);
             const foreign = (await txn.getFirstAsync<{ n: number }>(`SELECT COUNT(*) AS n FROM ${t} WHERE user_id <> ?`, [uid]))!.n;

@@ -5,6 +5,7 @@ import { migration4 } from '../data/db/migration4';
 import { migration5 } from '../data/db/migration5';
 import { migration6 } from '../data/db/migration6';
 import { migration7 } from '../data/db/migration7';
+import { migration8 } from '../data/db/migration8';
 
 // Migraciones de esquema versionadas con PRAGMA user_version.
 // Reglas: cada migración corre en una transacción exclusiva y sube user_version
@@ -264,6 +265,12 @@ export const MIGRATIONS = [
         description: 'Fase 7.5: vínculo Pendiente ↔ Series/Lectura (series.backlog_id) y subtipo de lectura (backlog.subtype); solo aditiva, no modifica datos',
         requiresBackup: true,
         up: migration7,
+    },
+    {
+        version: 8,
+        description: 'Fase 7.5b1: etiquetas de Pendiente (tabla backlog_tags y columna backlog.tags); solo aditiva, no modifica datos',
+        requiresBackup: true,
+        up: migration8,
     },
 ];
 

@@ -19,6 +19,13 @@ export const getSchema = (db) =>
 
 export const countRows = (db, table) => db.prepare(`SELECT COUNT(*) AS c FROM "${table}"`).get().c;
 
+// Fase 7.5b1: una BD anterior a una tabla sincronizada nueva (p. ej. backlog_tags antes de la
+// migración 8) no la tiene. Para comparar y contar, tabla ausente = 0 filas (y columna ausente =
+// NULL, que ya da toRemote). Sirve para cualquier conexión con .prepare(sql).get/.all (node:sqlite).
+export const hasTable = (db, table) =>
+    !!db.prepare("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
+export const rowsOrEmpty = (db, table, sql = `SELECT * FROM "${table}"`) => (hasTable(db, table) ? db.prepare(sql).all() : []);
+
 export const countAll = (db) => Object.fromEntries(listTables(db).map((t) => [t, countRows(db, t)]));
 
 // node:sqlite devuelve objetos con prototipo nulo; se normalizan a objetos planos.

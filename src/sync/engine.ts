@@ -10,7 +10,7 @@ import type { Transport, RemoteError, RemoteRow, SessionState } from './transpor
 
 // Motor de sincronización (Fase 4). Puro respecto de la UI y del transporte: lo usan la app
 // (SupabaseTransport) y las pruebas en PC (PgliteTransport). Reglas (docs/MAPEO-SYNC.md):
-//   - Orden: primero push de la outbox, luego pull de las 15 tablas (padres antes que hijos).
+//   - Orden: primero push de la outbox, luego pull de las tablas de TABLES (padres antes que hijos).
 //   - Push: estado ACTUAL de cada fila, upsert por id en lotes; se borran de la outbox SOLO las
 //     entradas leídas y confirmadas (por su id), así una edición hecha durante el push no se
 //     pierde. Nunca se descarta una entrada: transitorio → backoff; permanente → bloqueada.
@@ -483,7 +483,7 @@ export async function syncWithWatchdog(cfg: SyncConfig, transport: Transport, ti
 
 // ---------------------------------------------------------------- primera subida (Fase 5)
 // Las filas migradas (Fase 1) y las vinculadas (Fase 3) nunca entraron en la outbox. La primera
-// subida encola TODAS las filas (vivas y tombstones) de las 15 tablas, en orden de dependencias y
+// subida encola TODAS las filas (vivas y tombstones) de las tablas de TABLES, en orden de dependencias y
 // sin duplicar entradas pendientes o bloqueadas; después el mismo motor las sube.
 
 // Encola dentro de la transacción en curso. Devuelve, por tabla, filas totales y encoladas.

@@ -16,13 +16,16 @@
 --
 -- Fuentes de los valores esperados: supabase/migrations/ (1/4 función, 2/4 tablas y FK,
 -- 3/4 triggers, 4/4 RLS y grants), DECISIONES.md (Seguridad, Sincronización) y docs/MAPEO-SYNC.md.
+-- Fase 7.5b1: suma la tabla sincronizada backlog_tags (20261124000100_etiquetas.sql) a `tablas` y
+-- `duenos` (#22, #23, #29). Los estrictos no cambian (son genéricos sobre public); el informativo
+-- #22 pasa a contar 16 tablas. Nombra backlog_tags: corre DESPUÉS de aplicar esa migración.
 
 with
 tablas(t) as (
     values ('finance_contacts'), ('finance_transactions'), ('balance_history'), ('finance_categories'),
            ('services'), ('entertainment_categories'), ('entertainment_pauses'),
            ('entertainment_quotas_history'), ('series'), ('seasons'), ('watch_history'),
-           ('reading_history'), ('backlog'), ('work_people'), ('cards')
+           ('reading_history'), ('backlog'), ('work_people'), ('cards'), ('backlog_tags')
 ),
 pub as (
     select oid from pg_namespace where nspname = 'public'
@@ -75,6 +78,7 @@ duenos(user_id) as (
     union all select user_id from public.backlog
     union all select user_id from public.work_people
     union all select user_id from public.cards
+    union all select user_id from public.backlog_tags
 ),
 rolcfg as (
     select rolname, coalesce(array_to_string(rolconfig, ', '), '') as cfg,
@@ -156,12 +160,12 @@ chequeos(orden, chequeo, valor, esperado) as (
         coalesce((select cfg from rolcfg where rolname = 'anon'), '(sin rol)'), null
     union all select 21, 'service_role: existe · rolbypassrls · rolcanlogin (ítem 6 de la Fase 2)',
         coalesce((select 'sí · ' || rolbypassrls::text || ' · ' || rolcanlogin::text from pg_roles where rolname = 'service_role'), 'no'), null
-    union all select 22, 'service_role: privilegios en las 15 tablas (tablas con alguno · tipos)',
+    union all select 22, 'service_role: privilegios en las 16 tablas (tablas con alguno · tipos)',
         (select count(distinct relname) || ' · ' || coalesce(string_agg(distinct privilege_type, ',' order by privilege_type), '')
            from rel_acl, roles where grantee = roles.service_role and relname in (select t from tablas)), null
 
     -- H. FK y triggers (migraciones 2/4 y 3/4)
-    union all select 23, 'tablas de las 15 sin FK user_id → auth.users(id) ON DELETE CASCADE (lista)',
+    union all select 23, 'tablas de las 16 sin FK user_id → auth.users(id) ON DELETE CASCADE (lista)',
         coalesce((select string_agg(t, ', ' order by t) from tablas
           where not exists (
             select 1 from pg_constraint con

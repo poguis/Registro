@@ -1,10 +1,13 @@
-// Mapeo SQLite ↔ Postgres de las 15 tablas sincronizables (docs/MAPEO-SYNC.md).
+// Mapeo SQLite ↔ Postgres de las 16 tablas sincronizables (docs/MAPEO-SYNC.md).
 // Único lugar con estas reglas: lo usan el motor de sync, los repositorios (redondeo de
 // dinero) y los scripts de prueba. Sin dependencias de React ni de SQLite.
+import { canonicalTags, parseTagsStrict } from '../entertainment/tags';
 
+// 'tags' (Fase 7.5b1): backlog.tags, TEXT con un JSON array de nombres ↔ jsonb; siempre en la forma
+// canónica de src/entertainment/tags.ts (sin repetir por clave, ordenados por clave, vacío → NULL).
 export type Kind =
     | 'uuid' | 'text' | 'int' | 'money' | 'iso' | 'date'
-    | 'epoch_ms' | 'epoch_ms_or_zero' | 'days_of_week' | 'json_object' | 'json_array';
+    | 'epoch_ms' | 'epoch_ms_or_zero' | 'days_of_week' | 'json_object' | 'json_array' | 'tags';
 
 // Tipos por columna (las comunes: id/user_id uuid; created_at/updated_at/deleted_at iso).
 const COMMON: Record<string, Kind> = { id: 'uuid', user_id: 'uuid', created_at: 'iso', updated_at: 'iso', deleted_at: 'iso' };
@@ -22,7 +25,9 @@ export const COLUMNS: Record<string, Record<string, Kind>> = {
     // Fase 7.5: backlog va ANTES que series (series.backlog_id → backlog) para que el push suba el
     // título antes que la serie y el pull lo baje antes. subtype (migración local 7 / Supabase
     // 20261122000100): subtipo de lectura 'book' | 'comic' | 'manga'; NULL fuera de lectura.
-    backlog: { type: 'text', title: 'text', status: 'text', year: 'int', format: 'text', start_year: 'int', end_year: 'int', franchise: 'text', subtype: 'text' },
+    // tags (Fase 7.5b1, migración local 8 / Supabase 20261124000100): nombres de las etiquetas.
+    // franchise queda como columna heredada: la pantalla ya no la muestra ni la escribe.
+    backlog: { type: 'text', title: 'text', status: 'text', year: 'int', format: 'text', start_year: 'int', end_year: 'int', franchise: 'text', subtype: 'text', tags: 'tags' },
     // backlog_id (Fase 7.5): título de Pendiente vinculado; NULL = serie sin vínculo.
     series: {
         category_id: 'uuid', name: 'text', description: 'text', status: 'text', current_season: 'int', current_episode: 'int',
@@ -34,6 +39,9 @@ export const COLUMNS: Record<string, Record<string, Kind>> = {
     reading_history: { series_id: 'uuid', season_number: 'int', episode_number: 'int', read_at: 'epoch_ms' },
     work_people: { name: 'text', start_date: 'date', cycle: 'json_array', sort_order: 'int' },
     cards: { name: 'text', type: 'text', cutoff_date: 'int', payment_due_date: 'int', limit_amount: 'money' },
+    // Fase 7.5b1: catálogo de etiquetas de Pendiente. AL FINAL: no tiene FK de dominio y, si la app
+    // encuentra un servidor sin esta tabla, el fallo de su pull llega después de bajar las demás.
+    backlog_tags: { section: 'text', name: 'text', name_key: 'text' },
 };
 // Orden de dependencias: padres antes que hijos (push, pull y primera subida).
 export const TABLES = Object.keys(COLUMNS);
@@ -56,10 +64,12 @@ export const PARENT_FKS: Record<string, { column: string; parent: string }[]> = 
 
 // Claves naturales (UNIQUE en SQLite y en Postgres). Nada referencia estas filas por id
 // (balance_history guarda la categoría como texto; los historiales usan series_id +
-// season_number), así que su id se puede reemplazar al fusionar.
+// season_number; backlog.tags guarda los nombres de las etiquetas), así que su id se puede
+// reemplazar al fusionar. backlog_tags (Fase 7.5b1): name_key = nombre sin distinguir mayúsculas.
 export const NATURAL_KEYS: Record<string, string[]> = {
     finance_categories: ['user_id', 'name'],
     seasons: ['series_id', 'season_number'],
+    backlog_tags: ['user_id', 'section', 'name_key'],
 };
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -157,6 +167,11 @@ export function toRemoteValue(kind: Kind, value: any, row: Record<string, any>):
             if (Array.isArray(parsed)) return parsed;
             throw new MappingError('JSON array esperado');
         }
+        case 'tags': {
+            let list: string[] | null;
+            try { list = parseTagsStrict(value); } catch { throw new MappingError('tags: array de strings esperado'); }
+            return canonicalTags(list);
+        }
         default:
             throw new MappingError(`tipo desconocido: ${kind}`);
     }
@@ -192,6 +207,12 @@ export function fromRemoteValue(kind: Kind, value: any): any {
         case 'json_object':
         case 'json_array':
             return JSON.stringify(typeof value === 'string' ? JSON.parse(value) : value);
+        case 'tags': {
+            // Se canoniza con la regla de este dispositivo: el pull nunca encola, así que no hay
+            // idas y vueltas aunque otro dispositivo hubiera guardado otro orden.
+            const c = canonicalTags(typeof value === 'string' ? JSON.parse(value) : value);
+            return c ? JSON.stringify(c) : null;
+        }
         default:
             throw new MappingError(`tipo desconocido: ${kind}`);
     }
@@ -218,7 +239,11 @@ export function sameAsLocal(table: string, local: Record<string, any>, remoteAsL
         if (only && !only.includes(c)) continue;
         const a = local[c] ?? null;
         const b = remoteAsLocal[c] ?? null;
-        if (kind === 'days_of_week' || kind === 'json_object' || kind === 'json_array') {
+        if (kind === 'tags') {
+            const ca = (() => { try { return JSON.stringify(canonicalTags(a === null ? null : JSON.parse(a))); } catch { return String(a); } })();
+            const cb = (() => { try { return JSON.stringify(canonicalTags(b === null ? null : JSON.parse(b))); } catch { return String(b); } })();
+            if (ca !== cb) return false;
+        } else if (kind === 'days_of_week' || kind === 'json_object' || kind === 'json_array') {
             if (canonicalJson(a) !== canonicalJson(b)) return false;
         } else if (kind === 'money' || kind === 'int' || kind === 'epoch_ms' || kind === 'epoch_ms_or_zero') {
             if ((a === null) !== (b === null) || (a !== null && Number(a) !== Number(b))) return false;

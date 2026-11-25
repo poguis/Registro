@@ -1,5 +1,8 @@
-// Compara el contenido SINCRONIZABLE de dos BD de la app (Fase 5): las 15 tablas que van al
-// servidor; excluye users, outbox, sync_state, sync_meta, _id_map, _migration_log y legacy_*.
+// Compara el contenido SINCRONIZABLE de dos BD de la app (Fase 5): las tablas que van al servidor
+// (TABLES de src/sync/mapping.ts: 16 desde la Fase 7.5b1); excluye users, outbox, sync_state,
+// sync_meta, _id_map, _migration_log y legacy_*. Una tabla que la BD todavía no tiene (backlog_tags
+// en una v7) cuenta como 0 filas, y una columna que no tiene, como NULL: una v7 y una v8 recién
+// migrada con los mismos datos salen idénticas.
 // Solo lectura. Nunca imprime contenido de filas: conteos, huellas SHA-256 y UUID.
 //
 // Uso: node scripts/comparar-sync.mjs --a <a.db> --b <b.db> [--etiqueta X] [--ignorar-fechas-categorias]
@@ -14,7 +17,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { openReadOnly } from './lib/sqlite-utils.mjs';
+import { openReadOnly, rowsOrEmpty } from './lib/sqlite-utils.mjs';
 import './lib/ts-esm-hook.mjs';
 // src/ se carga después del hook (sin aviso MODULE_TYPELESS_PACKAGE_JSON, Fase 6.5).
 const { TABLES, toRemote, toCents } = await import('../src/sync/mapping.ts');
@@ -28,7 +31,7 @@ export function snapshotDb(path, { ignoreCategoryDates = false } = {}) {
     const out = { tables: {}, errors: [], balanceCents: 0n };
     try {
         for (const t of TABLES) {
-            const rows = db.prepare(`SELECT * FROM ${t} ORDER BY id`).all().map((r) => Object.fromEntries(Object.entries(r)));
+            const rows = rowsOrEmpty(db, t, `SELECT * FROM ${t} ORDER BY id`).map((r) => Object.fromEntries(Object.entries(r)));
             const byId = new Map();
             let live = 0;
             for (const r of rows) {
@@ -93,7 +96,7 @@ export function printReport({ a, b, result }, label = '') {
     }
     console.log(`saldo (SUM de balance_history vivos) igual en A y B: ${result.balanceEqual ? 'sí' : 'NO'}`);
     const errors = a.errors.length + b.errors.length;
-    console.log(errors ? `\n${errors} fila(s) no se pudieron normalizar.` : result.identical ? '\nIDÉNTICAS en las 15 tablas.' : '\nDIFIEREN (ver arriba).');
+    console.log(errors ? `\n${errors} fila(s) no se pudieron normalizar.` : result.identical ? `\nIDÉNTICAS en las ${TABLES.length} tablas.` : '\nDIFIEREN (ver arriba).');
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

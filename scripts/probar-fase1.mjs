@@ -115,7 +115,8 @@ const pO = prepare('outbox', fixtureOSalir('emulador-checklist'));
 const ro = await open(pO);
 const svc = ro.svc;
 const raw = new DatabaseSync(pO, { readOnly: true });
-const SYNC_TABLES = MIGRATED_TABLES.filter((t) => t !== 'users');
+// Fase 7.5b1: + backlog_tags (migración 8; la BD de prueba ya está en la última versión aquí).
+const SYNC_TABLES = [...MIGRATED_TABLES.filter((t) => t !== 'users'), 'backlog_tags'];
 const stateOf = () => {
     const m = new Map();
     for (const t of SYNC_TABLES) for (const r of raw.prepare(`SELECT id, updated_at, deleted_at FROM ${t}`).all()) m.set(`${t}:${r.id}`, `${r.updated_at}|${r.deleted_at}`);
@@ -189,6 +190,11 @@ await op('updateBacklogStatus', () => svc.updateBacklogStatus(bl.id, 'Terminado'
 check('updateBacklogStatus rechaza un estado no canónico', (await quiet(() => svc.updateBacklogStatus(bl.id, 'Visto'))).result.success === false);
 await op('updateBacklogItem', () => svc.updateBacklogItem(bl.id, { title: 'T2' }));
 await op('deleteBacklogItem', () => svc.deleteBacklogItem(bl.id));
+// Fase 7.5b1: mutaciones del catálogo de etiquetas (filas cambiadas = entradas de outbox).
+await op('createBacklogTag', () => svc.createBacklogTag(user, 'anime', 'Etiqueta prueba'));
+const etq = firstOf("SELECT id FROM backlog_tags WHERE user_id = ? AND name_key = 'etiqueta prueba' AND deleted_at IS NULL", user);
+await op('renameBacklogTag', () => svc.renameBacklogTag(etq.id, 'Etiqueta renombrada'));
+await op('deleteBacklogTag', () => svc.deleteBacklogTag(etq.id));
 const wp = await op('addWorkPerson', () => svc.addWorkPerson(user, 'P', '2026-01-01', '[{"type":"dia","days":1}]'));
 await op('updateWorkPersonOrder', () => svc.updateWorkPersonOrder(wp.id, 9));
 await op('updateWorkPerson', () => svc.updateWorkPerson(wp.id, 'P2', '2026-01-02', '[{"type":"noche","days":2}]'));

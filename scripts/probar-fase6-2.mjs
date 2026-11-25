@@ -162,6 +162,8 @@ function esperado(escala) {
         services: n(30), entertainment_categories: n(10, 2), entertainment_pauses: n(100), entertainment_quotas_history: n(100),
         series, seasons: 4 * series, watch_history: n(50000), reading_history: n(10000), backlog: n(2000),
         work_people: n(20), cards: n(10, 2),
+        // Fase 7.5b1: la siembra de la 6.2 (01-sembrar-volumen.sql, histórica) no incluye la tabla nueva.
+        backlog_tags: 0,
     };
 }
 

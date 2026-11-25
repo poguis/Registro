@@ -9,7 +9,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { openReadOnly } from './lib/sqlite-utils.mjs';
+import { openReadOnly, hasTable, rowsOrEmpty } from './lib/sqlite-utils.mjs';
 import './lib/ts-esm-hook.mjs';
 // src/ se carga después del hook (sin aviso MODULE_TYPELESS_PACKAGE_JSON, Fase 6.5).
 const { TABLES } = await import('../src/sync/mapping.ts');
@@ -28,8 +28,11 @@ if (conteosIndex >= 0) {
     let total = 0, live = 0;
     console.log('tabla | total | vivos | borrados | usuarios_distintos');
     for (const t of TABLES) {
-        const r = db.prepare(`SELECT COUNT(*) AS total, COALESCE(SUM(deleted_at IS NULL), 0) AS vivos, COUNT(DISTINCT user_id) AS u FROM ${t}`).get();
-        for (const u of db.prepare(`SELECT DISTINCT user_id FROM ${t}`).all()) users.add(u.user_id);
+        // Fase 7.5b1: un respaldo anterior a una tabla nueva (backlog_tags antes de la v8) cuenta 0.
+        const r = hasTable(db, t)
+            ? db.prepare(`SELECT COUNT(*) AS total, COALESCE(SUM(deleted_at IS NULL), 0) AS vivos, COUNT(DISTINCT user_id) AS u FROM ${t}`).get()
+            : { total: 0, vivos: 0, u: 0 };
+        for (const u of rowsOrEmpty(db, t, `SELECT DISTINCT user_id FROM ${t}`)) users.add(u.user_id);
         total += r.total; live += r.vivos;
         console.log(`${t} | ${r.total} | ${r.vivos} | ${r.total - r.vivos} | ${r.u}`);
     }

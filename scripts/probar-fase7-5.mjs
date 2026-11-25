@@ -388,7 +388,10 @@ seccion('4. Comprobación estática: punto único de escritura (series y status/
     archivos.push('App.js');
     const REGLAS = {
         series: { insertRow: ['insertSeriesRow'], updateRow: ['updateSeriesRow'], reviveRow: [], softDelete: ['deleteSeriesRows'], softDeleteWhere: [] },
-        backlog: { insertRow: ['addBacklogItem', 'insertLinkedBacklogTitle'], updateRow: ['writeBacklogStatus', 'updateBacklogStatus', 'setLinkedBacklogTitle', 'updateBacklogItem'], reviveRow: [], softDelete: ['softDeleteLinkedTitle'], softDeleteWhere: [] },
+        // Fase 7.5b1: rewriteTitles (src/data/repositories/tags.ts) reescribe SOLO backlog.tags al
+        // renombrar o borrar una etiqueta (objeto literal; esta misma regla comprueba que no toca
+        // status ni title).
+        backlog: { insertRow: ['addBacklogItem', 'insertLinkedBacklogTitle'], updateRow: ['writeBacklogStatus', 'updateBacklogStatus', 'setLinkedBacklogTitle', 'updateBacklogItem', 'rewriteTitles'], reviveRow: [], softDelete: ['softDeleteLinkedTitle'], softDeleteWhere: [] },
     };
     const CON_STATUS = ['writeBacklogStatus', 'updateBacklogStatus'];
     // Corrección de la 7.5: quién puede llamar a las escrituras internas. El estado de un título
@@ -806,7 +809,8 @@ seccion(`9. Migración 7 sobre una BD v6 de la app 1.3.9 (${REF_VIEJA}); series 
     const fkLocal = (await dev.svc.db.getAllAsync('PRAGMA foreign_key_list(series)')).some((f) => f.from === 'backlog_id');
     tabla('migración 7', [{
         caso: 'v6 con datos → v7',
-        esperado: { uv6: 6, falla: { abre: false, uv: 6, cols: false }, migra: { uv: 7, cols: true }, copia: ['pre-migracion-v7'], conteosIguales: true, valoresNulos: 0, fkLocalBacklogId: false, latest: 7 },
+        // Desde la 7.5b1 la apertura sigue hasta LATEST_VERSION (8): copias v7 y v8 (como probar-fase7-4b en la 7.5).
+        esperado: { uv6: 6, falla: { abre: false, uv: 6, cols: false }, migra: { uv: LATEST_VERSION, cols: true }, copia: Array.from({ length: LATEST_VERSION - 6 }, (_, i) => `pre-migracion-v${7 + i}`), conteosIguales: true, valoresNulos: 0, fkLocalBacklogId: false, latest: LATEST_VERSION },
         obtenido: { uv6, falla: { abre: abrio, ...leer(falla) }, migra: leer(migra), copia: copias, conteosIguales: !!p7 && igual(p7.before, p7.after), valoresNulos: nulos, fkLocalBacklogId: fkLocal, latest: LATEST_VERSION },
     }]);
     // Series sin vínculo (heredadas): misma cola que en la 1.3.9 y siguen funcionando sin tocar Pendiente.
@@ -845,7 +849,7 @@ seccion(`9. Migración 7 sobre una BD v6 de la app 1.3.9 (${REF_VIEJA}); series 
         const meta = JSON.parse(readFileSync(bk.json.path, 'utf8')).meta;
         return { ok: res.status === 0 && /Respaldo válido/.test(res.stdout), uv: meta.userVersion };
     };
-    tabla('validar-respaldo', [{ caso: 'respaldos v6 y v7', esperado: [{ ok: true, uv: 6 }, { ok: true, uv: 7 }], obtenido: [await validar(v6b, 'v6'), await validar(migra2, 'v7')] }]);
+    tabla('validar-respaldo', [{ caso: `respaldos v6 y v${LATEST_VERSION}`, esperado: [{ ok: true, uv: 6 }, { ok: true, uv: LATEST_VERSION }], obtenido: [await validar(v6b, 'v6'), await validar(migra2, 'v7')] }]);
 }
 
 // =============================================================================================
@@ -864,7 +868,8 @@ seccion('10. Supabase: migración 6, privilegios, verificar-fase7-5.sql y audita
 {
     const S = await servidor({ conNueva: false });
     const todasM = readdirSync('supabase/migrations').filter((x) => x.endsWith('.sql')).sort();
-    check('la migración nueva es la última (6.ª) del directorio', todasM.at(-1) === MIGRACION_NUEVA && todasM.length === 6 && S.files.length === 5);
+    // Desde la 7.5b1 ya no es la última (le sigue 20261124000100_etiquetas.sql): el servidor viejo es "todas menos ella".
+    check('la migración nueva está en el directorio (6.ª) y el servidor viejo tiene todas menos ella', todasM[5] === MIGRACION_NUEVA && S.files.length === todasM.length - 1 && !S.files.includes(MIGRACION_NUEVA));
     const sqlMig = readFileSync(`supabase/migrations/${MIGRACION_NUEVA}`, 'utf8').replace(/--.*$/gm, '');
     // Fuera de las líneas de grant/revoke (que nombran privilegios como "update").
     const sinGrants = sqlMig.split('\n').filter((l) => !/^\s*(grant|revoke)\b/i.test(l)).join('\n');
@@ -1336,7 +1341,9 @@ seccion('17. Borrar una categoría: todo lo demás igual que en c2c42c2');
         const s1 = (await svc.getSeriesByCategory(cat)).series.find((s) => s.name === 'S1');
         await quiet(() => svc.markEpisodesWatched(s1.id, 'video', [{ season: 1, episode: 1 }, { season: 1, episode: 2 }], { season: 2, episode: 1, status: 'Mirando' }, Date.now()));
         if (conVinculo) await quiet(() => svc.addSeriesWithSeasons({ category_id: cat, name: 'Ligada', description: '', status: 'Nueva', current_season: 1, current_episode: 1, total_seasons: 1 }, [{ season_number: 1, episode_count: 2 }], { newTitle: { type: 'series', subtype: null, start_year: null } }));
-        const vivos = async () => Object.fromEntries(await Promise.all(TABLES.map(async (t) => [t, (await svc.db.getFirstAsync(`SELECT COUNT(*) n FROM ${t} WHERE deleted_at IS NULL`)).n])));
+        // Fase 7.5b1: la app c2c42c2 no tiene backlog_tags (TABLES es el de la app actual): tabla ausente = 0.
+        const existe = async (t) => !!(await svc.db.getFirstAsync("SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = ?", [t]));
+        const vivos = async () => Object.fromEntries(await Promise.all(TABLES.map(async (t) => [t, (await existe(t)) ? (await svc.db.getFirstAsync(`SELECT COUNT(*) n FROM ${t} WHERE deleted_at IS NULL`)).n : 0])));
         await svc.db.runAsync('DELETE FROM outbox');
         const antes = await vivos();
         const r = await quiet(() => svc.deleteEntertainmentCategory(cat));

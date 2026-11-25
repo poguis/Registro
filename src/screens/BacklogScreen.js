@@ -9,8 +9,16 @@ import { useTheme, FONT, RADIUS } from '../contexts/ThemeContext';
 // Fase 7.5: vínculo con Series/Lectura (estado que mueve la serie, borrado en los dos lados) y
 // subtipo de lectura.
 import { nextManualStatus, needsFinishConfirm, isLinked, linkLabel, validateBacklogForm, SUBTYPE_LABELS } from '../entertainment/link';
+// Fase 7.5b1: etiquetas por sección (E6–E8). La franquicia ya no se muestra, no se filtra ni se escribe.
+import { parseTags, sortForDisplay, isTagFilterActive, deleteTagText, tagKey, TAG_ERROR_TEXTS } from '../entertainment/tags';
+import EtiquetasCampo from '../components/EtiquetasCampo';
+import EtiquetasFiltroHoja from '../components/EtiquetasFiltroHoja';
+import EtiquetasGestionHoja from '../components/EtiquetasGestionHoja';
 
 const { width } = Dimensions.get('window');
+
+const FORM_VACIO = { title: '', year: '', format: '24 min', start_year: '', end_year: '', subtype: null, tags: [] };
+const FILTRO_VACIO = { keys: [], none: false };
 
 // Cada tipo tiene un tono del tema (theme.tones) como color de identidad.
 const CATEGORIES = [
@@ -40,48 +48,101 @@ export default function BacklogScreen({ user, onBack }) {
     const [modalVisible, setModalVisible] = useState(false);
     const [filterModalVisible, setFilterModalVisible] = useState(false);
     const [editingItem, setEditingItem] = useState(null);
-    const [activeFranchise, setActiveFranchise] = useState('Todos');
     const [activeSubtype, setActiveSubtype] = useState('Todos'); // Fase 7.5: filtro de la pestaña Lectura
+    // Fase 7.5b1: filtro por etiquetas (E8), catálogo (todas las secciones) y hojas de filtro y gestión.
+    const [tagFilter, setTagFilter] = useState(FILTRO_VACIO);
+    const [catalog, setCatalog] = useState([]);
+    const [tagUsage, setTagUsage] = useState({});
+    const [tagFilterVisible, setTagFilterVisible] = useState(false);
+    const [tagManagerVisible, setTagManagerVisible] = useState(false);
 
     // Sort states
     const [sortBy, setSortBy] = useState('created_at'); // 'title', 'year_start', 'created_at'
     const [order, setOrder] = useState('DESC'); // 'ASC', 'DESC'
 
     // Form state
-    const [formData, setFormData] = useState({
-        title: '',
-        year: '',
-        format: '24 min',
-        start_year: '',
-        end_year: '',
-        franchise: 'Otros',
-        subtype: null,
-    });
+    const [formData, setFormData] = useState(FORM_VACIO);
 
     useEffect(() => {
         loadItems();
-    }, [activeTab, activeStatus, sortBy, order, activeFranchise, activeSubtype]);
+    }, [activeTab, activeStatus, sortBy, order, tagFilter, activeSubtype]);
     // Recarga si la sync trae cambios del servidor (sin tocar formularios, filtros ni scroll).
     useSyncRefresh(() => loadItems());
 
     useEffect(() => {
-        setActiveFranchise('Todos');
         setActiveSubtype('Todos');
+        setTagFilter(FILTRO_VACIO);
     }, [activeTab]);
 
     const loadItems = async () => {
         setLoading(true);
         // Load items
-        const res = await db.getBacklogItems(user.id, activeTab, activeStatus, sortBy, order, activeFranchise, activeSubtype);
+        const res = await db.getBacklogItems(user.id, activeTab, activeStatus, sortBy, order, tagFilter, activeSubtype);
         if (res.success) {
             setItems(res.data);
         }
         // Load counts
-        const countsRes = await db.getBacklogCounts(user.id, activeTab, activeFranchise, activeSubtype);
+        const countsRes = await db.getBacklogCounts(user.id, activeTab, tagFilter, activeSubtype);
         if (countsRes.success) {
             setCounts(countsRes.counts);
         }
+        const tagsRes = await db.getBacklogTags(user.id);
+        if (tagsRes.success) {
+            setCatalog(tagsRes.data);
+        }
         setLoading(false);
+    };
+
+    const loadTagUsage = async () => {
+        const res = await db.getBacklogTagUsage(user.id, activeTab);
+        if (res.success) setTagUsage(res.usage);
+    };
+
+    const openTagManager = async () => {
+        await loadTagUsage();
+        setTagManagerVisible(true);
+    };
+
+    // Gestión de etiquetas (E6). Devuelven true si se aplicó el cambio.
+    const handleCreateTag = async (name) => {
+        const res = await db.createBacklogTag(user.id, activeTab, name);
+        if (!res.success) { informar('Etiqueta', TAG_ERROR_TEXTS[res.code] || 'No se pudo crear la etiqueta.'); return false; }
+        await loadItems();
+        return true;
+    };
+
+    const handleRenameTag = async (tag, name) => {
+        const res = await db.renameBacklogTag(tag.id, name);
+        if (!res.success) { informar('Etiqueta', TAG_ERROR_TEXTS[res.code] || 'No se pudo renombrar la etiqueta.'); return false; }
+        // El filtro sigue a la etiqueta renombrada (compara por clave).
+        if (tagFilter.keys.includes(tag.name_key)) {
+            setTagFilter({ ...tagFilter, keys: tagFilter.keys.map((k) => (k === tag.name_key ? tagKey(name) : k)) });
+        } else {
+            await loadItems();
+        }
+        await loadTagUsage();
+        return true;
+    };
+
+    const handleDeleteTag = async (tag) => {
+        const clave = await confirm({
+            titulo: `Borrar «${tag.name}»`,
+            mensaje: deleteTagText((tagUsage && tagUsage[tag.name_key]) || 0),
+            acciones: [
+                { clave: 'cancelar', texto: 'Cancelar', variante: 'cancelar' },
+                { clave: 'borrar', texto: 'Borrar', variante: 'destructiva' },
+            ],
+        });
+        if (clave !== 'borrar') return false;
+        const res = await db.deleteBacklogTag(tag.id);
+        if (!res.success) { informar('Etiqueta', 'No se pudo borrar la etiqueta.'); return false; }
+        if (tagFilter.keys.includes(tag.name_key)) {
+            setTagFilter({ ...tagFilter, keys: tagFilter.keys.filter((k) => k !== tag.name_key) });
+        } else {
+            await loadItems();
+        }
+        await loadTagUsage();
+        return true;
     };
 
     const handleAddItem = async () => {
@@ -103,7 +164,7 @@ export default function BacklogScreen({ user, onBack }) {
             if (res.success) {
                 setModalVisible(false);
                 setEditingItem(null);
-                setFormData({ title: '', year: '', format: '24 min', start_year: '', end_year: '', franchise: 'Otros', subtype: null });
+                setFormData(FORM_VACIO);
                 loadItems();
             } else {
                 informar('Error', 'No se pudo actualizar');
@@ -112,7 +173,7 @@ export default function BacklogScreen({ user, onBack }) {
             const res = await db.addBacklogItem(user.id, data);
             if (res.success) {
                 setModalVisible(false);
-                setFormData({ title: '', year: '', format: '24 min', start_year: '', end_year: '', franchise: 'Otros', subtype: null });
+                setFormData(FORM_VACIO);
                 setActiveStatus('Pendiente');
                 loadItems();
             } else {
@@ -129,8 +190,8 @@ export default function BacklogScreen({ user, onBack }) {
             format: item.format || '24 min',
             start_year: item.start_year ? item.start_year.toString() : '',
             end_year: item.end_year ? item.end_year.toString() : '',
-            franchise: item.franchise || 'Otros',
             subtype: item.subtype || null,
+            tags: parseTags(item.tags),
         });
         setModalVisible(true);
     };
@@ -209,13 +270,14 @@ export default function BacklogScreen({ user, onBack }) {
                     </View>
                 )}
 
+                {parseTags(item.tags).length > 0 && (
+                    <Text style={[styles.tagsLine, { color: theme.accent }]} numberOfLines={1} ellipsizeMode="tail">
+                        🏷️ {sortForDisplay(parseTags(item.tags)).join(' · ')}
+                    </Text>
+                )}
+
                 <View style={styles.cardFooter}>
                     <View style={styles.metadataContainer}>
-                        {item.franchise && item.franchise !== 'Otros' && (
-                            <Text numberOfLines={1} style={[styles.itemSubtext, { color: item.franchise === 'Marvel' ? theme.tones.rojo.fg : theme.tones.azul.fg, fontFamily: FONT.bold }]}>
-                                {item.franchise === 'Marvel' ? '🦸‍♂️ Marvel' : '🦇 DC Comics'}
-                            </Text>
-                        )}
                         {activeTab === 'movie' && item.year && (
                             <Text numberOfLines={1} style={[styles.itemSubtext, { color: theme.muted }]}>🎬 {item.year}</Text>
                         )}
@@ -301,33 +363,28 @@ export default function BacklogScreen({ user, onBack }) {
                 </ScrollView>
             </View>
 
-            {/* Franchise Tabs (For Movie/Series) */}
-            {(activeTab === 'movie' || activeTab === 'series') && (
-                <View style={[styles.tabsContainer, { paddingTop: 0, paddingBottom: 10 }]}>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.tabsScroll, { flexGrow: 1, justifyContent: 'center' }]}>
-                        {['Todos', 'Marvel', 'DC Comics', 'Otros'].map(franchise => (
-                            <TouchableOpacity
-                                key={franchise}
-                                style={[
-                                    styles.franchiseTab,
-                                    { 
-                                        backgroundColor: activeFranchise === franchise ? theme.accent : theme.raised, 
-                                        borderColor: activeFranchise === franchise ? theme.accent : theme.lineStrong 
-                                    }
-                                ]}
-                                onPress={() => setActiveFranchise(franchise)}
-                            >
-                                <Text style={[
-                                    styles.franchiseLabel,
-                                    { color: activeFranchise === franchise ? theme.onAccent : theme.ink }
-                                ]}>
-                                    {franchise}
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
-                    </ScrollView>
-                </View>
-            )}
+            {/* Fase 7.5b1: filtro por etiquetas (E8) y gestión (E6), en las 4 secciones */}
+            <View style={styles.tagBar}>
+                <TouchableOpacity
+                    accessibilityRole="button"
+                    style={[styles.tagBarBtn, {
+                        backgroundColor: isTagFilterActive(tagFilter) ? theme.accent : theme.raised,
+                        borderColor: isTagFilterActive(tagFilter) ? theme.accent : theme.lineStrong,
+                    }]}
+                    onPress={() => setTagFilterVisible(true)}
+                >
+                    <Text style={[styles.tagBarLabel, { color: isTagFilterActive(tagFilter) ? theme.onAccent : theme.ink }]} numberOfLines={1}>
+                        {tagFilter.none ? 'Sin etiquetas' : tagFilter.keys.length > 0 ? `Filtrar (${tagFilter.keys.length})` : 'Filtrar'}
+                    </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                    accessibilityRole="button"
+                    style={[styles.tagBarBtn, { backgroundColor: theme.raised, borderColor: theme.lineStrong }]}
+                    onPress={openTagManager}
+                >
+                    <Text style={[styles.tagBarLabel, { color: theme.ink }]} numberOfLines={1}>Etiquetas</Text>
+                </TouchableOpacity>
+            </View>
 
             {/* Fase 7.5: filtro de subtipo (Lectura) */}
             {activeTab === 'reading' && (
@@ -337,7 +394,7 @@ export default function BacklogScreen({ user, onBack }) {
                             <TouchableOpacity
                                 key={sub}
                                 style={[
-                                    styles.franchiseTab,
+                                    styles.subtypeTab,
                                     {
                                         backgroundColor: activeSubtype === sub ? theme.accent : theme.raised,
                                         borderColor: activeSubtype === sub ? theme.accent : theme.lineStrong
@@ -345,7 +402,7 @@ export default function BacklogScreen({ user, onBack }) {
                                 ]}
                                 onPress={() => setActiveSubtype(sub)}
                             >
-                                <Text style={[styles.franchiseLabel, { color: activeSubtype === sub ? theme.onAccent : theme.ink }]}>
+                                <Text style={[styles.subtypeLabel, { color: activeSubtype === sub ? theme.onAccent : theme.ink }]}>
                                     {sub === 'Todos' ? 'Todos' : SUBTYPE_LABELS[sub]}
                                 </Text>
                             </TouchableOpacity>
@@ -396,7 +453,7 @@ export default function BacklogScreen({ user, onBack }) {
                 style={[styles.fab, { backgroundColor: theme.accent }]}
                 onPress={() => {
                     setEditingItem(null);
-                    setFormData({ title: '', year: '', format: '24 min', start_year: '', end_year: '', franchise: 'Otros', subtype: null });
+                    setFormData(FORM_VACIO);
                     setModalVisible(true);
                 }}
             >
@@ -484,28 +541,15 @@ export default function BacklogScreen({ user, onBack }) {
                                 placeholderTextColor={theme.muted}
                             />
 
-                            {(activeTab === 'movie' || activeTab === 'series') && (
-                                <>
-                                    <Text style={[styles.inputLabel, { color: theme.accent }]}>Universo / Franquicia</Text>
-                                    <View style={styles.formatContainer}>
-                                        {['Marvel', 'DC Comics', 'Otros'].map(f => (
-                                            <TouchableOpacity
-                                                key={f}
-                                                style={[
-                                                    styles.formatOption, 
-                                                    {
-                                                        backgroundColor: formData.franchise === f ? theme.accent : theme.raised, 
-                                                        borderColor: formData.franchise === f ? theme.accent : theme.lineStrong
-                                                    }
-                                                ]}
-                                                onPress={() => setFormData({ ...formData, franchise: f })}
-                                            >
-                                                <Text style={[styles.formatText, { color: formData.franchise === f ? theme.onAccent : theme.ink }]}>{f}</Text>
-                                            </TouchableOpacity>
-                                        ))}
-                                    </View>
-                                </>
-                            )}
+                            {/* Fase 7.5b1 (E7): etiquetas de la sección, nuevas y de otras secciones */}
+                            <Text style={[styles.inputLabel, { color: theme.accent }]}>Etiquetas</Text>
+                            <EtiquetasCampo
+                                catalog={catalog}
+                                section={activeTab}
+                                selected={formData.tags}
+                                onChange={(tags) => setFormData({ ...formData, tags })}
+                                informar={informar}
+                            />
 
                             {activeTab === 'movie' && (
                                 <>
@@ -637,6 +681,28 @@ export default function BacklogScreen({ user, onBack }) {
                     </View>
                 </View>
             </Modal>
+
+            {/* Fase 7.5b1: hojas de filtro (E8) y gestión (E6) de etiquetas */}
+            <EtiquetasFiltroHoja
+                visible={tagFilterVisible}
+                catalog={catalog}
+                section={activeTab}
+                sectionLabel={currentCat.label}
+                filter={tagFilter}
+                onApply={(f) => { setTagFilter(f); setTagFilterVisible(false); }}
+                onClose={() => setTagFilterVisible(false)}
+            />
+            <EtiquetasGestionHoja
+                visible={tagManagerVisible}
+                catalog={catalog}
+                section={activeTab}
+                sectionLabel={currentCat.label}
+                usage={tagUsage}
+                onCreate={handleCreateTag}
+                onRename={handleRenameTag}
+                onDelete={handleDeleteTag}
+                onClose={() => setTagManagerVisible(false)}
+            />
         </SafeAreaView>
     );
 }
@@ -693,7 +759,8 @@ const makeStyles = (t) => StyleSheet.create({
     },
     tabIcon: { fontSize: 18, marginRight: 8 },
     tabLabel: { fontSize: 14, fontFamily: FONT.bold },
-    franchiseTab: {
+    // Chips del filtro de subtipo (Lectura).
+    subtypeTab: {
         flexDirection: 'row',
         alignItems: 'center',
         paddingHorizontal: 16,
@@ -702,7 +769,12 @@ const makeStyles = (t) => StyleSheet.create({
         marginRight: 10,
         borderWidth: 1,
     },
-    franchiseLabel: { fontSize: 12, fontFamily: FONT.bold },
+    subtypeLabel: { fontSize: 12, fontFamily: FONT.bold },
+    // Fase 7.5b1: barra de etiquetas (filtro y gestión) y línea de etiquetas de cada fila.
+    tagBar: { flexDirection: 'row', gap: 10, paddingHorizontal: 15, paddingBottom: 10 },
+    tagBarBtn: { flex: 1, minWidth: 0, minHeight: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
+    tagBarLabel: { fontSize: 13, fontFamily: FONT.bold, textAlign: 'center', textAlignVertical: 'center', includeFontPadding: false },
+    tagsLine: { fontSize: 12, fontFamily: FONT.semibold, marginBottom: 8 },
     listContent: { padding: 15, paddingBottom: 100 },
     itemCard: {
         borderRadius: RADIUS.base,

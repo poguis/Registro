@@ -13,6 +13,7 @@ import * as entertainment from '../data/repositories/entertainment';
 import * as series from '../data/repositories/series';
 import * as history from '../data/repositories/history';
 import * as backlog from '../data/repositories/backlog';
+import * as tags from '../data/repositories/tags';
 import * as work from '../data/repositories/work';
 import { getAppSyncConfig } from '../sync/config';
 import { cleanupBackupDir, hasBackupDir } from './backupCleanup';
@@ -668,21 +669,73 @@ class DatabaseService {
         }
     }
 
-    async getBacklogItems(userId, type, status = null, sortBy = 'title', order = 'ASC', franchise = 'Todos', subtype = 'Todos') {
+    // Fase 7.5b1: tagFilter ({ keys, none }, E8) reemplaza al filtro de franquicia.
+    async getBacklogItems(userId, type, status = null, sortBy = 'title', order = 'ASC', tagFilter = null, subtype = 'Todos') {
         if (!this.db) await this.init();
         try {
-            return ok({ data: await backlog.getBacklogItems(userId, type, status, sortBy, order, franchise, subtype) });
+            return ok({ data: await backlog.getBacklogItems(userId, type, status, sortBy, order, tagFilter, subtype) });
         } catch (error) {
             return failed('Error getBacklogItems:', error);
         }
     }
 
-    async getBacklogCounts(userId, type, franchise = 'Todos', subtype = 'Todos') {
+    async getBacklogCounts(userId, type, tagFilter = null, subtype = 'Todos') {
         if (!this.db) await this.init();
         try {
-            return ok({ counts: await backlog.getBacklogCounts(userId, type, franchise, subtype) });
+            return ok({ counts: await backlog.getBacklogCounts(userId, type, tagFilter, subtype) });
         } catch (error) {
             return failed('Error getBacklogCounts:', error);
+        }
+    }
+
+    // --- ETIQUETAS DE PENDIENTE (Fase 7.5b1) ---
+    // Las de gestión devuelven { success: false, code } ('vacio' | 'largo' | 'duplicado') sin
+    // escribir nada cuando el nombre no es válido.
+
+    async getBacklogTags(userId) {
+        if (!this.db) await this.init();
+        try {
+            return ok({ data: await tags.getBacklogTags(userId) });
+        } catch (error) {
+            return failed('Error getBacklogTags:', error);
+        }
+    }
+
+    async getBacklogTagUsage(userId, section) {
+        if (!this.db) await this.init();
+        try {
+            return ok({ usage: await tags.getTagUsage(userId, section) });
+        } catch (error) {
+            return failed('Error getBacklogTagUsage:', error);
+        }
+    }
+
+    async createBacklogTag(userId, section, name) {
+        if (!this.db) await this.init();
+        try {
+            const r = await mutate(() => tags.createBacklogTag(userId, section, name));
+            return r.ok ? ok({ id: r.id }) : { success: false, code: r.error };
+        } catch (error) {
+            return failed('Error createBacklogTag:', error);
+        }
+    }
+
+    async renameBacklogTag(id, name) {
+        if (!this.db) await this.init();
+        try {
+            const r = await mutate(() => tags.renameBacklogTag(id, name));
+            return r.ok ? ok({ id: r.id }) : { success: false, code: r.error };
+        } catch (error) {
+            return failed('Error renameBacklogTag:', error);
+        }
+    }
+
+    async deleteBacklogTag(id) {
+        if (!this.db) await this.init();
+        try {
+            return ok({ count: await mutate(() => tags.deleteBacklogTag(id)) });
+        } catch (error) {
+            return failed('Error deleteBacklogTag:', error);
         }
     }
 
@@ -842,6 +895,7 @@ export const QUEUED_MUTATIONS = [
     'markEpisodesWatched', 'unmarkEpisodes',
     'addHistory', 'removeHistory', 'addReadingHistory', 'removeReadingHistory',
     'addBacklogItem', 'updateBacklogStatus', 'updateBacklogItem', 'deleteBacklogItem',
+    'createBacklogTag', 'renameBacklogTag', 'deleteBacklogTag',
     'addWorkPerson', 'updateWorkPersonOrder', 'updateWorkPerson', 'deleteWorkPerson',
     'addCard', 'updateCard', 'deleteCard',
 ];

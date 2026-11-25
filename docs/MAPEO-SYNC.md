@@ -1,11 +1,11 @@
 # Mapeo de sincronización SQLite ↔ Postgres
 
-Referencia para el mapeador de la Fase 4. Esquema local: `src/data/db/migration2.ts` (tablas de dominio) + `migration3.ts` (`users`) + `migration4.ts` (estado de sync) + `migration5.ts` (elimina las `legacy_*`, sin tocar estas tablas) + `migration6.ts` (Fase 7.4b: `entertainment_quotas_history.frequency`) + `migration7.ts` (Fase 7.5: `series.backlog_id`, `backlog.subtype`); `user_version` actual 7. Esquema del servidor: `supabase/migrations/` (Fase 2; desde la 7.5, 6 archivos: `20261121000100_frecuencia_cuotas.sql` de la 7.4b y `20261122000100_vinculo_pendiente.sql` de la 7.5).
+Referencia para el mapeador de la Fase 4. Esquema local: `src/data/db/migration2.ts` (tablas de dominio) + `migration3.ts` (`users`) + `migration4.ts` (estado de sync) + `migration5.ts` (elimina las `legacy_*`, sin tocar estas tablas) + `migration6.ts` (Fase 7.4b: `entertainment_quotas_history.frequency`) + `migration7.ts` (Fase 7.5: `series.backlog_id`, `backlog.subtype`) + `migration8.ts` (Fase 7.5b1: tabla `backlog_tags`, `backlog.tags`); `user_version` actual 8. Esquema del servidor: `supabase/migrations/` (Fase 2; desde la 7.5b1, 7 archivos: `20261121000100_frecuencia_cuotas.sql` de la 7.4b, `20261122000100_vinculo_pendiente.sql` de la 7.5 y `20261124000100_etiquetas.sql` de la 7.5b1).
 
 Las reglas están implementadas en **`src/sync/mapping.ts`** (único lugar: lo usan el motor de sync, los repositorios para redondear dinero y los scripts de prueba). El motor está en `src/sync/` (ver "Motor de sincronización" al final). `scripts/probar-fase2.mjs` y `scripts/probar-fase4.mjs` lo ejercitan contra un Postgres local (PGlite).
 
 ## Alcance
-- **Se sincronizan 15 tablas:** `finance_contacts`, `finance_transactions`, `balance_history`, `finance_categories`, `services`, `entertainment_categories`, `entertainment_pauses`, `entertainment_quotas_history`, `series`, `seasons`, `watch_history`, `reading_history`, `backlog`, `work_people`, `cards`.
+- **Se sincronizan 16 tablas:** `finance_contacts`, `finance_transactions`, `balance_history`, `finance_categories`, `services`, `entertainment_categories`, `entertainment_pauses`, `entertainment_quotas_history`, `backlog`, `series`, `seasons`, `watch_history`, `reading_history`, `work_people`, `cards` y, desde la Fase 7.5b1, `backlog_tags` (en el orden de `TABLES`).
 - **No se sincronizan** (solo existen en el celular): `users`, `outbox`, `_id_map`, `_migration_log` y `legacy_*`.
 - **Orden de push (padres antes que hijos):** el de la lista anterior. Las FK son diferidas, así que dentro de una misma transacción el orden no importa, pero entre lotes sí.
 
@@ -139,10 +139,20 @@ Es padre: `unique(id, user_id)`.
 | status | TEXT DEFAULT 'Pendiente' | text default 'Pendiente' | CHECK `Pendiente`, `Mirando`, `Terminado` |
 | year, start_year, end_year | INTEGER | integer | |
 | format | TEXT | text | texto libre |
-| franchise | TEXT DEFAULT 'Otros' | text default 'Otros' | |
+| franchise | TEXT DEFAULT 'Otros' | text default 'Otros' | Desde la 7.5b1, columna heredada: la app no la muestra, no la filtra ni la escribe (el DEFAULT llena las altas; editar conserva el valor). Se sigue sincronizando tal cual |
 | subtype | TEXT, NULL (migración local 7) | text, NULL (`20261122000100_vinculo_pendiente.sql`) | Fase 7.5: subtipo de lectura `book` / `comic` / `manga`. CHECK `backlog_subtype_check`: NULL o (`type = 'reading'` y uno de los tres). El repositorio valida lo mismo |
+| tags | TEXT, NULL (migración local 8): JSON array de nombres | jsonb, NULL (`20261124000100_etiquetas.sql`) | Fase 7.5b1, tipo `tags` del mapeo: nombres de las etiquetas del título en forma canónica (sin repetir por clave, ordenados por clave código por código; vacío → NULL), en el push, en el pull y en `sameAsLocal` (`canonicalTags` de `src/entertainment/tags.ts`). CHECK `backlog_tags_array_check`: NULL o array de strings. Un valor local que no es array de strings es un error de mapeo (fila bloqueada) |
 
 Desde la 7.5 también es padre: `unique(id, user_id)` (`backlog_id_user_key`), para la FK de `series.backlog_id`.
+
+### backlog_tags (Fase 7.5b1)
+| Columna | SQLite | Postgres | Notas |
+|---|---|---|---|
+| section | TEXT NOT NULL | text not null | CHECK `movie`, `series`, `anime`, `reading` (el tipo del título; el repositorio valida lo mismo) |
+| name | TEXT NOT NULL | text not null | normalizado por la app (sin espacios al inicio ni al final, internos reducidos a uno); CHECK de 1 a 30 caracteres y `name = btrim(name)` |
+| name_key | TEXT NOT NULL | text not null | `name` en minúsculas (`toLowerCase`), calculado SOLO por la app; CHECK de 1 a 60 caracteres y sin espacios al inicio ni al final (sin CHECK contra `lower(name)`: el de Postgres puede no coincidir con el de JS) |
+
+Clave natural `unique(user_id, section, name_key)` en los dos lados (`backlog_tags_user_section_key_key`; local `UNIQUE(user_id, section, name_key)`), con los tombstones incluidos: la app revive la fila borrada en vez de insertar otra. Sin FK de dominio y nadie la referencia por id (los títulos guardan los nombres), así que la fusión por clave natural es segura. RLS, 3 políticas, trigger e índice de pull como las demás; grants: `authenticated` S/I/U, nada a `anon`/`PUBLIC`.
 
 ### work_people
 | Columna | SQLite | Postgres | Notas |
@@ -181,6 +191,10 @@ Una columna sincronizada nueva se agrega primero en Supabase y después en la ap
 - **App nueva contra un servidor sin la columna:** cada push de la tabla falla (PostgREST: PGRST204, HTTP 400; PGlite: 42703) y la entrada queda **bloqueada** con su motivo; las demás tablas suben. Tras aplicar el SQL, "Reintentar" (`unblockAll`) la sube.
 - Por eso el orden es siempre **SQL → APK**. Lo prueba `scripts/probar-fase7-4b.mjs` con PGlite y el código real de las dos versiones (la vieja, `git archive 47f358c`).
 - `comparar-sync` normaliza con `toRemote` sobre `SELECT *`: en una BD sin la columna (`user_version` 5) cuenta como NULL, así que un respaldo de antes y uno de después de la migración con los mismos datos son idénticos.
+- **Fase 7.5b1 (tabla `backlog_tags` y `backlog.tags`):** una TABLA nueva, probado en `scripts/probar-fase7-5b1.mjs` con la app 1.4.1 (`1f1eec8`):
+  - **a)** La 1.4.1 contra el servidor con la migración: no conoce `backlog_tags` (no está en su `TABLES`), su pull de `backlog` ignora `tags` y su push la conserva.
+  - **b)** La 1.4.2 contra un servidor sin la migración: las filas de `backlog` (columna `tags`: 42703 / PGRST204) y de `backlog_tags` (tabla inexistente: 42P01 / PGRST205) quedan bloqueadas; las demás tablas suben y bajan, pero el pull de `backlog_tags` (la última de `TABLES`) falla y el ciclo termina `offline` con `last_error` (el indicador dice "Sin conexión" aunque haya red, con los errores aparte). No se pierde nada (el pull nunca pone NULL sobre `tags`); tras el SQL, el siguiente ciclo baja la tabla solo y "Reintentar" sube lo bloqueado. `verificar-fase5.sql`, `verificar-fase2.sql` y `auditar-fase6.sql` nombran `backlog_tags`: corren DESPUÉS del SQL.
+  - `comparar-sync`: una tabla que la BD no tiene (una v7) cuenta como 0 filas, así que una v7 y una v8 recién migrada son idénticas.
 - **Fase 7.5 (`series.backlog_id`, `backlog.subtype`):** lo mismo, probado en `scripts/probar-fase7-5.mjs` con la app 1.3.9 (`6a1722f`):
   - **a)** La 1.3.9 contra el servidor con las columnas: pull sin fallos, outbox vacía, y su push conserva `backlog_id` y `subtype`. La 1.3.9 no conoce el vínculo: si cambia el estado de una serie vinculada, la app nueva reconcilia el título en su siguiente sync.
   - **b)** La 1.4.x contra un servidor sin las columnas: las filas de `backlog` y `series` quedan bloqueadas (42703 / PGRST204). El pull de las 15 tablas termina, y como el pull aplica solo las columnas que trae la fila remota, nunca pone NULL encima de un `backlog_id` o un `subtype` locales. Tras el SQL, "Reintentar" sube lo bloqueado y también las hijas que esperaban (las temporadas de una serie bloqueada).
@@ -212,7 +226,7 @@ Una columna sincronizada nueva se agrega primero en Supabase y después en la ap
 - **Borrar la cuenta** en `auth.users` borra en cascada todas sus filas. Es el único borrado físico.
 
 ## Multidispositivo y claves naturales (Fase 4)
-Una misma cuenta puede usar varios dispositivos (también cubre reinstalar o cambiar de celular). Las claves naturales `finance_categories(user_id, name)` y `seasons(series_id, season_number)` se resuelven por **fusión**: la fila local adopta el `id` del servidor. Nada referencia esas filas por `id` (`balance_history` guarda la categoría como texto; los historiales usan `series_id` + `season_number`).
+Una misma cuenta puede usar varios dispositivos (también cubre reinstalar o cambiar de celular). Las claves naturales `finance_categories(user_id, name)`, `seasons(series_id, season_number)` y, desde la 7.5b1, `backlog_tags(user_id, section, name_key)` se resuelven por **fusión**: la fila local adopta el `id` del servidor. Nada referencia esas filas por `id` (`balance_history` guarda la categoría como texto; los historiales usan `series_id` + `season_number`; `backlog.tags` guarda los nombres de las etiquetas). Dos dispositivos que crean sin red la misma etiqueta (también con otras mayúsculas) terminan con una sola fila; su nombre es el del último que sube.
 - **Push con 23505:** se busca la fila del servidor con la misma clave; la local pasa a ese `id` (y sus entradas de outbox) y se reintenta con el contenido local, que llega último y gana.
 - **Pull:** si llega una fila con la misma clave que una local de otro `id`, la local adopta el `id` del servidor. Si tenía cambios pendientes, los conserva y su push gana; si no, toma el contenido del servidor.
 - Si ya existe localmente otra fila con el `id` del servidor (caso patológico), la entrada se bloquea con "fusión imposible" y nada se pierde.
@@ -222,7 +236,7 @@ Una misma cuenta puede usar varios dispositivos (también cubre reinstalar o cam
 - **Archivos:** `mapping.ts` (estas reglas), `transport.ts` (contrato, clasificación de errores y `SessionState`), `supabaseTransport.ts` (supabase-js), `engine.ts` (`pushOutbox`, `pullTable`, `applyRemoteRows`, `syncOnce`, `syncWithWatchdog`, `ensureInitialUpload`, `enqueueAllForInitialUpload`, estado), `runner.ts` (single-flight con watchdog, `prepare`, reinicio del backoff por motivo, aviso de datos cambiados), `autoSync.ts` (tras cada cambio local y periódica), `controller.ts` (conecta runner y disparadores), `useSync.ts` (hook del indicador), `useSyncRefresh.ts` (recarga de pantallas), `config.ts`; y `src/auth/sessionState.ts` (sin red ≠ sin sesión, aviso de token renovado).
 - **Activación:** `extra.syncEnabled` de `app.config.js`: **true en las dos variantes desde la Fase 5** (producción → Poguis, dev → Registro Dev). Requisitos por ciclo: cuenta vinculada, sesión válida y el uid de la sesión igual a `users.id`; si no, el ciclo se omite sin error. Con la sesión guardada pero sin poder renovarla por falta de red, el ciclo termina `offline` (no "sin sesión").
 - **Disparadores** (solo en `startSyncTriggers`): abrir la app, volver a primer plano (`AppState` → active), recuperar conexión (NetInfo, `isConnected` false → true), "Sincronizar ahora", `autoSync.ts` (tras cada transacción que encoló algo en la outbox, antirrebote de 3 s y solo con conexión; periódica cada 2 min solo en primer plano y con conexión) y `TOKEN_REFRESHED` (solo si el último ciclo terminó `offline` o sin sesión / con sesión vencida; tras un refresco fallido auth-js repite el fallo 60 s). Una sola ejecución a la vez (`runner.ts`); los disparadores que llegan durante una sincronización se fusionan en una ejecución extra. `reconexion`, `boton` y `sesion` reinician antes el backoff de las entradas con error de red. Sin tareas en segundo plano.
-- **Orden:** push de la outbox → pull de las 15 tablas, padres antes que hijos (orden de `TABLES`). Desde la 7.5, `backlog` va antes que `series` (`series.backlog_id → backlog`): el push sube el título antes que la serie y el pull lo baja antes.
+- **Orden:** push de la outbox → pull de las 16 tablas, padres antes que hijos (orden de `TABLES`). Desde la 7.5, `backlog` va antes que `series` (`series.backlog_id → backlog`): el push sube el título antes que la serie y el pull lo baja antes. Desde la 7.5b1, `backlog_tags` va AL FINAL (no tiene FK de dominio; si el servidor no tiene la tabla, su fallo llega después de bajar las demás).
 - **Push:** agrupa la outbox por (tabla, `row_id`), lee el estado **actual** de cada fila, la mapea y hace upsert por `id` en lotes de 100. Un lote con error de datos se reintenta fila por fila para aislar la culpable. Se borran de la outbox **solo** las entradas leídas y confirmadas (por su `id`): una edición hecha durante el push queda pendiente. Nunca se descarta una entrada.
 - **Errores:**
 

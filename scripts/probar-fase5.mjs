@@ -330,7 +330,8 @@ section('Sesión con el auth-js REAL: sin red ≠ sin sesión; reconexión con e
 }
 
 // =========================================================================== verificar-fase5.sql
-section('verificar-fase5.sql: solo lectura, 16 filas, detecta más de un user_id');
+// Fase 7.5b1: 17 filas (16 tablas, con backlog_tags, + TODAS).
+section('verificar-fase5.sql: solo lectura, 17 filas, detecta más de un user_id');
 {
     const text = readFileSync('supabase/verificar-fase5.sql', 'utf8');
     const code = text.split('\n').map((l) => l.replace(/--.*$/, '')).join('\n');
@@ -338,9 +339,11 @@ section('verificar-fase5.sql: solo lectura, 16 filas, detecta más de un user_id
     const fingerprint = async () => (await pg.query(`select ${TABLES.map((t) => `(select count(*) || ':' || coalesce(max(server_updated_at)::text, '') from public.${t})`).join(" || '|' || ")} as f`)).rows[0].f;
     const f0 = await fingerprint();
     const r = (await pg.query(text)).rows;
-    check('16 filas: 15 tablas + TODAS, columnas sin contenido', r.length === 16 && r[15].tabla === 'TODAS'
+    const N = TABLES.length; // 16 desde la Fase 7.5b1
+    check(`${N + 1} filas: ${N} tablas (las de TABLES) + TODAS, columnas sin contenido`, r.length === N + 1 && r[N].tabla === 'TODAS'
+        && r.slice(0, N).map((x) => x.tabla).sort().join() === [...TABLES].sort().join()
         && Object.keys(r[0]).join() === 'tabla,total,vivos,borrados,usuarios_distintos,ok');
-    check('servidor de prueba con varias cuentas → TODAS ok = false', r[15].ok === false && Number(r[15].usuarios_distintos) > 1);
+    check('servidor de prueba con varias cuentas → TODAS ok = false', r[N].ok === false && Number(r[N].usuarios_distintos) > 1);
     check('no escribe nada (huella del servidor igual)', (await fingerprint()) === f0);
     const { pg: pg1, T: T1, newAuthUser: nu1 } = await createServer();
     const W = await nu1();
@@ -351,8 +354,8 @@ section('verificar-fase5.sql: solo lectura, 16 filas, detecta más de un user_id
     await quiet(() => engine.ensureInitialUpload(CFG));
     await quiet(() => engine.syncOnce(CFG, T1));
     const r1 = (await pg1.query(text)).rows;
-    check('una sola cuenta → TODAS ok = true y conteos = local', r1[15].ok === true && Number(r1[15].usuarios_distintos) === 1
-        && Number(r1.find((x) => x.tabla === 'finance_categories').total) === 6 && r1.slice(0, 15).every((x) => x.ok === true));
+    check('una sola cuenta → TODAS ok = true y conteos = local', r1[N].ok === true && Number(r1[N].usuarios_distintos) === 1
+        && Number(r1.find((x) => x.tabla === 'finance_categories').total) === 6 && r1.slice(0, N).every((x) => x.ok === true));
 }
 
 console.log(failures === 0 ? '\nFASE 5: TODO OK.' : `\n${failures} verificación(es) fallaron.`);

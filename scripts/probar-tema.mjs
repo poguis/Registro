@@ -17,7 +17,8 @@
 //  6. Hoja y aviso: Modal transparente con slide y onRequestClose, botones ≥ 52 con
 //     accessibilityRole="button", aviso con accessibilityLiveRegion; proveedores en la raíz.
 //  7. Esquema conocido: la dirección visual no tocó el esquema (LATEST_VERSION 6, 5 archivos de
-//     Supabase); desde la 7.5, LATEST_VERSION = 7 (migraciones 1–7) y 6 archivos en supabase/migrations.
+//     Supabase); desde la 7.5, LATEST_VERSION = 7 (migraciones 1–7) y 6 archivos en supabase/migrations;
+//     desde la 7.5b1, LATEST_VERSION = 8 y 7 archivos.
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join, basename, relative } from 'node:path';
 
@@ -195,10 +196,10 @@ check('SheetContext: cola de hojas (de a una) y confirm como promesa', /cola/i.t
 console.log('\n== 7. Sin cambios de esquema ==');
 const MIG = leer('src/services/migrations.js');
 const versiones = [...MIG.matchAll(/^\s*version:\s*(\d+),/gm)].map((m) => Number(m[1]));
-check('migraciones locales 1–7 (LATEST_VERSION = 7, Fase 7.5)', JSON.stringify(versiones) === JSON.stringify([1, 2, 3, 4, 5, 6, 7]), versiones.join(', '));
+check('migraciones locales 1–8 (LATEST_VERSION = 8, Fase 7.5b1)', JSON.stringify(versiones) === JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8]), versiones.join(', '));
 const SUPA = readdirSync(join(RAIZ, 'supabase/migrations')).sort();
-const ESPERADAS = ['20261026000100_server_updated_at.sql', '20261026000200_tablas.sql', '20261026000300_indices_triggers.sql', '20261026000400_rls_grants.sql', '20261121000100_frecuencia_cuotas.sql', '20261122000100_vinculo_pendiente.sql'];
-check('supabase/migrations: los 6 archivos esperados (6.º de la Fase 7.5)', JSON.stringify(SUPA) === JSON.stringify(ESPERADAS), SUPA.join(', '));
+const ESPERADAS = ['20261026000100_server_updated_at.sql', '20261026000200_tablas.sql', '20261026000300_indices_triggers.sql', '20261026000400_rls_grants.sql', '20261121000100_frecuencia_cuotas.sql', '20261122000100_vinculo_pendiente.sql', '20261124000100_etiquetas.sql'];
+check('supabase/migrations: los 7 archivos esperados (7.º de la Fase 7.5b1)', JSON.stringify(SUPA) === JSON.stringify(ESPERADAS), SUPA.join(', '));
 
 console.log(`\n${fallas === 0 ? 'TEMA' : 'TEMA CON FALLAS'}: ${oks} OK, ${fallas} FALLA.`);
 process.exit(fallas === 0 ? 0 : 1);

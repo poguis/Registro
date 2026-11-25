@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import './lib/ts-esm-hook.mjs';
 import { fixtureOSalir } from './lib/fixtures.mjs';
+import { hasTable } from './lib/sqlite-utils.mjs';
 // src/ se carga después del hook (sin aviso MODULE_TYPELESS_PACKAGE_JSON, Fase 6.5).
 const { TABLES, toRemote, columnsOf, roundMoney, changesWhenRounded, MappingError } = await import('../src/sync/mapping.ts');
 
@@ -66,22 +67,24 @@ async function insert(db, table, values) {
 // ---------------------------------------------------------------------------
 section('Criterio 1: las migraciones se aplican desde cero (dos bases nuevas)');
 // Fase 7.4b: 5 archivos (el 5.º, 20261121000100_frecuencia_cuotas.sql, agrega entertainment_quotas_history.frequency).
-check('archivos de migración con formato <YYYYMMDDHHMMSS>_<nombre>.sql', migrationFiles.length === 6, migrationFiles.join(', ')); // 6.º: Fase 7.5
+check('archivos de migración con formato <YYYYMMDDHHMMSS>_<nombre>.sql', migrationFiles.length === 7, migrationFiles.join(', ')); // 6.º: Fase 7.5; 7.º: Fase 7.5b1
 let db;
 for (const attempt of [1, 2]) {
     const err = await fails(async () => { db = await freshDb(); });
     check(`base nueva #${attempt}: stub + ${migrationFiles.length} migraciones sin errores`, err === null, err || '');
 }
 const pubTables = (await db.query(`select tablename from pg_tables where schemaname = 'public' order by 1`)).rows.map((r) => r.tablename);
-check('15 tablas en public (las del mapeo)', pubTables.length === 15 && TABLES.every((t) => pubTables.includes(t)), `${pubTables.length}`);
-check('RLS activada en las 15', await count(db, `select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity`) === 15);
+// Fase 7.5b1: NT = las tablas del mapeo (16 con backlog_tags); antes eran 15 fijas.
+const NT = TABLES.length;
+check(`${NT} tablas en public (las del mapeo)`, pubTables.length === NT && TABLES.every((t) => pubTables.includes(t)), `${pubTables.length}`);
+check(`RLS activada en las ${NT}`, await count(db, `select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r' and c.relrowsecurity`) === NT);
 const pols = (await db.query(`select cmd, count(*)::int n from pg_policies where schemaname = 'public' group by cmd order by cmd`)).rows;
-check('políticas: 15 SELECT, 15 INSERT, 15 UPDATE, 0 DELETE/ALL', JSON.stringify(pols) === JSON.stringify([{ cmd: 'INSERT', n: 15 }, { cmd: 'SELECT', n: 15 }, { cmd: 'UPDATE', n: 15 }]), JSON.stringify(pols));
+check(`políticas: ${NT} SELECT, ${NT} INSERT, ${NT} UPDATE, 0 DELETE/ALL`, JSON.stringify(pols) === JSON.stringify([{ cmd: 'INSERT', n: NT }, { cmd: 'SELECT', n: NT }, { cmd: 'UPDATE', n: NT }]), JSON.stringify(pols));
 check('todas las políticas son "to authenticated"', await count(db, `select count(*) from pg_policies where schemaname = 'public' and roles <> '{authenticated}'`) === 0);
-check('15 triggers set_server_updated_at', await count(db, `select count(*) from pg_trigger where tgname = 'set_server_updated_at' and not tgisinternal`) === 15);
+check(`${NT} triggers set_server_updated_at`, await count(db, `select count(*) from pg_trigger where tgname = 'set_server_updated_at' and not tgisinternal`) === NT);
 const grants = (await db.query(`select grantee, privilege_type, count(*)::int n from information_schema.role_table_grants where table_schema = 'public' and grantee in ('anon', 'authenticated', 'PUBLIC') group by 1, 2 order by 1, 2`)).rows;
-check('grants: authenticated solo SELECT/INSERT/UPDATE en las 15; nada a anon ni PUBLIC (pese a los default privileges del stub)',
-    JSON.stringify(grants) === JSON.stringify([{ grantee: 'authenticated', privilege_type: 'INSERT', n: 15 }, { grantee: 'authenticated', privilege_type: 'SELECT', n: 15 }, { grantee: 'authenticated', privilege_type: 'UPDATE', n: 15 }]),
+check(`grants: authenticated solo SELECT/INSERT/UPDATE en las ${NT}; nada a anon ni PUBLIC (pese a los default privileges del stub)`,
+    JSON.stringify(grants) === JSON.stringify([{ grantee: 'authenticated', privilege_type: 'INSERT', n: NT }, { grantee: 'authenticated', privilege_type: 'SELECT', n: NT }, { grantee: 'authenticated', privilege_type: 'UPDATE', n: NT }]),
     JSON.stringify(grants));
 check('ninguna función de public es security definer', await count(db, `select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosecdef`) === 0);
 check('usage de public: authenticated sí, anon sí (como Supabase; la protección es por tabla)',
@@ -95,10 +98,11 @@ const verifyRows = (await db.query(VERIFY)).rows;
 const notOk = verifyRows.filter((r) => !r.ok);
 check(`los ${verifyRows.length} chequeos salen ok = true`, verifyRows.length === 22 && notOk.length === 0,
     notOk.map((r) => `#${r.orden} ${r.chequeo}: ${r.valor} (esperado ${r.esperado})`).join(' | '));
-// Control: sin el archivo 4/4 (RLS y grants) la consulta debe detectarlo.
+// Control: sin el archivo 4/4 (RLS y grants) la consulta debe detectarlo. Desde la 7.5b1 se aplican
+// todas las demás (la consulta nombra backlog_tags, que crea la 7.ª); antes eran solo las 3 primeras.
 const partial = new PGlite();
 await partial.exec(STUB);
-for (const f of migrationFiles.slice(0, 3)) await partial.exec(readFileSync(`${MIGRATIONS_DIR}/${f}`, 'utf8'));
+for (const f of migrationFiles.filter((x) => !x.includes('_rls_grants'))) await partial.exec(readFileSync(`${MIGRATIONS_DIR}/${f}`, 'utf8'));
 const partialBad = (await partial.query(VERIFY)).rows.filter((r) => !r.ok).map((r) => r.orden);
 check('control: sin la migración 4/4 la consulta marca RLS, políticas y grants como no ok', [3, 4, 9, 10].every((n) => partialBad.includes(n)), `fallan #${partialBad.join(', #')}`);
 await partial.close();
@@ -129,7 +133,7 @@ for (const t of TABLES) {
     const e2 = await fails(() => as(db, 'anon', null, () => db.query(`insert into public.${t} (id) values ($1)`, [randomUUID()])));
     if (!(e1 && /permission denied/.test(e1) && e2 && /permission denied/.test(e2))) check(`anon sin acceso a ${t}`, false, `${e1} / ${e2}`);
 }
-check('anon no puede leer ni escribir ninguna de las 15 tablas', true);
+check(`anon no puede leer ni escribir ninguna de las ${NT} tablas`, true);
 // Prueba nueva: upsert de A sobre un id que pertenece a B.
 const beforeUpsert = await one(db, 'select row_to_json(c)::text j from public.entertainment_categories c where id = $1', [catB]);
 err = await fails(() => as(db, 'authenticated', A, () => db.query(
@@ -242,7 +246,7 @@ const aRows = await rowsOf(A);
 const bRows = await rowsOf(B);
 err = await fails(() => db.query('delete from auth.users where id = $1', [A]));
 check('borrar el usuario A en auth.users no falla (FK diferidas incluidas)', err === null, err || '');
-check('todas las filas de A desaparecen de las 15 tablas', await rowsOf(A) === 0, `${aRows} → ${await rowsOf(A)}`);
+check(`todas las filas de A desaparecen de las ${NT} tablas`, await rowsOf(A) === 0, `${aRows} → ${await rowsOf(A)}`);
 check('las filas de B quedan intactas', await rowsOf(B) === bRows, `${bRows}`);
 await db.close();
 
@@ -280,15 +284,17 @@ for (const [label, path] of Object.entries(SOURCES)) {
     const src = new DatabaseSync(path, { readOnly: true });
     const uv = src.prepare('PRAGMA user_version').get().user_version;
     const pgdb = await freshDb();
+    // Fase 7.5b1: las BD v2 no tienen backlog_tags (migración 8): tabla ausente = 0 filas.
+    const tablas = TABLES.filter((t) => hasTable(src, t));
     const users = new Set();
-    for (const t of TABLES) for (const r of src.prepare(`SELECT DISTINCT user_id u FROM ${t}`).all()) users.add(r.u);
+    for (const t of tablas) for (const r of src.prepare(`SELECT DISTINCT user_id u FROM ${t}`).all()) users.add(r.u);
     for (const u of users) await newUser(pgdb, u); // cada cuenta local → su propio usuario de prueba
     let rows = 0, loaded = 0, mapErrors = 0, dbErrors = 0, moneyValues = 0, moneyChanged = 0;
     const firstErrors = [];
     const perTable = {};
     for (const u of users) {
         await as(pgdb, 'authenticated', u, () => pgdb.transaction(async (tx) => {
-            for (const t of TABLES) {
+            for (const t of tablas) {
                 for (const row of src.prepare(`SELECT * FROM ${t} WHERE user_id = ?`).all(u)) {
                     rows++;
                     for (const c of MONEY_COLS[t]) if (row[c] !== null) { moneyValues++; if (changesWhenRounded(row[c])) moneyChanged++; }
@@ -313,11 +319,11 @@ for (const [label, path] of Object.entries(SOURCES)) {
     // Conteos finales en Postgres = conteos en SQLite, tabla por tabla (incluye tombstones).
     let sameCounts = true;
     for (const t of TABLES) {
-        const a = src.prepare(`SELECT count(*) n FROM ${t}`).get().n;
+        const a = hasTable(src, t) ? src.prepare(`SELECT count(*) n FROM ${t}`).get().n : 0;
         const b = await count(pgdb, `select count(*) from public.${t}`);
         if (a !== b) sameCounts = false;
     }
-    const tombstones = TABLES.reduce((n, t) => n + src.prepare(`SELECT count(*) n FROM ${t} WHERE deleted_at IS NOT NULL`).get().n, 0);
+    const tombstones = tablas.reduce((n, t) => n + src.prepare(`SELECT count(*) n FROM ${t} WHERE deleted_at IS NOT NULL`).get().n, 0);
     check(`${label} (uv ${uv}, ${users.size} cuenta(s)): ${loaded}/${rows} filas cargadas, ${tombstones} tombstones`,
         uv >= 2 && mapErrors === 0 /* la migración 3 no toca las 15 tablas sincronizables */ && dbErrors === 0 && loaded === rows && sameCounts,
         `${mapErrors} error(es) de mapeo, ${dbErrors} de Postgres; montos ${moneyValues}, cambian al redondear ${moneyChanged}${firstErrors.length ? ' · ' + firstErrors.join(' | ') : ''}`);

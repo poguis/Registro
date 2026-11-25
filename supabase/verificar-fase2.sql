@@ -4,13 +4,16 @@
 -- (No va en supabase/migrations/: no es una migración.)
 -- Fase 7.5: la migración 20261122000100_vinculo_pendiente.sql agrega una FK compuesta
 -- (series_backlog_fkey), así que el chequeo 18 espera 8 (eran 7 en la Fase 2).
+-- Fase 7.5b1: la migración 20261124000100_etiquetas.sql agrega la tabla sincronizada backlog_tags
+-- (RLS, 3 políticas, trigger, FK user_id → auth.users en cascada e índice de pull; ninguna FK
+-- compuesta), así que los chequeos de 15 tablas pasan a 16 y el 18 sigue en 8.
 
 with
 tablas(t) as (
     values ('finance_contacts'), ('finance_transactions'), ('balance_history'), ('finance_categories'),
            ('services'), ('entertainment_categories'), ('entertainment_pauses'),
            ('entertainment_quotas_history'), ('series'), ('seasons'), ('watch_history'),
-           ('reading_history'), ('backlog'), ('work_people'), ('cards')
+           ('reading_history'), ('backlog'), ('work_people'), ('cards'), ('backlog_tags')
 ),
 rel as (
     select c.oid, c.relname, c.relrowsecurity
@@ -37,15 +40,15 @@ priv(p) as (
     values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')
 ),
 chequeos(orden, chequeo, valor, esperado) as (
-    select 1, 'tablas de public que son las 15 del esquema',
-        (select count(*) from rel where relname in (select t from tablas))::text, '15'
-    union all select 2, 'tablas de public fuera de las 15 (debe estar vacío)',
+    select 1, 'tablas de public que son las 16 del esquema',
+        (select count(*) from rel where relname in (select t from tablas))::text, '16'
+    union all select 2, 'tablas de public fuera de las 16 (debe estar vacío)',
         coalesce((select string_agg(relname, ', ') from rel where relname not in (select t from tablas)), ''), ''
     union all select 3, 'tablas con RLS activada',
-        (select count(*) from rel where relname in (select t from tablas) and relrowsecurity)::text, '15'
+        (select count(*) from rel where relname in (select t from tablas) and relrowsecurity)::text, '16'
     union all select 4, 'políticas SELECT / INSERT / UPDATE',
         (select count(*) filter (where cmd = 'SELECT') || ' / ' || count(*) filter (where cmd = 'INSERT')
-                || ' / ' || count(*) filter (where cmd = 'UPDATE') from pol), '15 / 15 / 15'
+                || ' / ' || count(*) filter (where cmd = 'UPDATE') from pol), '16 / 16 / 16'
     union all select 5, 'políticas DELETE o ALL',
         (select count(*) from pol where cmd in ('DELETE', 'ALL'))::text, '0'
     union all select 6, 'políticas que no son "to authenticated"',
@@ -58,12 +61,12 @@ chequeos(orden, chequeo, valor, esperado) as (
         (select count(*) filter (where has_table_privilege('authenticated', 'public.' || t, 'SELECT'))
                 || ' / ' || count(*) filter (where has_table_privilege('authenticated', 'public.' || t, 'INSERT'))
                 || ' / ' || count(*) filter (where has_table_privilege('authenticated', 'public.' || t, 'UPDATE'))
-           from tablas), '15 / 15 / 15'
+           from tablas), '16 / 16 / 16'
     union all select 9, 'authenticated: DELETE, TRUNCATE, REFERENCES o TRIGGER en alguna tabla',
         (select count(*) from tablas, priv
           where p in ('DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER')
             and has_table_privilege('authenticated', 'public.' || t, p))::text, '0'
-    union all select 10, 'anon: cualquier privilegio en alguna de las 15 tablas',
+    union all select 10, 'anon: cualquier privilegio en alguna de las 16 tablas',
         (select count(*) from tablas, priv where has_table_privilege('anon', 'public.' || t, p))::text, '0'
     union all select 11, 'anon / PUBLIC: grants de columna en public',
         (select count(*) from information_schema.column_privileges
@@ -74,7 +77,7 @@ chequeos(orden, chequeo, valor, esperado) as (
     union all select 13, 'triggers set_server_updated_at activos (BEFORE INSERT OR UPDATE)',
         (select count(*) from pg_trigger tg join rel on rel.oid = tg.tgrelid
           where tg.tgname = 'set_server_updated_at' and not tg.tgisinternal and tg.tgenabled = 'O'
-            and (tg.tgtype & 2) = 2 and (tg.tgtype & 4) = 4 and (tg.tgtype & 16) = 16)::text, '15'
+            and (tg.tgtype & 2) = 2 and (tg.tgtype & 4) = 4 and (tg.tgtype & 16) = 16)::text, '16'
     union all select 14, 'funciones de public con security definer',
         (select count(*) from fn where prosecdef)::text, '0'
     union all select 15, 'set_server_updated_at: security invoker y search_path vacío',
@@ -85,13 +88,13 @@ chequeos(orden, chequeo, valor, esperado) as (
                 || has_function_privilege('authenticated', oid, 'EXECUTE')::text, ','), 'falta')
            from fn where proname = 'set_server_updated_at'), 'false / false'
     union all select 17, 'FK a auth.users con on delete cascade',
-        (select count(*) from fks where confrelid = 'auth.users'::regclass and confdeltype = 'c')::text, '15'
+        (select count(*) from fks where confrelid = 'auth.users'::regclass and confdeltype = 'c')::text, '16'
     union all select 18, 'FK compuestas (parent_id, user_id) diferidas, sin on delete',
         (select count(*) from fks
           where confrelid <> 'auth.users'::regclass and array_length(conkey, 1) = 2
             and condeferrable and condeferred and confdeltype = 'a')::text, '8'
     union all select 19, 'índices de pull (user_id, server_updated_at, id)',
-        (select count(*) from pg_indexes where schemaname = 'public' and indexname like '%\_pull\_idx')::text, '15'
+        (select count(*) from pg_indexes where schemaname = 'public' and indexname like '%\_pull\_idx')::text, '16'
     union all select 20, 'has_schema_privilege(''authenticated'', ''public'', ''USAGE'')',
         has_schema_privilege('authenticated', 'public', 'USAGE')::text, 'true'
     union all select 21, 'has_schema_privilege(''anon'', ''public'', ''USAGE'') (Supabase lo concede; la protección es por tabla)',

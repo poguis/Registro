@@ -4,7 +4,7 @@ Estados: [OK] decidido por el usuario · [PROPUESTA] sugerido, se confirma en la
 
 Origen: respuestas del usuario del 2026-11-17 y resultados de la 7.2 (commit `d55b5e1`: `docs/ENTRETENIMIENTO-ACTUAL.md` y `scripts/probar-fase7-2.mjs`, 17 OK). R1–R14 y C1–C14 remiten a ese documento y a esa suite.
 
-**Estado: vigente.** 7.5 cerrada (2026-11-23, `c2c42c2` y la corrección `1f1eec8`, app 1.4.1 / vc 15); sigue la 7.5b (orden confirmado el 2026-11-23, ver Orden de trabajo). Se actualiza al cerrar cada subfase, y cualquier cambio de criterio se marca aquí.
+**Estado: vigente.** 7.5 cerrada (2026-11-23, `c2c42c2` y la corrección `1f1eec8`, app 1.4.1 / vc 15); 7.5b1 en curso (etiquetas; orden confirmado el 2026-11-23, ver Orden de trabajo). Se actualiza al cerrar cada subfase, y cualquier cambio de criterio se marca aquí.
 
 ## Alcance y datos
 - [OK] Datos existentes de entretenimiento en producción (1 categoría de video, 1 serie, 1 temporada y 11 filas en `watch_history`): el usuario los borra desde la app (borrado lógico) y el rediseño no los migra. Sus tombstones quedan en el celular y en Poguis, igual que los de la 6.8. Las migraciones nuevas tienen que tolerar tombstones.
@@ -39,6 +39,30 @@ Origen: respuestas del usuario del 2026-11-17 y resultados de la 7.2 (commit `d5
 - [OK] **D8.** "Nuevo título" desde Series/Lectura: el título (el nombre de la serie), el tipo (Serie / Anime) o el subtipo en lectura, y el año de inicio opcional; formato y franquicia con los valores por defecto de Pendiente. Nace vinculado y en Mirando.
 - [OK] **D9.** Los datos de prueba de Registro Dev (7.4b y 7.5) se borraron desde la app al cerrar la 7.5; sus tombstones quedan.
 - **Límite conocido:** si se borra una serie mientras su título todavía no llegó al celular (solo con dos dispositivos), la reconciliación devuelve el título a Pendiente sin vínculo. No se pierde nada.
+
+### Decisiones de la 7.5b1 [OK] (2026-11-23; plan aprobado el 2026-11-24 con sus condiciones)
+- [OK] **E1.** La 7.5b se divide en 7.5b1 (etiquetas O11 con su migración, la pantalla mínima y O9) y 7.5b2 (sin esquema: Pendiente compacto O12, selector "De Pendiente" dinámico O10 y O8).
+- [OK] **E2. Modelo A** (reemplaza la propuesta de dos tablas de O11: la fusión por clave natural solo es segura en tablas que nadie referencia por id, y una tabla de relación referenciaría las etiquetas por id).
+  - Tabla sincronizada nueva `backlog_tags` (catálogo): `id`, `user_id`, `section`, `name`, `name_key` y las columnas de sync, más `server_updated_at` en Postgres. Ninguna tabla la referencia por id, así que reutiliza la fusión por clave natural tal como está (como `finance_categories`).
+  - **Clave natural `(user_id, section, name_key)`** (aviso 1 del plan, aprobado): `name_key` = nombre normalizado + `toLowerCase()`, lo calcula SOLO la app, así la fusión del motor junta también las variantes de mayúsculas que crean dos dispositivos sin red. UNIQUE en local y en el servidor (incluye los tombstones). En el servidor: CHECK de `name` de 1 a 30 caracteres y de `name_key` de 1 a 60 (`toLowerCase` puede alargar letras como "İ"), los dos sin espacios al inicio ni al final; sin CHECK `name_key = lower(name)` (el `lower()` de Postgres puede no coincidir con el de JS).
+  - Columna nueva `backlog.tags`: en SQLite, TEXT con un JSON array de nombres; en Postgres, jsonb con CHECK "NULL o array de strings". NULL = sin etiquetas. Mismo patrón que `balance_history` con las categorías de dinero (texto).
+  - Límite aceptado: si dos dispositivos editan sin red las etiquetas del mismo título, gana la última escritura (igual que con los demás campos de `backlog`). Si crean sin red la misma etiqueta con otras mayúsculas, queda una fila con el nombre del último; los títulos conservan la grafía con la que se guardaron hasta que se editen o se renombre la etiqueta.
+- [OK] **E3.** `backlog.franchise` queda como columna heredada: la pantalla no la muestra, no la filtra y no la escribe (el repositorio tampoco: editar conserva el valor de antes; el DEFAULT 'Otros' llena las altas en los dos lados). No se convierten sus valores ni se borra. "Nuevo título" (D8, `series.ts`) sigue escribiendo 'Otros', igual al DEFAULT.
+- [OK] **E4.** En pantalla se llaman "Etiqueta". La sección es el tipo del título: `movie` / `series` / `anime` / `reading` (Películas / Series / Anime / Lectura).
+- [OK] **E5.** El nombre se guarda sin espacios al inicio ni al final, con los espacios internos reducidos a uno. Es único por sección sin distinguir mayúsculas (los acentos sí cuentan: "Ánime" = "ánime", "Acción" ≠ "Accion") y tiene de 1 a 30 caracteres.
+- [OK] **E6.** Las etiquetas se crean, renombran y borran desde Pendiente, por sección (botón "Etiquetas").
+  - Borrar pide confirmación con la hoja ("Se quitará de N títulos." / "Se quitará de 1 título." / "No está en ningún título."), borra la etiqueta lógicamente y la quita de esos títulos en la misma transacción.
+  - Renombrar actualiza los títulos de la sección en la misma transacción, **también si solo cambian mayúsculas**. Renombrar a un nombre vivo que ya existe se bloquea.
+- [OK] **E7.** En el formulario de Pendiente aparecen como chips de selección múltiple las etiquetas de la sección, más "Nueva etiqueta" y una fila "De otras secciones" con los nombres que no existen en la sección actual. Elegir una de otra sección la crea en la sección actual. Las chips de franquicia se quitan, y el texto de las chips nuevas queda centrado vertical y horizontalmente (O9).
+- [OK] **E8.** Filtro por etiquetas de la sección: con varias elegidas se muestran los títulos que tienen TODAS. "Sin etiquetas" muestra los títulos sin ninguna y excluye las demás. Reemplaza el filtro de franquicia (que solo existía en Películas y Series) y va en las 4 secciones; se combina con el de estado y el de subtipo, y se limpia al cambiar de sección.
+- [OK] **E9.** "Nuevo título" desde Series/Lectura (D8) sigue sin etiquetas en esta subfase.
+- [OK] **P-a.** Las etiquetas nuevas del formulario (también las de otras secciones) se crean en el catálogo al guardar el título, en la misma transacción; cancelar no deja etiquetas sueltas. Desde la gestión se crean al confirmar.
+- [OK] **P-b.** Crear o renombrar a la clave de una etiqueta BORRADA de la sección revive esa fila con el nombre nuevo (la UNIQUE incluye los tombstones). Al renombrar sobre una borrada: se revive la borrada, se borra la que se renombra y los títulos pasan al nombre nuevo, en una transacción.
+- [OK] **P-c (con el aviso 2).** Forma canónica de `backlog.tags`: sin repetir por clave, ordenados por clave código por código (determinista en Hermes y en Node, no depende de ICU), NULL si queda vacía. La aplican el repositorio y el mapeo (también al bajar). En pantalla se ordenan con `localeCompare('es')`.
+- [OK] **Comparación por clave** (condición del plan): al guardar un título, cada nombre se reemplaza por el del catálogo para su clave; el filtro y el conteo comparan por clave.
+- [OK] **P-d.** Un título puede traer un nombre sin etiqueta viva en su sección (dos dispositivos). Se muestra igual y al guardar ese título se crea o se revive en el catálogo.
+- [OK] **P-e.** `backlog_tags` va AL FINAL de `TABLES`. Sin cambios en el motor: con la app nueva contra un servidor sin el SQL, todo lo demás baja; las filas de `backlog` y `backlog_tags` quedan bloqueadas y el pull de `backlog_tags` falla, así que el ciclo termina "offline" (el indicador dice "Sin conexión" aunque haya red, con los errores aparte). No se pierde nada; tras el SQL, el siguiente ciclo baja la tabla solo y "Reintentar" sube lo bloqueado. La ventana solo existe si se instala el APK antes del SQL.
+- [OK] **P-f.** El selector de etiquetas va DENTRO del formulario (`EtiquetasCampo`); el filtro (`EtiquetasFiltroHoja`) y la gestión (`EtiquetasGestionHoja`) son hojas propias. La 7.5b2 solo las cambia de lugar.
 
 ## Estados de la serie
 - [OK] Nueva al crear; Mirando tras el primer capítulo visto; Pausado manual en cualquier momento; al reanudar, el ciclo se adapta.
@@ -137,7 +161,7 @@ Lista viva. Cada observación se asigna a una subfase cuando se planifica; las d
 - B2 (dirección visual): el formulario de Trabajo no tiene `onRequestClose`, así que Atrás no lo cierra (igual que antes). → subfase de pulido.
 - Hallazgo (7.5): en el formulario de categorías de lectura, el límite (`series_count`) aparece dos veces, como "Límite (Viendo)" y como "Límite Simultáneo (Viendo)". Es el mismo campo. → 7.7.
 - O8 (prueba 7.5, visual): en Pendiente, el "+" del botón de agregar queda más abajo del centro. → 7.5b.
-- O9 (prueba 7.5, visual): en el formulario de Pendiente, el texto de las chips de franquicia ("Otros", "Marvel") queda más arriba del centro. → 7.5b.
+- O9 (prueba 7.5, visual): en el formulario de Pendiente, el texto de las chips de franquicia ("Otros", "Marvel") queda más arriba del centro. → 7.5b1. **Cerrada en la 7.5b1** (las chips de franquicia se quitaron; las de etiquetas centran el texto vertical y horizontalmente, sin el relleno de fuente de Android). Falta verla en el celular.
 - O10 (prueba 7.5). Selector "De Pendiente" dinámico, en video y en lectura:
   - orden ascendente o descendente por año y por fecha de registro;
   - filtro por año, con un selector de los años que existen;
@@ -154,14 +178,11 @@ Lista viva. Cada observación se asigna a una subfase cuando se planifica; las d
   - El usuario las crea desde la app, por sección. Al crear o editar un título se ofrecen las de su sección y se sugieren las de las otras secciones.
   - Los filtros usan las etiquetas creadas en cada sección.
 
-  [PROPUESTA] (para el plan de la 7.5b)
-  - Llamarlas "Etiqueta", para que no choquen con "Categoría", que ya es el contenedor con ritmo.
-  - Modelo: como un título puede tener varias, una tabla de etiquetas y una de relación título–etiqueta. Las dos sincronizadas y con clave natural (etiqueta: usuario, sección, nombre; relación: título, etiqueta), para que dos dispositivos no creen duplicados.
+  ~~[PROPUESTA] Modelo de dos tablas (etiquetas y relación título–etiqueta).~~ Reemplazada por el modelo A (E2, Decisiones de la 7.5b1). El nombre "Etiqueta" quedó [OK] (E4).
 
-  [PENDIENTE] (para el plan de la 7.5b)
-  - Qué pasa con la columna `backlog.franchise` y sus valores actuales ("Otros", "Marvel", "DC Comics"…) al pasar a etiquetas. Contexto: en producción `backlog` solo tiene tombstones, y en Registro Dev se borraron los datos de prueba.
+  ~~[PENDIENTE] Qué pasa con `backlog.franchise`.~~ Resuelto por E3 (columna heredada).
 
-  → 7.5b.
+  → 7.5b1 (ver Decisiones de la 7.5b1).
 - O12 (prueba 7.5). Pendiente más compacto: la cabecera ocupa mucho espacio.
   - tipos con íconos en una fila fija, sin desplazamiento horizontal;
   - etiquetas en un filtro desplegable;
@@ -238,7 +259,9 @@ Cada subfase con su plan, su aprobación y su ciclo completo. Si surge algo nuev
    - 7.4b: **cerrada** (`20ad1cb`, cierre `bd17bb9`). Con migración (primero en Supabase): historial de todo el ritmo desde mañana, sin períodos vacíos (R10), con comparación por contenido (R11); fecha de inicio fija con registros; R12.
    - Dirección visual (antes de la 7.5): **cerrada** (`c8eb200` y el commit de este cierre). Tema A, Plus Jakarta Sans, hojas propias (O5 y O6) y nombres largos, con APK 1.3.9 / vc 13. Solo la base visual.
 5. 7.5 Vínculo Pendiente↔Series/Lectura y subtipo de lectura: **cerrada** (`c2c42c2`, corrección `1f1eec8` con D5 final y la confirmación de D6, y el commit de este cierre). Migración 6 de Supabase y local 7, con APK 1.4.1 / vc 15.
-6. 7.5b Pendiente: O8–O12 (ajustes visuales O8 y O9, selector "De Pendiente" dinámico O10, etiquetas O11, Pendiente compacto O12).
+6. 7.5b Pendiente: O8–O12, en dos subfases (E1):
+   - 6a. 7.5b1: etiquetas (O11) con su migración (Supabase 7, local 8), la pantalla mínima y O9. **En curso** (etapa A en la PC, app 1.4.2 / vc 16).
+   - 6b. 7.5b2 (sin esquema): Pendiente compacto (O12), selector "De Pendiente" dinámico (O10) y O8.
 7. 7.6 Punto de inicio (T0/C0), "Continuar" y "Volver a ver" desde En espera y Terminado (O3), deslizar para marcar con "Deshacer" (I6).
 8. 7.7 Lectura por capítulos, tomo opcional y K, con O13 (obra "completa") y el límite repetido del formulario de categorías de lectura.
 9. 7.7b Películas con ritmo (O14).

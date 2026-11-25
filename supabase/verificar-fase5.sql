@@ -1,9 +1,11 @@
 -- Verificación de la Fase 5 (primer sync de los datos reales). SOLO LECTURA: no es una
 -- migración y no escribe nada (sin INSERT, UPDATE, DELETE ni DDL).
 -- Se ejecuta a mano en el SQL Editor del proyecto de PRODUCCIÓN ("Poguis").
--- Devuelve 16 filas sin contenido de dominio:
+-- Devuelve 17 filas sin contenido de dominio:
 --   una por tabla sincronizada: total, vivos, borrados y usuarios distintos;
 --   una final "TODAS": totales y ok = true si todas las filas pertenecen a UN único user_id.
+-- Fase 7.5b1: suma backlog_tags (fila 16; TODAS pasa a la 17). Nombra esa tabla, así que solo corre
+-- DESPUÉS de aplicar 20261124000100_etiquetas.sql (antes da "relation does not exist").
 with filas as (
               select 'finance_contacts' as tabla, user_id, deleted_at from public.finance_contacts
     union all select 'finance_transactions', user_id, deleted_at from public.finance_transactions
@@ -20,12 +22,13 @@ with filas as (
     union all select 'backlog', user_id, deleted_at from public.backlog
     union all select 'work_people', user_id, deleted_at from public.work_people
     union all select 'cards', user_id, deleted_at from public.cards
+    union all select 'backlog_tags', user_id, deleted_at from public.backlog_tags
 ),
 orden(tabla, n) as (values
     ('finance_contacts', 1), ('finance_transactions', 2), ('balance_history', 3), ('finance_categories', 4),
     ('services', 5), ('entertainment_categories', 6), ('entertainment_pauses', 7), ('entertainment_quotas_history', 8),
     ('series', 9), ('seasons', 10), ('watch_history', 11), ('reading_history', 12), ('backlog', 13),
-    ('work_people', 14), ('cards', 15)
+    ('work_people', 14), ('cards', 15), ('backlog_tags', 16)
 )
 select tabla, total, vivos, borrados, usuarios_distintos, ok
 from (
@@ -40,7 +43,7 @@ from (
     left join filas f on f.tabla = o.tabla
     group by o.n, o.tabla
     union all
-    select 16,
+    select 17,
            'TODAS',
            count(*),
            count(*) filter (where deleted_at is null),
