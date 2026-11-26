@@ -4,7 +4,7 @@ Estados: [OK] decidido por el usuario · [PROPUESTA] sugerido, se confirma en la
 
 Origen: respuestas del usuario del 2026-11-17 y resultados de la 7.2 (commit `d55b5e1`: `docs/ENTRETENIMIENTO-ACTUAL.md` y `scripts/probar-fase7-2.mjs`, 17 OK). R1–R14 y C1–C14 remiten a ese documento y a esa suite.
 
-**Estado: vigente.** 7.5b1 cerrada (2026-11-25, `1d8d756` y las correcciones `a0a4cfc` y `78d8755`, app 1.4.4 / vc 18); sigue la 7.5b2 (orden confirmado el 2026-11-23, ver Orden de trabajo). Se actualiza al cerrar cada subfase, y cualquier cambio de criterio se marca aquí.
+**Estado: vigente.** 7.5b1 cerrada (2026-11-25, `1d8d756` y las correcciones `a0a4cfc` y `78d8755`, app 1.4.4 / vc 18); sigue la 7.5b2 (orden confirmado el 2026-11-23, ver Orden de trabajo), dividida en 7.5b2a (en curso: Pendiente compacto, app 1.4.5 / vc 19 sin APK) y 7.5b2b (F1). Se actualiza al cerrar cada subfase, y cualquier cambio de criterio se marca aquí.
 
 ## Alcance y datos
 - [OK] Datos existentes de entretenimiento en producción (1 categoría de video, 1 serie, 1 temporada y 11 filas en `watch_history`): el usuario los borra desde la app (borrado lógico) y el rediseño no los migra. Sus tombstones quedan en el celular y en Poguis, igual que los de la 6.8. Las migraciones nuevas tienen que tolerar tombstones.
@@ -41,7 +41,7 @@ Origen: respuestas del usuario del 2026-11-17 y resultados de la 7.2 (commit `d5
 - **Límite conocido:** si se borra una serie mientras su título todavía no llegó al celular (solo con dos dispositivos), la reconciliación devuelve el título a Pendiente sin vínculo. No se pierde nada.
 
 ### Decisiones de la 7.5b1 [OK] (2026-11-23; plan aprobado el 2026-11-24 con sus condiciones; aplicadas: `1d8d756`, `a0a4cfc` y `78d8755`, 1.4.4 / vc 18)
-- [OK] **E1.** La 7.5b se divide en 7.5b1 (etiquetas O11 con su migración, la pantalla mínima y O9) y 7.5b2 (sin esquema: Pendiente compacto O12, selector "De Pendiente" dinámico O10 y O8).
+- [OK] **E1.** La 7.5b se divide en 7.5b1 (etiquetas O11 con su migración, la pantalla mínima y O9) y 7.5b2 (sin esquema: Pendiente compacto O12, selector "De Pendiente" dinámico O10 y O8). **Actualizada por F1 (2026-11-25):** la 7.5b2 son dos subfases, 7.5b2a (O12 + O8) y 7.5b2b (O10 + O15).
 - [OK] **E2. Modelo A** (reemplaza la propuesta de dos tablas de O11: la fusión por clave natural solo es segura en tablas que nadie referencia por id, y una tabla de relación referenciaría las etiquetas por id).
   - Tabla sincronizada nueva `backlog_tags` (catálogo): `id`, `user_id`, `section`, `name`, `name_key` y las columnas de sync, más `server_updated_at` en Postgres. Ninguna tabla la referencia por id, así que reutiliza la fusión por clave natural tal como está (como `finance_categories`).
   - **Clave natural `(user_id, section, name_key)`** (aviso 1 del plan, aprobado): `name_key` = nombre normalizado + `toLowerCase()`, lo calcula SOLO la app, así la fusión del motor junta también las variantes de mayúsculas que crean dos dispositivos sin red. UNIQUE en local y en el servidor (incluye los tombstones). En el servidor: CHECK de `name` de 1 a 30 caracteres y de `name_key` de 1 a 60 (`toLowerCase` puede alargar letras como "İ"), los dos sin espacios al inicio ni al final; sin CHECK `name_key = lower(name)` (el `lower()` de Postgres puede no coincidir con el de JS).
@@ -63,6 +63,87 @@ Origen: respuestas del usuario del 2026-11-17 y resultados de la 7.2 (commit `d5
 - [OK] **P-d.** Un título puede traer un nombre sin etiqueta viva en su sección (dos dispositivos). Se muestra igual y al guardar ese título se crea o se revive en el catálogo.
 - [OK] **P-e.** `backlog_tags` va AL FINAL de `TABLES`. Sin cambios en el motor: con la app nueva contra un servidor sin el SQL, todo lo demás baja; las filas de `backlog` y `backlog_tags` quedan bloqueadas y el pull de `backlog_tags` falla, así que el ciclo termina "offline" (el indicador dice "Sin conexión" aunque haya red, con los errores aparte). No se pierde nada; tras el SQL, el siguiente ciclo baja la tabla solo y "Reintentar" sube lo bloqueado. La ventana solo existe si se instala el APK antes del SQL.
 - [OK] **P-f.** El selector de etiquetas va DENTRO del formulario (`EtiquetasCampo`); el filtro (`EtiquetasFiltroHoja`) y la gestión (`EtiquetasGestionHoja`) son hojas propias. La 7.5b2 solo las cambia de lugar.
+  - **Nota 7.5b2a:** el filtro pasa adentro de la hoja "Filtros" como bloque de chips (`EtiquetasFiltroHoja.js` → `EtiquetasFiltro.js`), con la misma semántica E8. La gestión sigue siendo su propia hoja.
+
+### Decisiones de la 7.5b2 [OK] (2026-11-25; plan de la 7.5b2a aprobado el 2026-11-25 con sus ajustes; F5 y F10 son de la 7.5b2b)
+- [OK] **F1.** La 7.5b2 son dos subfases, cada una con su APK y su ciclo completo:
+  - la **7.5b2a** (O12 + O8: Pendiente compacto);
+  - después la **7.5b2b** (O10: selector "De Pendiente" dinámico; O15: títulos completos).
+
+  Actualiza E1, que la daba como una sola.
+- [OK] **F2.** En Pendiente, deslizar la lista a izquierda o derecha cambia de **pestaña de estado**: Pendiente / Mirando / Terminado / Total, en ese orden.
+  - Las pestañas siguen funcionando con un toque y muestran su contador.
+  - Deslizar **no** cambia el estado de un título (D6 no cambia).
+- [OK] **F3.** La técnica es React Native puro (`PaginadorEstados`):
+  - una `FlatList` horizontal con `pagingEnabled`, una página por pestaña, y dentro de cada página una lista vertical;
+  - la pestaña se sincroniza con `onMomentumScrollEnd`;
+  - tocar una pestaña hace `scrollToIndex`, con `getItemLayout` y el ancho de `useWindowDimensions`;
+  - las 4 páginas quedan montadas, así una recarga de la sync no pierde la página ni el scroll;
+  - **prohibidos** `react-native-gesture-handler`, `PanResponder` para esto y `react-native-pager-view`;
+  - el gesto Atrás desde los bordes lo reserva el sistema y termina en el único listener de `App.js`: no hace falta nada.
+- [OK] **F4.** Íconos de `@react-native-vector-icons/lucide` **14.0.0** (fijado exacto):
+  - **Embebido:** import estático (`/static`) y el config plugin en `app.json`. En Android, la fuente la copia al APK la tarea `copyFonts` del Gradle del paquete; el plugin solo toca iOS.
+  - El `.ttf` **no** va en el plugin de `expo-font`, porque lo duplicaría.
+  - **Un solo importador:** `src/components/Icono.js`, con el mapa semántico → glifo.
+  - **Colores** del tema, nunca fijos.
+  - **Glifos:** Películas `clapperboard`, Series `tv`, Anime `sparkles`, Lectura `book-open`, "+" `plus`, Filtros `sliders-horizontal`, Buscar `search`, Orden `arrow-up-down`, Cerrar `x`, Etiquetas `tags`, Atrás `arrow-left`.
+- [OK] **F5 → 7.5b2b.** El selector «De Pendiente» abre con el tipo (video: Serie / Anime) o el subtipo (lectura: Libro / Cómic / Manga) más frecuente entre las series u obras **vivas y vinculadas** de esa categoría.
+  - Sin ninguna, o con empate, abre en «Todos».
+  - Los títulos de lectura «Sin subtipo» solo aparecen con «Todos».
+- [OK] **F6 (ajustada en la aprobación).** El año de un título depende de su tipo:
+  - películas: `year` y, si es NULL, `start_year`;
+  - series, anime y lectura: `start_year` y, si es NULL, `year`.
+
+  Cuando el año principal existe, el resultado es igual al de antes.
+  - **Filtro de año:** elige **un solo año** de los de la **sección completa** (todos los estados; la lista no cambia al deslizar), más "Sin año" solo si algún título de la sección no tiene año.
+  - El año elegido vale en las 4 páginas.
+  - Una página sin coincidencias muestra "No hay títulos con estos filtros." o, sin filtros ni búsqueda, "No hay títulos.".
+- [OK] **F7.** Pendiente recuerda **tipo, estado y orden mientras la app está abierta**, en memoria (`src/hooks/memoriaPendiente.js`).
+  - Al cerrar la app, todo vuelve al inicio: Películas, Pendiente y Registro descendente.
+  - Nada se guarda en AsyncStorage ni en SQLite.
+  - La búsqueda, el año, el subtipo y las etiquetas no se recuerdan.
+  - Al cambiar de sección se limpian etiquetas (E8), subtipo y año; la búsqueda se mantiene mientras no salgas de la pantalla.
+- [OK] **F8.** Formulario y filtros mejorados:
+  1. **Botón "Filtros"** con contador de grupos activos (subtipo, etiquetas y año, de 0 a 3; ni la búsqueda ni el orden cuentan).
+     - Abre una hoja (`HojaConTeclado`, aunque no tenga campos) con subtipo (en lectura), etiquetas, año y **orden**.
+     - Reemplaza las filas de filtros de la cabecera.
+  2. **Búsqueda por nombre** en la fila del título de la cabecera.
+  3. **Orden** por Registro (`created_at`), Año o Título, ascendente o descendente; por defecto, Registro descendente (el de antes).
+     - Sin año, **siempre al final**.
+     - Desempates explícitos y siempre ascendentes: año o registro → título (`localeCompare('es')`) → `id`; título → `id`.
+  4. **Formulario:**
+     - el tipo como fila segmentada con íconos;
+     - al agregar, viene preseleccionado con la sección abierta y se puede cambiar, y cambiarlo limpia el subtipo y las etiquetas;
+     - al editar es de solo lectura: con vínculo, para proteger D1/D6; sin vínculo, como antes, porque el tipo nunca se pudo cambiar al editar;
+     - al guardar, la pantalla va a la sección del título y a Pendiente si es nuevo, o se queda en la pestaña actual si se edita;
+     - el subtipo, segmentado en lectura;
+     - los años, con teclado numérico (solo dígitos, hasta 4).
+
+     No cambian las columnas que se escriben ni las validaciones (`validateBacklogForm`, D6, D7, P-a).
+  - Los contadores de las pestañas reflejan **todos** los filtros, también búsqueda y año (P3).
+- [OK] **F9.** La búsqueda compara sin mayúsculas ni acentos (NFD sin marcas diacríticas + `toLowerCase`, con los espacios reducidos), sobre el título recortado, como subcadena.
+  - Es tolerante a propósito: "n" encuentra "ñ".
+  - Las etiquetas siguen comparando por clave (con acentos, E5).
+- [OK] **F10 = O15 → 7.5b2b.** Dentro de una categoría, de video y de lectura, los títulos se ven completos (sin límite de líneas):
+  - en la lista de series u obras;
+  - en el título del detalle;
+  - en las filas del Registro de capítulos o tomos.
+
+  El nombre de la categoría no cambia: 2 líneas con elipsis en la cabecera y en la lista de categorías. Es una excepción a «Nombres largos» de DECISIONES.md (Interfaz) y se anota al cerrar la 7.5b2b.
+- [OK] **O12, tipos:** los 4 tipos van en **una fila fija sin desplazamiento horizontal** (`FilaTipos`), con columnas de igual ancho, ícono arriba y etiqueta corta en 1 línea; el elegido, con `accent`/`soft`.
+- [OK] **O8:** el "+" de agregar se dibuja con el ícono `plus`, centrado vertical y horizontalmente en su botón.
+- [OK] **Cambios de orden declarados** frente a la 1.4.4 (`b743e8f`; probados con resultados escritos a mano en `probar-fase7-5b2a`, E6–E8):
+  1. **Título:** pasa de BINARY de SQLite (dígitos < mayúsculas < minúsculas < "Á" < "Ñ") a `localeCompare('es')`.
+  2. **Año:**
+     - sin año va al final también en ascendente (antes iba primero);
+     - se usa la otra columna cuando falta la principal (antes, esos títulos no tenían año).
+  3. **Empates:** se deshacen por título y después por id (antes el orden no estaba definido).
+
+  Fuera de esos casos, el resultado es idéntico al de la 1.4.4 (E1–E4).
+- [OK] **Arquitectura:**
+  - la pantalla lee **una vez** todas las filas vivas de la sección, con la consulta que ya existía;
+  - el módulo puro `src/entertainment/backlogList.ts` filtra, ordena y cuenta en memoria. Lo reutiliza el selector en la 7.5b2b;
+  - `src/data/` no cambió.
 
 ## Estados de la serie
 - [OK] Nueva al crear; Mirando tras el primer capítulo visto; Pausado manual en cualquier momento; al reanudar, el ciclo se adapta.
@@ -160,7 +241,7 @@ Lista viva. Cada observación se asigna a una subfase cuando se planifica; las d
 - B1 (dirección visual): en Dinero, "Seleccionar Rango" usa `now`, que no está definido; si el año queda vacío, la pantalla lanza un error. Es previo a la subfase y no se corrigió (era solo visual). → subfase de pulido.
 - B2 (dirección visual): el formulario de Trabajo no tiene `onRequestClose`, así que Atrás no lo cierra (igual que antes). → subfase de pulido.
 - Hallazgo (7.5): en el formulario de categorías de lectura, el límite (`series_count`) aparece dos veces, como "Límite (Viendo)" y como "Límite Simultáneo (Viendo)". Es el mismo campo. → 7.7.
-- O8 (prueba 7.5, visual): en Pendiente, el "+" del botón de agregar queda más abajo del centro. → 7.5b.
+- O8 (prueba 7.5, visual): en Pendiente, el "+" del botón de agregar queda más abajo del centro. → 7.5b. **En la 7.5b2a** (ícono `plus` centrado; ver Decisiones de la 7.5b2).
 - O9 (prueba 7.5, visual): en el formulario de Pendiente, el texto de las chips de franquicia ("Otros", "Marvel") queda más arriba del centro. → 7.5b1. **Cerrada en la 7.5b1** (las chips de franquicia se quitaron; las de etiquetas centran el texto vertical y horizontalmente, sin el relleno de fuente de Android). Verificada en el celular.
 - O10 (prueba 7.5). Selector "De Pendiente" dinámico, en video y en lectura:
   - orden ascendente o descendente por año y por fecha de registro;
@@ -189,7 +270,7 @@ Lista viva. Cada observación se asigna a una subfase cuando se planifica; las d
   - estado (Pendiente / Mirando / Terminado / Total) que también cambie deslizando, sin depender solo del botón;
   - formulario y filtros mejorados.
 
-  Adelanta, solo para Pendiente, parte del rediseño que iba después de la 7.11. → 7.5b2.
+  Adelanta, solo para Pendiente, parte del rediseño que iba después de la 7.11. → 7.5b2. **En la 7.5b2a** (ver Decisiones de la 7.5b2).
 - O13 (prueba 7.5). Lectura (7.7):
   - el ritmo pasa a dos modos en el formulario, "N capítulos por día" o "1 capítulo cada N días", sin números negativos en la pantalla;
   - la agrupación K ya estaba decidida en el diseño;
@@ -269,7 +350,9 @@ Cada subfase con su plan, su aprobación y su ciclo completo. Si surge algo nuev
 5. 7.5 Vínculo Pendiente↔Series/Lectura y subtipo de lectura: **cerrada** (`c2c42c2`, corrección `1f1eec8` con D5 final y la confirmación de D6, y el commit de este cierre). Migración 6 de Supabase y local 7, con APK 1.4.1 / vc 15.
 6. 7.5b Pendiente: O8–O12, en dos subfases (E1):
    - 6a. 7.5b1: etiquetas (O11) con su migración (Supabase 7, local 8), la pantalla mínima y O9. **Cerrada** (`1d8d756`, correcciones `a0a4cfc` y `78d8755`, y el commit de este cierre; APK 1.4.4 / vc 18).
-   - 6b. 7.5b2 (sin esquema): Pendiente compacto (O12), selector "De Pendiente" dinámico (O10, con `PendientePicker` en `HojaConTeclado`), O8 y O15.
+   - 6b. 7.5b2 (sin esquema), en dos subfases (F1), cada una con su APK:
+     - 6b1. 7.5b2a: Pendiente compacto (O12) y O8. **En curso** (código y pruebas en la PC; app 1.4.5 / vc 19, sin APK todavía).
+     - 6b2. 7.5b2b: selector "De Pendiente" dinámico (O10, con `PendientePicker` en `HojaConTeclado`, F5) y O15 (F10).
 7. 7.6 Punto de inicio (T0/C0), "Continuar" y "Volver a ver" desde En espera y Terminado (O3), deslizar para marcar con "Deshacer" (I6).
 8. 7.7 Lectura por capítulos, tomo opcional y K, con O13 (obra "completa") y el límite repetido del formulario de categorías de lectura.
 9. 7.7b Películas con ritmo (O14).

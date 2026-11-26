@@ -2,7 +2,7 @@
   "expo": {
     "name": "Registro",
     "slug": "Registro",
-    "version": "1.4.4",
+    "version": "1.4.5",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -22,7 +22,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.poguis.Registro",
-      "versionCode": 18
+      "versionCode": 19
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -34,6 +34,7 @@
     },
     "plugins": [
       "expo-sqlite",
+      "@react-native-vector-icons/lucide",
       "expo-web-browser",
       [
         "expo-secure-store",

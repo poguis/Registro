@@ -335,4 +335,53 @@ Cerrado: el punto 7 (7.1, ver §5). Los demás siguen pendientes.
   - **Android 17 con borde a borde obligatorio:** el `Modal` nativo vive en su propia ventana, el teclado no lo redimensiona, y los eventos de teclado de RN 0.81 son de la ventana de la actividad. De ahí `HojaConTeclado` y `HojasHost`. Plan B documentado y no instalado: `react-native-keyboard-controller` 1.18.5 (Expo SDK 54), que exige `react-native-reanimated` ~4.1.1 y `react-native-worklets` 0.5.1, `KeyboardProvider` y recompilar lo nativo.
   - **Formularios fuera del módulo** con el mismo problema del teclado: Tarjetas, Servicios y Dinero **sí**; Deudas/Préstamos, Estadísticas y Trabajo **probable**. → subfase de pulido, junto con B2. `PendientePicker` pasa a `HojaConTeclado` en la 7.5b2, por su campo de búsqueda (O10).
 - **Observaciones del celular:** O15 (títulos completos dentro de una categoría) en el diseño → 7.5b2.
-- **Siguiente:** la 7.5b2 (Pendiente compacto O12, selector "De Pendiente" dinámico O10, O8 y O15), según el diseño.
+- **Siguiente:** la 7.5b2 (Pendiente compacto O12, selector "De Pendiente" dinámico O10, O8 y O15), según el diseño. Se dividió en 7.5b2a (en curso: ver §13) y 7.5b2b (F1).
+
+## 13. Fase 7.5b2a — Pendiente compacto (O12 + O8) [EN CURSO]
+- **Plan aprobado el 2026-11-25**, con dos revisiones:
+  - se aceptaron las 7 contradicciones;
+  - se decidieron P1–P12;
+  - ajustes de la aprobación: año por tipo, desempates explícitos, el `git diff --stat` fuera de la suite y la cobertura enumerada.
+
+  Las decisiones F1–F10 están en `claude/DISENO-ENTRETENIMIENTO.md` (Decisiones de la 7.5b2). F5 y F10 son de la 7.5b2b.
+- **Sin esquema ni SQL:**
+  - `user_version` sigue en 8 y las migraciones de Supabase siguen en 7;
+  - `src/data/`, `src/sync/` y `supabase/` no se tocan.
+- **App:** 1.4.5 / vc 19 en `app.json`. **Sin APK todavía.**
+- **Qué cambia:**
+  - **Cabecera compacta:**
+    - título con Buscar, Filtros (contador de 0 a 3) y Etiquetas;
+    - los 4 tipos en una fila fija (`FilaTipos`);
+    - las pestañas de estado.
+  - **Paginador de estados** (`PaginadorEstados`): `FlatList` horizontal con `pagingEnabled`.
+  - **Hoja "Filtros"** (`FiltrosPendienteHoja`, sobre `HojaConTeclado`): subtipo, etiquetas (`EtiquetasFiltro`, antes `EtiquetasFiltroHoja`), año y orden.
+  - **Búsqueda** (`BuscarPendiente`): la única excepción de teclado, identificada por `nativeID`.
+  - **Memoria de sesión** (`memoriaPendiente`).
+  - **Módulo puro `backlogList.ts`:** arma la lista en memoria a partir de una sola lectura por sección.
+  - **Íconos** Lucide 14.0.0: `Icono`, importación estática y plugin en `app.json`.
+  - **Formulario:**
+    - el tipo, segmentado (de solo lectura al editar);
+    - los años, solo con dígitos.
+  - **El "+"** se dibuja con el ícono `plus` (O8).
+- **Cambios de orden declarados** frente a la 1.4.4:
+  - el título pasa de BINARY a `localeCompare('es')`;
+  - sin año va al final también en ascendente, y se usa la otra columna cuando falta la principal;
+  - los empates se ordenan por título y después por id.
+- **Pruebas en la PC (etapa A):**
+  - `probar-fase7-5b2a` (nueva): 33 OK;
+  - `probar-tema`: 58 OK (antes 54: la excepción acotada y los íconos, cada uno con su control negativo);
+  - `probar-fase7-5b1`: 51 OK (rutas nuevas y la dependencia `setActiveTab` del arnés);
+  - `probar-fase3`: versión 1.4.5 / 19;
+  - las demás, con los conteos de la 7.5b1.
+- **Hallazgo (herramientas):** al escribir esta sección con un comando de bash, las comillas invertidas del texto se ejecutaron. Intentaron correr `git diff --stat` y `npm run build:dev\`, y los dos fallaron de inmediato ("invalid option" y "Missing script").
+  - **Comprobado:** no hubo ningún efecto. `git status` solo muestra los archivos de la subfase, el último APK sigue siendo el 1.4.4 y `android/app/build.gradle` sigue siendo el del build 1.4.4 (2026-11-25 21:01).
+  - **Regla nueva** (en `CLAUDE.md`, Git estricto):
+    - nunca escribir contenido de archivos con comandos de shell (heredoc, `echo`, `printf`, `node -e`); usar siempre Write/Edit;
+    - ningún comando de build sin que el usuario lo pida.
+- **Siguiente:**
+  1. revisión del usuario;
+  2. commit;
+  3. `npm run build:dev` (comprobando que el APK trae `assets/fonts/Lucide.ttf`);
+  4. prueba en Registro Dev;
+  5. release e instalación con el protocolo;
+  6. cierre.

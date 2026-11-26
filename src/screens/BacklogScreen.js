@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { View, StyleSheet, TouchableOpacity, FlatList, Modal, Dimensions, ScrollView } from 'react-native';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { View, StyleSheet, TouchableOpacity, FlatList, Keyboard } from 'react-native';
 import { useSheet } from '../hooks/useSheet';
 import { Text, TextInput } from '../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -10,24 +10,21 @@ import { useTheme, FONT, RADIUS } from '../contexts/ThemeContext';
 // subtipo de lectura.
 import { nextManualStatus, needsFinishConfirm, isLinked, linkLabel, validateBacklogForm, SUBTYPE_LABELS } from '../entertainment/link';
 // Fase 7.5b1: etiquetas por sección (E6–E8). La franquicia ya no se muestra, no se filtra ni se escribe.
-import { parseTags, sortForDisplay, isTagFilterActive, deleteTagText, tagKey, TAG_ERROR_TEXTS } from '../entertainment/tags';
+import { parseTags, sortForDisplay, deleteTagText, tagKey, TAG_ERROR_TEXTS } from '../entertainment/tags';
+// Fase 7.5b2a (O12): la lista se arma en memoria (filtros, búsqueda, año, orden y las 4 páginas).
+import { STATUS_TABS, buildPages, availableYears, activeFilterCount, emptyText, normalizeSearch } from '../entertainment/backlogList';
+import { leerMemoriaPendiente, guardarMemoriaPendiente } from '../hooks/memoriaPendiente';
 import EtiquetasCampo from '../components/EtiquetasCampo';
-import EtiquetasFiltroHoja from '../components/EtiquetasFiltroHoja';
 import EtiquetasGestionHoja from '../components/EtiquetasGestionHoja';
+import FiltrosPendienteHoja from '../components/FiltrosPendienteHoja';
+import FilaTipos, { TIPOS } from '../components/FilaTipos';
+import PaginadorEstados from '../components/PaginadorEstados';
+import BuscarPendiente from '../components/BuscarPendiente';
+import Icono from '../components/Icono';
 import HojaConTeclado, { ScrollDeHoja } from '../components/HojaConTeclado';
-
-const { width } = Dimensions.get('window');
 
 const FORM_VACIO = { title: '', year: '', format: '24 min', start_year: '', end_year: '', subtype: null, tags: [] };
 const FILTRO_VACIO = { keys: [], none: false };
-
-// Cada tipo tiene un tono del tema (theme.tones) como color de identidad.
-const CATEGORIES = [
-    { id: 'movie', label: 'Películas', icon: '🎬', tono: 'rojo' },
-    { id: 'series', label: 'Series', icon: '📺', tono: 'verde' },
-    { id: 'anime', label: 'Anime', icon: '🎋', tono: 'azul' },
-    { id: 'reading', label: 'Lectura', icon: '📚', tono: 'naranja' },
-];
 
 const STATUS_TONES = {
     'Pendiente': 'pizarra',
@@ -36,63 +33,83 @@ const STATUS_TONES = {
     'Total': 'morado',
 };
 
+// Años del formulario: solo dígitos, hasta 4 (no cambia la validación: se guardan con parseInt).
+const soloAnio = (text) => String(text || '').replace(/\D/g, '').slice(0, 4);
+
 export default function BacklogScreen({ user, onBack }) {
     const { theme } = useTheme();
     const styles = useMemo(() => makeStyles(theme), [theme]);
     const { confirm, informar } = useSheet();
     const statusTone = (status) => theme.tones[STATUS_TONES[status]];
-    const [activeTab, setActiveTab] = useState('movie');
-    const [activeStatus, setActiveStatus] = useState('Pendiente');
-    const [items, setItems] = useState([]);
-    const [counts, setCounts] = useState({ 'Pendiente': 0, 'Mirando': 0, 'Terminado': 0, 'Total': 0 });
-    const [loading, setLoading] = useState(true);
+    // F7: tipo, estado y orden se recuerdan mientras la app está abierta (memoria de sesión).
+    const memoria = useRef(leerMemoriaPendiente()).current;
+    const [activeTab, setActiveTab] = useState(memoria.tipo);
+    const [activeStatus, setActiveStatus] = useState(memoria.estado);
+    const [orden, setOrden] = useState(memoria.orden);
+    const [items, setItems] = useState([]); // todas las filas vivas de la sección (C-a)
     const [modalVisible, setModalVisible] = useState(false);
     const [filterModalVisible, setFilterModalVisible] = useState(false);
     const [editingItem, setEditingItem] = useState(null);
-    const [activeSubtype, setActiveSubtype] = useState('Todos'); // Fase 7.5: filtro de la pestaña Lectura
-    // Fase 7.5b1: filtro por etiquetas (E8), catálogo (todas las secciones) y hojas de filtro y gestión.
+    const [activeSubtype, setActiveSubtype] = useState('Todos'); // Fase 7.5: filtro de Lectura
+    // Fase 7.5b1: filtro por etiquetas (E8), catálogo (todas las secciones) y hoja de gestión.
     const [tagFilter, setTagFilter] = useState(FILTRO_VACIO);
     const [catalog, setCatalog] = useState([]);
     const [tagUsage, setTagUsage] = useState({});
-    const [tagFilterVisible, setTagFilterVisible] = useState(false);
     const [tagManagerVisible, setTagManagerVisible] = useState(false);
-
-    // Sort states
-    const [sortBy, setSortBy] = useState('created_at'); // 'title', 'year_start', 'created_at'
-    const [order, setOrder] = useState('DESC'); // 'ASC', 'DESC'
+    // Fase 7.5b2a: año (P4) y búsqueda (F8.2; se mantiene al cambiar de sección, P5).
+    const [yearFilter, setYearFilter] = useState(null);
+    const [busqueda, setBusqueda] = useState('');
+    const [buscando, setBuscando] = useState(false);
+    const [teclado, setTeclado] = useState(0);
+    const pedido = useRef(0);
 
     // Form state
     const [formData, setFormData] = useState(FORM_VACIO);
 
     useEffect(() => {
         loadItems();
-    }, [activeTab, activeStatus, sortBy, order, tagFilter, activeSubtype]);
-    // Recarga si la sync trae cambios del servidor (sin tocar formularios, filtros ni scroll).
+    }, [activeTab]);
+    // Recarga si la sync trae cambios del servidor (sin tocar formularios, filtros, página ni scroll).
     useSyncRefresh(() => loadItems());
 
+    // E8 y P5: al cambiar de sección se limpian etiquetas, subtipo y año; la búsqueda se mantiene.
     useEffect(() => {
         setActiveSubtype('Todos');
         setTagFilter(FILTRO_VACIO);
+        setYearFilter(null);
     }, [activeTab]);
 
+    useEffect(() => {
+        guardarMemoriaPendiente({ tipo: activeTab, estado: activeStatus, orden });
+    }, [activeTab, activeStatus, orden]);
+
+    // Con el teclado abierto (búsqueda), la página suma su alto al relleno inferior.
+    useEffect(() => {
+        const a = Keyboard.addListener('keyboardDidShow', (e) => setTeclado(Math.max(0, (e && e.endCoordinates && e.endCoordinates.height) || 0)));
+        const b = Keyboard.addListener('keyboardDidHide', () => setTeclado(0));
+        return () => { a.remove(); b.remove(); };
+    }, []);
+
+    // Una sola lectura por sección: todas las filas vivas, sin filtros (los aplica backlogList).
     const loadItems = async () => {
-        setLoading(true);
-        // Load items
-        const res = await db.getBacklogItems(user.id, activeTab, activeStatus, sortBy, order, tagFilter, activeSubtype);
-        if (res.success) {
+        const n = ++pedido.current;
+        const tab = activeTab;
+        const res = await db.getBacklogItems(user.id, tab, 'Total', 'created_at', 'DESC', null, 'Todos');
+        if (res.success && n === pedido.current) {
             setItems(res.data);
-        }
-        // Load counts
-        const countsRes = await db.getBacklogCounts(user.id, activeTab, tagFilter, activeSubtype);
-        if (countsRes.success) {
-            setCounts(countsRes.counts);
         }
         const tagsRes = await db.getBacklogTags(user.id);
         if (tagsRes.success) {
             setCatalog(tagsRes.data);
         }
-        setLoading(false);
     };
+
+    const filtros = useMemo(() => ({ subtype: activeSubtype, tags: tagFilter, year: yearFilter, search: busqueda }),
+        [activeSubtype, tagFilter, yearFilter, busqueda]);
+    const { pages, counts } = useMemo(() => buildPages(items, filtros, orden), [items, filtros, orden]);
+    const anios = useMemo(() => availableYears(items), [items]);
+    const nFiltros = activeFilterCount(filtros);
+    const textoVacio = emptyText(filtros);
 
     const loadTagUsage = async () => {
         const res = await db.getBacklogTagUsage(user.id, activeTab);
@@ -118,9 +135,8 @@ export default function BacklogScreen({ user, onBack }) {
         // El filtro sigue a la etiqueta renombrada (compara por clave).
         if (tagFilter.keys.includes(tag.name_key)) {
             setTagFilter({ ...tagFilter, keys: tagFilter.keys.map((k) => (k === tag.name_key ? tagKey(name) : k)) });
-        } else {
-            await loadItems();
         }
+        await loadItems();
         await loadTagUsage();
         return true;
     };
@@ -139,22 +155,24 @@ export default function BacklogScreen({ user, onBack }) {
         if (!res.success) { informar('Etiqueta', 'No se pudo borrar la etiqueta.'); return false; }
         if (tagFilter.keys.includes(tag.name_key)) {
             setTagFilter({ ...tagFilter, keys: tagFilter.keys.filter((k) => k !== tag.name_key) });
-        } else {
-            await loadItems();
         }
+        await loadItems();
         await loadTagUsage();
         return true;
     };
 
+    // P7: el tipo del formulario (al agregar, el elegido; al editar, el del título: no se edita).
     const handleAddItem = async () => {
         const formErrors = { titulo: 'El título es obligatorio', subtipo: 'Elige el subtipo: libro, cómic o manga.' };
-        const validation = validateBacklogForm({ type: activeTab, title: formData.title, subtype: formData.subtype });
+        const tipo = editingItem ? editingItem.type : (formData.type || activeTab);
+        const validation = validateBacklogForm({ type: tipo, title: formData.title, subtype: formData.subtype });
         if (validation.error) { informar('Error', formErrors[validation.error]); return; }
 
+        const { type: _tipoForm, ...campos } = formData;
         const data = {
-            ...formData,
-            type: activeTab,
-            subtype: activeTab === 'reading' ? formData.subtype : null,
+            ...campos,
+            type: tipo,
+            subtype: tipo === 'reading' ? formData.subtype : null,
             year: formData.year ? parseInt(formData.year) : null,
             start_year: formData.start_year ? parseInt(formData.start_year) : null,
             end_year: formData.end_year ? parseInt(formData.end_year) : null,
@@ -163,6 +181,7 @@ export default function BacklogScreen({ user, onBack }) {
         if (editingItem) {
             const res = await db.updateBacklogItem(editingItem.id, data);
             if (res.success) {
+                // Editar no cambia el estado: la pantalla se queda en la pestaña actual.
                 setModalVisible(false);
                 setEditingItem(null);
                 setFormData(FORM_VACIO);
@@ -173,10 +192,12 @@ export default function BacklogScreen({ user, onBack }) {
         } else {
             const res = await db.addBacklogItem(user.id, data);
             if (res.success) {
+                // Nuevo: a la sección del título y a Pendiente (P7).
                 setModalVisible(false);
                 setFormData(FORM_VACIO);
                 setActiveStatus('Pendiente');
-                loadItems();
+                if (tipo !== activeTab) setActiveTab(tipo);
+                else loadItems();
             } else {
                 informar('Error', 'No se pudo guardar');
             }
@@ -193,6 +214,7 @@ export default function BacklogScreen({ user, onBack }) {
             end_year: item.end_year ? item.end_year.toString() : '',
             subtype: item.subtype || null,
             tags: parseTags(item.tags),
+            type: item.type,
         });
         setModalVisible(true);
     };
@@ -246,7 +268,7 @@ export default function BacklogScreen({ user, onBack }) {
     };
 
     const renderItem = ({ item }) => (
-        <TouchableOpacity 
+        <TouchableOpacity
             style={[styles.itemCard, { backgroundColor: theme.surface, borderColor: theme.line }]}
             onPress={() => handleUpdateStatus(item)}
             activeOpacity={0.7}
@@ -256,7 +278,7 @@ export default function BacklogScreen({ user, onBack }) {
                     {/* C1 (1.4.3): en Pendiente el título se ve completo (sin límite de líneas). */}
                     <Text style={[styles.itemTitle, { color: theme.ink }]}>{item.title}</Text>
                     <View style={[
-                        styles.statusDot, 
+                        styles.statusDot,
                         { backgroundColor: statusTone(item.status).fg }
                     ]} />
                 </View>
@@ -322,212 +344,151 @@ export default function BacklogScreen({ user, onBack }) {
         </TouchableOpacity>
     );
 
-    const currentCat = CATEGORIES.find(c => c.id === activeTab);
+    // Una página del paginador (F2/F3): la lista vertical del estado (se rehace en cada render; el
+    // paginador no remonta la página, así que la lista conserva su scroll).
+    const renderPagina = (estado) => (
+        <FlatList
+            data={pages[estado]}
+            renderItem={renderItem}
+            keyExtractor={item => item.id.toString()}
+            contentContainerStyle={[styles.listContent, { paddingBottom: 100 + teclado }]}
+            keyboardShouldPersistTaps="handled"
+            ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                    <Text style={[styles.emptyText, { color: theme.muted }]}>{textoVacio}</Text>
+                </View>
+            }
+        />
+    );
+
+    const currentCat = TIPOS.find(c => c.id === activeTab);
+    const formType = editingItem ? editingItem.type : (formData.type || activeTab);
+    const formCat = TIPOS.find(c => c.id === formType);
+    const hayBusqueda = normalizeSearch(busqueda) !== '';
 
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
 
-            {/* Header */}
-            <View style={[styles.header, { backgroundColor: theme.surface }]}>
-                <TouchableOpacity onPress={onBack} style={styles.backButton}>
-                    <Text style={[styles.backIcon, { color: theme.ink }]}>←</Text>
-                </TouchableOpacity>
-                <Text style={[styles.headerTitle, { color: theme.ink }]}>Pendientes</Text>
-                <TouchableOpacity onPress={() => setFilterModalVisible(true)} style={styles.filterButton}>
-                    <Text style={{ fontSize: 22 }}>⚖️</Text>
-                </TouchableOpacity>
-            </View>
+            {/* Cabecera compacta (O12): título con sus acciones, tipos en una fila fija y estados */}
+            <View style={[styles.header, { backgroundColor: theme.surface, borderBottomColor: theme.line }]}>
+                <View style={styles.headerRow}>
+                    <TouchableOpacity onPress={onBack} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="Atrás">
+                        <Icono nombre="atras" tamano={24} color={theme.ink} />
+                    </TouchableOpacity>
+                    {buscando ? (
+                        <BuscarPendiente
+                            value={busqueda}
+                            onChange={setBusqueda}
+                            onCerrar={() => { setBusqueda(''); setBuscando(false); }}
+                        />
+                    ) : (
+                        <>
+                            <Text style={[styles.headerTitle, { color: theme.ink }]} numberOfLines={1} ellipsizeMode="tail">Pendientes</Text>
+                            <TouchableOpacity onPress={() => setBuscando(true)} style={[styles.iconBtn, hayBusqueda && { backgroundColor: theme.soft }]} accessibilityRole="button" accessibilityLabel="Buscar">
+                                <Icono nombre="buscar" tamano={22} color={hayBusqueda ? theme.accent : theme.ink} />
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => setFilterModalVisible(true)} style={[styles.iconBtn, nFiltros > 0 && { backgroundColor: theme.soft }]} accessibilityRole="button" accessibilityLabel={nFiltros > 0 ? `Filtros, ${nFiltros} activos` : 'Filtros'}>
+                                <Icono nombre="filtros" tamano={22} color={nFiltros > 0 ? theme.accent : theme.ink} />
+                                {nFiltros > 0 && (
+                                    <View style={[styles.badge, { backgroundColor: theme.accent }]}>
+                                        <Text style={[styles.badgeText, { color: theme.onAccent }]}>{nFiltros}</Text>
+                                    </View>
+                                )}
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={openTagManager} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="Etiquetas">
+                                <Icono nombre="etiquetas" tamano={22} color={theme.ink} />
+                            </TouchableOpacity>
+                        </>
+                    )}
+                </View>
 
-            {/* Main Tabs (Categories) */}
-            <View style={styles.tabsContainer}>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsScroll}>
-                    {CATEGORIES.map(cat => (
+                <View style={styles.tiposRow}>
+                    <FilaTipos value={activeTab} onChange={setActiveTab} />
+                </View>
+
+                {/* Estados: un toque o deslizar la lista (PaginadorEstados) */}
+                <View style={styles.statusTabsContainer}>
+                    {STATUS_TABS.map(status => (
                         <TouchableOpacity
-                            key={cat.id}
+                            key={status}
+                            accessibilityRole="tab"
+                            accessibilityState={{ selected: activeStatus === status }}
                             style={[
-                                styles.tab,
-                                { 
-                                    backgroundColor: activeTab === cat.id ? theme.tones[cat.tono].bg : theme.surface, 
-                                    borderColor: activeTab === cat.id ? theme.tones[cat.tono].fg : theme.lineStrong 
-                                }
+                                styles.statusTab,
+                                { borderColor: statusTone(status).fg },
+                                activeStatus === status && { backgroundColor: statusTone(status).bg }
                             ]}
-                            onPress={() => setActiveTab(cat.id)}
+                            onPress={() => setActiveStatus(status)}
                         >
-                            <Text style={styles.tabIcon}>{cat.icon}</Text>
                             <Text style={[
-                                styles.tabLabel,
-                                { color: activeTab === cat.id ? theme.tones[cat.tono].fg : theme.ink }
-                            ]}>
-                                {cat.label}
+                                styles.statusTabLabel,
+                                { color: statusTone(status).fg }
+                            ]} numberOfLines={1}>
+                                {status} ({counts[status] || 0})
                             </Text>
                         </TouchableOpacity>
                     ))}
-                </ScrollView>
-            </View>
-
-            {/* Fase 7.5b1: filtro por etiquetas (E8) y gestión (E6), en las 4 secciones */}
-            <View style={styles.tagBar}>
-                <TouchableOpacity
-                    accessibilityRole="button"
-                    style={[styles.tagBarBtn, {
-                        backgroundColor: isTagFilterActive(tagFilter) ? theme.accent : theme.raised,
-                        borderColor: isTagFilterActive(tagFilter) ? theme.accent : theme.lineStrong,
-                    }]}
-                    onPress={() => setTagFilterVisible(true)}
-                >
-                    <Text style={[styles.tagBarLabel, { color: isTagFilterActive(tagFilter) ? theme.onAccent : theme.ink }]} numberOfLines={1}>
-                        {tagFilter.none ? 'Sin etiquetas' : tagFilter.keys.length > 0 ? `Filtrar (${tagFilter.keys.length})` : 'Filtrar'}
-                    </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    accessibilityRole="button"
-                    style={[styles.tagBarBtn, { backgroundColor: theme.raised, borderColor: theme.lineStrong }]}
-                    onPress={openTagManager}
-                >
-                    <Text style={[styles.tagBarLabel, { color: theme.ink }]} numberOfLines={1}>Etiquetas</Text>
-                </TouchableOpacity>
-            </View>
-
-            {/* Fase 7.5: filtro de subtipo (Lectura) */}
-            {activeTab === 'reading' && (
-                <View style={[styles.tabsContainer, { paddingTop: 0, paddingBottom: 10 }]}>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.tabsScroll, { flexGrow: 1, justifyContent: 'center' }]}>
-                        {['Todos', ...Object.keys(SUBTYPE_LABELS)].map(sub => (
-                            <TouchableOpacity
-                                key={sub}
-                                style={[
-                                    styles.subtypeTab,
-                                    {
-                                        backgroundColor: activeSubtype === sub ? theme.accent : theme.raised,
-                                        borderColor: activeSubtype === sub ? theme.accent : theme.lineStrong
-                                    }
-                                ]}
-                                onPress={() => setActiveSubtype(sub)}
-                            >
-                                <Text style={[styles.subtypeLabel, { color: activeSubtype === sub ? theme.onAccent : theme.ink }]}>
-                                    {sub === 'Todos' ? 'Todos' : SUBTYPE_LABELS[sub]}
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
-                    </ScrollView>
                 </View>
-            )}
-
-            {/* Sub Tabs (Status) */}
-            <View style={styles.statusTabsContainer}>
-                {['Pendiente', 'Mirando', 'Terminado', 'Total'].map(status => (
-                    <TouchableOpacity
-                        key={status}
-                        style={[
-                            styles.statusTab,
-                            { borderColor: statusTone(status).fg },
-                            activeStatus === status && { backgroundColor: statusTone(status).bg }
-                        ]}
-                        onPress={() => setActiveStatus(status)}
-                    >
-                        <Text style={[
-                            styles.statusTabLabel,
-                            { color: statusTone(status).fg }
-                        ]} numberOfLines={1}>
-                            {status} ({counts[status] || 0})
-                        </Text>
-                    </TouchableOpacity>
-                ))}
             </View>
 
-            {/* List */}
-            <FlatList
-                data={items}
-                renderItem={renderItem}
-                keyExtractor={item => item.id.toString()}
-                contentContainerStyle={styles.listContent}
-                ListEmptyComponent={
-                    <View style={styles.emptyContainer}>
-                        <Text style={[styles.emptyText, { color: theme.muted }]}>
-                            No hay {currentCat.label.toLowerCase()} con estado {activeStatus.toLowerCase()}
-                        </Text>
-                    </View>
-                }
+            {/* Lista paginada por estado (F2/F3) */}
+            <PaginadorEstados
+                estados={STATUS_TABS}
+                estado={activeStatus}
+                onCambiar={setActiveStatus}
+                renderPagina={renderPagina}
             />
 
-            {/* Add Button */}
+            {/* Agregar (O8): ícono "plus" centrado en su botón */}
             <TouchableOpacity
                 style={[styles.fab, { backgroundColor: theme.accent }]}
+                accessibilityRole="button"
+                accessibilityLabel="Agregar"
                 onPress={() => {
                     setEditingItem(null);
-                    setFormData(FORM_VACIO);
+                    setFormData({ ...FORM_VACIO, type: activeTab });
                     setModalVisible(true);
                 }}
             >
-                <Text style={styles.fabIcon}>+</Text>
+                <Icono nombre="mas" tamano={28} color={theme.onAccent} />
             </TouchableOpacity>
 
-            {/* Filter Modal */}
-            <Modal
+            {/* Hoja "Filtros" (F8.1): subtipo, etiquetas, año y orden */}
+            <FiltrosPendienteHoja
                 visible={filterModalVisible}
-                transparent
-                animationType="fade"
-                onRequestClose={() => setFilterModalVisible(false)}
-            >
-                <View style={styles.modalOverlay}>
-                    <View style={[styles.filterCard, { backgroundColor: theme.surface }]}>
-                        <Text style={[styles.modalTitle, { color: theme.ink }]}>Ordenar por</Text>
-
-                        <View style={styles.filterOptions}>
-                            <TouchableOpacity
-                                style={[styles.filterOption, sortBy === 'title' && { backgroundColor: theme.accent, borderColor: theme.accent }]}
-                                onPress={() => setSortBy('title')}
-                            >
-                                <Text style={[styles.filterOptionText, sortBy === 'title' && { color: theme.onAccent }]}>Título</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[styles.filterOption, sortBy === 'year_start' && { backgroundColor: theme.accent, borderColor: theme.accent }]}
-                                onPress={() => setSortBy('year_start')}
-                            >
-                                <Text style={[styles.filterOptionText, sortBy === 'year_start' && { color: theme.onAccent }]}>Año</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[styles.filterOption, sortBy === 'created_at' && { backgroundColor: theme.accent, borderColor: theme.accent }]}
-                                onPress={() => setSortBy('created_at')}
-                            >
-                                <Text style={[styles.filterOptionText, sortBy === 'created_at' && { color: theme.onAccent }]}>Fecha</Text>
-                            </TouchableOpacity>
-                        </View>
-
-                        <Text style={[styles.modalTitle, { color: theme.ink, marginTop: 20 }]}>Dirección</Text>
-                        <View style={styles.filterOptions}>
-                            <TouchableOpacity
-                                style={[styles.filterOption, order === 'ASC' && { backgroundColor: theme.accent, borderColor: theme.accent }]}
-                                onPress={() => setOrder('ASC')}
-                            >
-                                <Text style={[styles.filterOptionText, order === 'ASC' && { color: theme.onAccent }]}>Ascendente</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity
-                                style={[styles.filterOption, order === 'DESC' && { backgroundColor: theme.accent, borderColor: theme.accent }]}
-                                onPress={() => setOrder('DESC')}
-                            >
-                                <Text style={[styles.filterOptionText, order === 'DESC' && { color: theme.onAccent }]}>Descendente</Text>
-                            </TouchableOpacity>
-                        </View>
-
-                        <TouchableOpacity
-                            style={[styles.closeBtn, { backgroundColor: theme.accent }]}
-                            onPress={() => setFilterModalVisible(false)}
-                        >
-                            <Text style={styles.closeBtnText}>Aplicar</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </Modal>
+                section={activeTab}
+                sectionLabel={currentCat.label}
+                catalog={catalog}
+                years={anios}
+                filtros={filtros}
+                orden={orden}
+                onAplicar={({ filtros: f, orden: o }) => {
+                    setActiveSubtype(f.subtype);
+                    setTagFilter(f.tags);
+                    setYearFilter(f.year);
+                    setOrden(o);
+                    setFilterModalVisible(false);
+                }}
+                onClose={() => setFilterModalVisible(false)}
+            />
 
             {/* Formulario (1.4.3: hoja con teclado, el campo con el foco nunca queda tapado) */}
             <HojaConTeclado visible={modalVisible} onClose={() => setModalVisible(false)}>
                     <View style={[styles.modalCard, { backgroundColor: theme.surface }]}>
                         <Text style={[styles.modalTitle, { color: theme.ink }]} numberOfLines={1} ellipsizeMode="tail">
-                            {editingItem ? 'Editar' : 'Añadir'} {currentCat.label}
+                            {editingItem ? 'Editar' : 'Añadir'} {formCat.label}
                         </Text>
 
                         <ScrollDeHoja>
+                            {/* P7: al agregar se elige (cambiarlo limpia subtipo y etiquetas); al editar, solo lectura */}
+                            <Text style={[styles.inputLabel, styles.inputLabelPrimero, { color: theme.accent }]}>Tipo</Text>
+                            <FilaTipos
+                                value={formType}
+                                disabled={!!editingItem}
+                                compacta
+                                onChange={(t) => { if (t !== formType) setFormData({ ...formData, type: t, subtype: null, tags: [] }); }}
+                            />
+
                             <Text style={[styles.inputLabel, { color: theme.accent }]}>Título</Text>
                             {/* C1 (1.4.3): multilínea, crece hasta 5 líneas y luego hace scroll interno; Enter
                                 cierra el teclado y los saltos de línea pegados pasan a espacio. */}
@@ -546,27 +507,28 @@ export default function BacklogScreen({ user, onBack }) {
                             <Text style={[styles.inputLabel, { color: theme.accent }]}>Etiquetas</Text>
                             <EtiquetasCampo
                                 catalog={catalog}
-                                section={activeTab}
+                                section={formType}
                                 selected={formData.tags}
                                 onChange={(tags) => setFormData({ ...formData, tags })}
                                 informar={informar}
                             />
 
-                            {activeTab === 'movie' && (
+                            {formType === 'movie' && (
                                 <>
                                     <Text style={[styles.inputLabel, { color: theme.accent }]}>Año</Text>
                                     <TextInput
                                         style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                                         value={formData.year}
-                                        onChangeText={text => setFormData({ ...formData, year: text })}
+                                        onChangeText={text => setFormData({ ...formData, year: soloAnio(text) })}
                                         placeholder="Ej: 1994"
-                                        keyboardType="numeric"
+                                        keyboardType="number-pad"
+                                        maxLength={4}
                                         placeholderTextColor={theme.muted}
                                     />
                                 </>
                             )}
 
-                            {activeTab === 'series' && (
+                            {formType === 'series' && (
                                 <>
                                     <Text style={[styles.inputLabel, { color: theme.accent }]}>Formato</Text>
                                     <View style={styles.formatContainer}>
@@ -574,9 +536,9 @@ export default function BacklogScreen({ user, onBack }) {
                                             <TouchableOpacity
                                                 key={f}
                                                 style={[
-                                                    styles.formatOption, 
+                                                    styles.formatOption,
                                                     {
-                                                        backgroundColor: formData.format === f ? theme.accent : theme.raised, 
+                                                        backgroundColor: formData.format === f ? theme.accent : theme.raised,
                                                         borderColor: formData.format === f ? theme.accent : theme.lineStrong
                                                     }
                                                 ]}
@@ -590,53 +552,59 @@ export default function BacklogScreen({ user, onBack }) {
                                     <TextInput
                                         style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                                         value={formData.start_year}
-                                        onChangeText={text => setFormData({ ...formData, start_year: text })}
+                                        onChangeText={text => setFormData({ ...formData, start_year: soloAnio(text) })}
                                         placeholder="Ej: 2020"
-                                        keyboardType="numeric"
+                                        keyboardType="number-pad"
+                                        maxLength={4}
                                         placeholderTextColor={theme.muted}
                                     />
                                     <Text style={[styles.inputLabel, { color: theme.accent }]}>Año Fin (Omitir si sigue en emisión)</Text>
                                     <TextInput
                                         style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                                         value={formData.end_year}
-                                        onChangeText={text => setFormData({ ...formData, end_year: text })}
+                                        onChangeText={text => setFormData({ ...formData, end_year: soloAnio(text) })}
                                         placeholder="Ej: 2024"
-                                        keyboardType="numeric"
+                                        keyboardType="number-pad"
+                                        maxLength={4}
                                         placeholderTextColor={theme.muted}
                                     />
                                 </>
                             )}
 
-                            {activeTab === 'anime' && (
+                            {formType === 'anime' && (
                                 <>
                                     <Text style={[styles.inputLabel, { color: theme.accent }]}>Año Inicio</Text>
                                     <TextInput
                                         style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                                         value={formData.start_year}
-                                        onChangeText={text => setFormData({ ...formData, start_year: text })}
+                                        onChangeText={text => setFormData({ ...formData, start_year: soloAnio(text) })}
                                         placeholder="Ej: 2020"
-                                        keyboardType="numeric"
+                                        keyboardType="number-pad"
+                                        maxLength={4}
                                         placeholderTextColor={theme.muted}
                                     />
                                     <Text style={[styles.inputLabel, { color: theme.accent }]}>Año Fin</Text>
                                     <TextInput
                                         style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                                         value={formData.end_year}
-                                        onChangeText={text => setFormData({ ...formData, end_year: text })}
+                                        onChangeText={text => setFormData({ ...formData, end_year: soloAnio(text) })}
                                         placeholder="Ej: 2024"
-                                        keyboardType="numeric"
+                                        keyboardType="number-pad"
+                                        maxLength={4}
                                         placeholderTextColor={theme.muted}
                                     />
                                 </>
                             )}
 
-                            {activeTab === 'reading' && (
+                            {formType === 'reading' && (
                                 <>
                                     <Text style={[styles.inputLabel, { color: theme.accent }]}>Subtipo</Text>
                                     <View style={styles.formatContainer}>
                                         {Object.entries(SUBTYPE_LABELS).map(([clave, texto]) => (
                                             <TouchableOpacity
                                                 key={clave}
+                                                accessibilityRole="button"
+                                                accessibilityState={{ selected: formData.subtype === clave }}
                                                 style={[
                                                     styles.formatOption,
                                                     {
@@ -654,9 +622,10 @@ export default function BacklogScreen({ user, onBack }) {
                                     <TextInput
                                         style={[styles.input, { backgroundColor: theme.raised, color: theme.ink, borderColor: theme.lineStrong }]}
                                         value={formData.start_year}
-                                        onChangeText={text => setFormData({ ...formData, start_year: text })}
+                                        onChangeText={text => setFormData({ ...formData, start_year: soloAnio(text) })}
                                         placeholder="Ej: 2020"
-                                        keyboardType="numeric"
+                                        keyboardType="number-pad"
+                                        maxLength={4}
                                         placeholderTextColor={theme.muted}
                                     />
                                 </>
@@ -682,16 +651,7 @@ export default function BacklogScreen({ user, onBack }) {
                     </View>
             </HojaConTeclado>
 
-            {/* Fase 7.5b1: hojas de filtro (E8) y gestión (E6) de etiquetas */}
-            <EtiquetasFiltroHoja
-                visible={tagFilterVisible}
-                catalog={catalog}
-                section={activeTab}
-                sectionLabel={currentCat.label}
-                filter={tagFilter}
-                onApply={(f) => { setTagFilter(f); setTagFilterVisible(false); }}
-                onClose={() => setTagFilterVisible(false)}
-            />
+            {/* Fase 7.5b1: gestión de etiquetas (E6) */}
             <EtiquetasGestionHoja
                 visible={tagManagerVisible}
                 catalog={catalog}
@@ -710,30 +670,23 @@ export default function BacklogScreen({ user, onBack }) {
 // Estilos en función del tema (dirección visual): ningún color fijo.
 const makeStyles = (t) => StyleSheet.create({
     container: { flex: 1 },
+    // O12: cabecera compacta (~160 dp): fila del título, fila de tipos y pestañas de estado.
     header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: 20,
-        borderBottomLeftRadius: 30,
-        borderBottomRightRadius: 30,
-        elevation: 5,
-        shadowColor: t.shadow,
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 10,
+        paddingHorizontal: 12,
+        paddingTop: 6,
+        paddingBottom: 10,
+        borderBottomWidth: 1,
     },
-    backButton: { width: 40, height: 40, justifyContent: 'center' },
-    backIcon: { fontSize: 24, fontFamily: FONT.bold },
-    headerTitle: { fontSize: 22, fontFamily: FONT.bold, flex: 1, textAlign: 'center' },
-    filterButton: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
-    tabsContainer: { paddingVertical: 10 },
-    tabsScroll: { paddingHorizontal: 15 },
+    headerRow: { flexDirection: 'row', alignItems: 'center', minHeight: 48, gap: 4 },
+    headerTitle: { fontSize: 20, fontFamily: FONT.bold, flex: 1, minWidth: 0, marginLeft: 4 },
+    iconBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+    badge: { position: 'absolute', top: 2, right: 2, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, alignItems: 'center', justifyContent: 'center' },
+    badgeText: { fontSize: 11, lineHeight: 14, fontFamily: FONT.bold, textAlign: 'center', includeFontPadding: false },
+    tiposRow: { marginTop: 6 },
     statusTabsContainer: {
         flexDirection: 'row',
-        paddingHorizontal: 15,
-        gap: 10,
-        marginBottom: 10,
+        gap: 8,
+        marginTop: 8,
     },
     statusTab: {
         flex: 1,
@@ -748,32 +701,6 @@ const makeStyles = (t) => StyleSheet.create({
         fontSize: 11,
         fontFamily: FONT.bold,
     },
-    tab: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 16,
-        paddingVertical: 10,
-        borderRadius: 20,
-        marginRight: 10,
-        borderWidth: 1,
-    },
-    tabIcon: { fontSize: 18, marginRight: 8 },
-    tabLabel: { fontSize: 14, fontFamily: FONT.bold },
-    // Chips del filtro de subtipo (Lectura).
-    subtypeTab: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 16,
-        paddingVertical: 8,
-        borderRadius: 20,
-        marginRight: 10,
-        borderWidth: 1,
-    },
-    subtypeLabel: { fontSize: 12, fontFamily: FONT.bold },
-    // Fase 7.5b1: barra de etiquetas (filtro y gestión) y línea de etiquetas de cada fila.
-    tagBar: { flexDirection: 'row', gap: 10, paddingHorizontal: 15, paddingBottom: 10 },
-    tagBarBtn: { flex: 1, minWidth: 0, minHeight: 40, borderRadius: 20, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12 },
-    tagBarLabel: { fontSize: 13, fontFamily: FONT.bold, textAlign: 'center', textAlignVertical: 'center', includeFontPadding: false },
     tagsLine: { fontSize: 12, fontFamily: FONT.semibold, marginBottom: 8 },
     listContent: { padding: 15, paddingBottom: 100 },
     itemCard: {
@@ -838,6 +765,7 @@ const makeStyles = (t) => StyleSheet.create({
     miniActionBtn: {
         padding: 4,
     },
+    // O8: el ícono (glifo cuadrado) queda centrado vertical y horizontalmente.
     fab: {
         position: 'absolute',
         bottom: 30,
@@ -853,14 +781,8 @@ const makeStyles = (t) => StyleSheet.create({
         shadowOpacity: 0.3,
         shadowRadius: 10,
     },
-    fabIcon: { fontSize: 32, color: t.onAccent, fontFamily: FONT.regular },
     emptyContainer: { alignItems: 'center', marginTop: 100 },
     emptyText: { fontSize: 16 },
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: t.overlay,
-        justifyContent: 'flex-end',
-    },
     modalCard: {
         backgroundColor: t.surface,
         borderTopLeftRadius: RADIUS.sheet,
@@ -868,38 +790,24 @@ const makeStyles = (t) => StyleSheet.create({
         padding: 30,
         flexShrink: 1, // 1.4.4 (D1): sin porcentaje; el alto máximo lo pone HojaConTeclado
     },
-    filterCard: {
-        backgroundColor: t.surface,
-        borderTopLeftRadius: RADIUS.sheet,
-        borderTopRightRadius: RADIUS.sheet,
-        padding: 30,
-    },
     modalTitle: { fontSize: 24, fontFamily: FONT.bold, marginBottom: 20 },
     inputLabel: { fontSize: 14, fontFamily: FONT.bold, marginBottom: 8, marginTop: 15 },
+    inputLabelPrimero: { marginTop: 0 },
     input: { borderRadius: RADIUS.sm, padding: 15, borderWidth: 1, fontSize: 16 },
     // C1 (1.4.3): título multilínea, hasta 5 líneas visibles (5 × 22 + el relleno de 15 arriba y abajo).
     titleInput: { lineHeight: 22, maxHeight: 5 * 22 + 30, textAlignVertical: 'top' },
     formatContainer: { flexDirection: 'row', gap: 10, marginTop: 5 },
     formatOption: {
         flex: 1,
+        minHeight: 48,
         padding: 12,
         borderRadius: 12,
         borderWidth: 1,
         alignItems: 'center',
+        justifyContent: 'center',
     },
     formatText: { fontFamily: FONT.bold },
     modalButtons: { flexDirection: 'row', gap: 15, marginTop: 30 },
     modalButton: { flex: 1, padding: 18, borderRadius: RADIUS.sm, alignItems: 'center', minHeight: 52, justifyContent: 'center' },
     modalButtonText: { fontSize: 16, fontFamily: FONT.bold },
-    filterOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-    filterOption: {
-        paddingHorizontal: 15,
-        paddingVertical: 10,
-        borderRadius: 12,
-        borderWidth: 1,
-        borderColor: t.lineStrong,
-    },
-    filterOptionText: { fontFamily: FONT.semibold, color: t.muted },
-    closeBtn: { marginTop: 30, padding: 18, borderRadius: RADIUS.sm, alignItems: 'center', minHeight: 52, justifyContent: 'center' },
-    closeBtnText: { color: t.onAccent, fontFamily: FONT.bold, fontSize: 16 },
 });

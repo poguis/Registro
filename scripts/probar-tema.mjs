@@ -23,6 +23,10 @@
 //     entretenimiento usa src/components/HojaConTeclado.js (alto del teclado de los eventos de RN +
 //     insets de safe-area, sin KeyboardAvoidingView ni Modal), montada directamente en la vista raíz
 //     de la pantalla; Atrás tiene un solo listener (App.js) que primero cierra la hoja abierta.
+//     Desde la 7.5b2a, UNA excepción acotada: el campo de búsqueda de Pendiente (nativeID
+//     "busquedaPendiente", en src/components/BuscarPendiente.js, dibujado una vez en la cabecera).
+//  9. Íconos (7.5b2a, F4): solo src/components/Icono.js importa @react-native-vector-icons (y solo la
+//     entrada /static); todo <Icono> lleva color del tema.
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join, basename, relative } from 'node:path';
 // @babel/parser y @babel/traverse: dependencias transitivas de Expo (como en extraer-pantalla.mjs).
@@ -233,8 +237,22 @@ check('Atrás: un solo listener de hardwareBackPress (App.js) y lo primero de ha
 // HojaConTeclado; ningún Modal tiene campos ni hojas. Desde la 1.4.4 da igual dónde la monte la
 // pantalla: la hoja se dibuja en HojasHost, último hijo de la View raíz de App.js.
 const ARCHIVOS_TECLADO = ['src/screens/BacklogScreen.js', 'src/components/EtiquetasCampo.js', 'src/components/EtiquetasGestionHoja.js',
-    'src/screens/SeriesAnimeScreen.js', 'src/screens/SeriesDetailScreen.js', 'src/screens/ReadingDetailScreen.js'];
+    'src/screens/SeriesAnimeScreen.js', 'src/screens/SeriesDetailScreen.js', 'src/screens/ReadingDetailScreen.js',
+    'src/components/FiltrosPendienteHoja.js', 'src/components/EtiquetasFiltro.js', 'src/components/BuscarPendiente.js'];
 const CAMPOS = new Set(['TextInput', 'EtiquetasCampo']);
+// 7.5b2a: la ÚNICA excepción a "todo TextInput dentro de una HojaConTeclado". La app es solo
+// vertical y este campo queda en la franja de arriba de la pantalla (insets.top + ~56 dp); el
+// teclado sale desde abajo y no pasa del 50–55 % de la ventana, así que no lo puede tapar.
+const EXCEPCION_TECLADO = {
+    archivo: 'src/components/BuscarPendiente.js',
+    nativeID: 'busquedaPendiente',
+    motivo: 'búsqueda de Pendiente en la fila del título de la cabecera (arriba; el teclado sale desde abajo)',
+};
+const attrJsx = (el, nombre) => el.openingElement.attributes.find((a) => a.name && a.name.name === nombre);
+const valorLiteral = (a) => (a && a.value && a.value.type === 'StringLiteral' ? a.value.value : null);
+// ¿Es el campo de la excepción? Archivo exacto, nativeID literal exacto y sin multiline.
+const esCampoExceptuado = (el, archivo) => archivo === EXCEPCION_TECLADO.archivo
+    && valorLiteral(attrJsx(el, 'nativeID')) === EXCEPCION_TECLADO.nativeID && !attrJsx(el, 'multiline');
 const nombreJsx = (n) => (n && n.openingElement && n.openingElement.name && n.openingElement.name.name) || null;
 function revisarTeclado(codigo, archivo) {
     const malas = [];
@@ -264,7 +282,8 @@ function revisarTeclado(codigo, archivo) {
             const ancestros = [];
             for (let q = p.parentPath; q; q = q.parentPath) if (q.node.type === 'JSXElement') ancestros.push(nombreJsx(q.node));
             const linea = `${archivo}:${p.node.loc.start.line}`;
-            if (CAMPOS.has(nombre) && !(componenteDeCampo && nombre === 'TextInput') && !ancestros.includes('HojaConTeclado') && !enRenderDeHoja(p)) malas.push(`${linea} ${nombre} fuera de HojaConTeclado`);
+            if (CAMPOS.has(nombre) && !(componenteDeCampo && nombre === 'TextInput') && !ancestros.includes('HojaConTeclado') && !enRenderDeHoja(p)
+                && !(nombre === 'TextInput' && esCampoExceptuado(p.node, archivo))) malas.push(`${linea} ${nombre} fuera de HojaConTeclado`);
             if (CAMPOS.has(nombre) && ancestros.includes('Modal')) malas.push(`${linea} ${nombre} dentro de un Modal`);
             if ((nombre === 'HojaConTeclado' || nombre === 'EtiquetasGestionHoja') && ancestros.includes('Modal')) malas.push(`${linea} ${nombre} dentro de un Modal`);
         },
@@ -286,6 +305,93 @@ const sembrado = `function P() { return (
     </SafeAreaView>); }`;
 const negativasTeclado = revisarTeclado(sembrado, 'control');
 check('control negativo: el revisor encuentra las 4 violaciones sembradas (campo fuera, campo y hoja dentro de un Modal, EtiquetasCampo fuera; una hoja dentro de otra View ya no es violación)', negativasTeclado.length === 4, negativasTeclado.join(' | '));
+// 7.5b2a: la excepción, acotada. (a) en BuscarPendiente.js hay UN solo TextInput, con el nativeID y
+// sin multiline; (b) ese nativeID aparece en un solo TextInput de todo src/; (c) BacklogScreen dibuja
+// <BuscarPendiente> exactamente una vez, fuera de HojaConTeclado, Modal, listas y del paginador, y
+// antes de <PaginadorEstados>.
+function revisarExcepcion(fuentes) {
+    const malas = [];
+    let conId = 0;
+    for (const [archivo, codigo] of Object.entries(fuentes)) {
+        const ast = parse(codigo, { sourceType: 'module', plugins: ['jsx'] });
+        const inputs = [];
+        const usos = [];
+        let paginador = null;
+        traverse(ast, {
+            JSXElement(p) {
+                const n = nombreJsx(p.node);
+                if (n === 'TextInput') {
+                    inputs.push(p.node);
+                    if (valorLiteral(attrJsx(p.node, 'nativeID')) === EXCEPCION_TECLADO.nativeID) {
+                        conId++;
+                        if (archivo !== EXCEPCION_TECLADO.archivo) malas.push(`${archivo}:${p.node.loc.start.line} nativeID de la excepción fuera de ${EXCEPCION_TECLADO.archivo}`);
+                    }
+                }
+                if (n === 'BuscarPendiente') {
+                    const anc = [];
+                    for (let q = p.parentPath; q; q = q.parentPath) if (q.node.type === 'JSXElement') anc.push(nombreJsx(q.node));
+                    usos.push({ inicio: p.node.start, linea: p.node.loc.start.line, anc });
+                }
+                if (n === 'PaginadorEstados' && paginador === null) paginador = p.node.start;
+            },
+        });
+        if (archivo === EXCEPCION_TECLADO.archivo) {
+            if (inputs.length !== 1) malas.push(`${archivo}: ${inputs.length} TextInput (se acepta solo 1)`);
+            if (inputs.some((el) => !esCampoExceptuado(el, archivo))) malas.push(`${archivo}: un TextInput sin el nativeID de la excepción o multilínea`);
+        }
+        if (archivo === 'src/screens/BacklogScreen.js') {
+            if (usos.length !== 1) malas.push(`${archivo}: <BuscarPendiente> ${usos.length} veces (se acepta 1)`);
+            for (const u of usos) {
+                const prohibidos = u.anc.filter((a) => ['HojaConTeclado', 'Modal', 'FlatList', 'ScrollView', 'ListaDeHoja', 'ScrollDeHoja', 'PaginadorEstados'].includes(a));
+                if (prohibidos.length) malas.push(`${archivo}:${u.linea} <BuscarPendiente> dentro de ${prohibidos.join('/')}`);
+                if (paginador === null || u.inicio > paginador) malas.push(`${archivo}:${u.linea} <BuscarPendiente> no está antes de <PaginadorEstados>`);
+            }
+        }
+    }
+    if (conId !== 1) malas.push(`nativeID "${EXCEPCION_TECLADO.nativeID}" en ${conId} TextInput (se acepta 1)`);
+    return malas;
+}
+const fuentesExcepcion = Object.fromEntries(TODO_SRC.filter((f) => /\.(js|jsx)$/.test(f)).map((f) => [f, leer(f)]));
+const malasExcepcion = revisarExcepcion(fuentesExcepcion);
+check(`excepción acotada de teclado: un solo TextInput fuera de hoja, nativeID="${EXCEPCION_TECLADO.nativeID}" en ${EXCEPCION_TECLADO.archivo} (único en src/, sin multiline) y <BuscarPendiente> una vez en la cabecera de Pendiente, antes del paginador — motivo: ${EXCEPCION_TECLADO.motivo}`,
+    malasExcepcion.length === 0, malasExcepcion.join(' | '));
+{
+    // Controles negativos: cada copia sembrada tiene que fallar (revisarTeclado o revisarExcepcion).
+    const BACK = leer('src/screens/BacklogScreen.js');
+    const BUSC = leer(EXCEPCION_TECLADO.archivo);
+    const SERIE = leer('src/screens/SeriesDetailScreen.js');
+    const sembrar = (codigo, de, a) => { if (!codigo.includes(de)) throw new Error(`control: no está «${de.slice(0, 60)}»`); return codigo.replace(de, a); };
+    const cabecera = '<View style={styles.tiposRow}>';
+    // 3: el campo del título del formulario, sacado de su HojaConTeclado (cortado y pegado en la cabecera).
+    let titulo = null;
+    traverse(parse(BACK, { sourceType: 'module', plugins: ['jsx'] }), {
+        JSXElement(p) { if (nombreJsx(p.node) === 'TextInput' && JSON.stringify(attrJsx(p.node, 'style') || {}).includes('"name":"titleInput"')) titulo = BACK.slice(p.node.start, p.node.end); },
+    });
+    const movido = titulo ? sembrar(BACK.replace(titulo, '<View />'), cabecera, `${titulo}\n${cabecera}`) : BACK;
+    // 5: <BuscarPendiente> dibujado dentro de la página del paginador (en su lista).
+    const usoBusc = (/<BuscarPendiente[\s\S]*?\/>/.exec(BACK) || [''])[0];
+    const dentroPagina = sembrar(BACK.replace(usoBusc, '<View />'), '<View style={styles.emptyContainer}>', `<View style={styles.emptyContainer}>${usoBusc}`);
+    const conId = (codigo) => {
+        const apertura = (/<SafeAreaView[^>]*>/.exec(codigo) || [''])[0];
+        return sembrar(codigo, apertura, `${apertura}\n<TextInput nativeID="${EXCEPCION_TECLADO.nativeID}" />`);
+    };
+    const conSegundo = (codigo) => sembrar(codigo, '<TouchableOpacity', '<TextInput value="y" />\n            <TouchableOpacity');
+    const casos = [
+        { caso: '1. un segundo TextInput fuera de una hoja en BacklogScreen', malas: revisarTeclado(sembrar(BACK, cabecera, `<TextInput value="x" />\n${cabecera}`), 'src/screens/BacklogScreen.js') },
+        { caso: '2. el mismo nativeID en otro archivo (copia de SeriesDetailScreen)', malas: [
+            ...revisarTeclado(conId(SERIE), 'src/screens/SeriesDetailScreen.js'),
+            ...revisarExcepcion({ ...fuentesExcepcion, 'src/screens/SeriesDetailScreen.js': conId(SERIE) }),
+        ] },
+        { caso: '3. el campo del título del formulario fuera de su HojaConTeclado', malas: titulo ? revisarTeclado(movido, 'src/screens/BacklogScreen.js') : ['(no se encontró el campo del título)'] },
+        { caso: '4. un segundo TextInput (sin nativeID) dentro de BuscarPendiente', malas: [
+            ...revisarTeclado(conSegundo(BUSC), EXCEPCION_TECLADO.archivo),
+            ...revisarExcepcion({ ...fuentesExcepcion, [EXCEPCION_TECLADO.archivo]: conSegundo(BUSC) }),
+        ] },
+        { caso: '5. <BuscarPendiente> dibujado dentro de la página del paginador', malas: revisarExcepcion({ ...fuentesExcepcion, 'src/screens/BacklogScreen.js': dentroPagina }) },
+    ];
+    for (const c of casos) console.log(`     control ${c.malas.length > 0 ? 'detectado' : 'NO DETECTADO'}: ${c.caso}${c.malas.length ? ' — ' + c.malas[0] : ''}`);
+    check('control negativo de la excepción: el revisor encuentra las 5 violaciones sembradas (listadas arriba)', casos.every((c) => c.malas.length > 0), casos.filter((c) => !c.malas.length).map((c) => c.caso).join(' | '));
+}
 // 1.4.4 (D1): ninguna hoja tiene un alto fijo o en porcentaje en su tarjeta (el hijo directo de
 // HojaConTeclado) ni en su ScrollDeHoja / ListaDeHoja: el máximo lo pone HojaConTeclado (alturaHoja).
 function revisarAltos(codigo, archivo) {
@@ -328,6 +434,56 @@ const sembradoAltos = `const styles = { tarjeta: { padding: 20, maxHeight: '85%'
 function P() { return (<HojaConTeclado visible><View style={[styles.tarjeta]}><ScrollDeHoja style={{ maxHeight: 400 }} /><ListaDeHoja style={styles.lista} /></View></HojaConTeclado>); }`;
 const negativasAltos = revisarAltos(sembradoAltos, 'control');
 check('control negativo: el revisor de altos encuentra las 3 violaciones sembradas (tarjeta en porcentaje, ScrollDeHoja de 400, ListaDeHoja de 300)', negativasAltos.length === 3, negativasAltos.join(' | '));
+
+console.log('\n== 9. Íconos (7.5b2a): un solo importador del paquete y color del tema ==');
+// Color del tema: un miembro con raíz theme/t (theme.ink, theme.tones.x.fg) o un ternario de esos.
+function colorDelTema(expr) {
+    if (!expr) return false;
+    if (expr.type === 'ConditionalExpression') return colorDelTema(expr.consequent) && colorDelTema(expr.alternate);
+    if (expr.type !== 'MemberExpression') return false;
+    let o = expr;
+    while (o.type === 'MemberExpression') o = o.object;
+    return o.type === 'Identifier' && (o.name === 'theme' || o.name === 't');
+}
+const esPaqueteIconos = (v) => /^(@react-native-vector-icons\/|@expo\/vector-icons|react-native-vector-icons)/.test(v);
+function revisarIconos(fuentes) {
+    const malas = [];
+    for (const [archivo, codigo] of Object.entries(fuentes)) {
+        const ast = parse(codigo, { sourceType: 'module', plugins: ['jsx', 'typescript'] });
+        traverse(ast, {
+            ImportDeclaration(p) {
+                const v = p.node.source.value;
+                if (!esPaqueteIconos(v)) return;
+                if (archivo !== 'src/components/Icono.js') malas.push(`${archivo}:${p.node.loc.start.line} importa ${v} (solo Icono.js)`);
+                else if (v !== '@react-native-vector-icons/lucide/static') malas.push(`${archivo}:${p.node.loc.start.line} importa ${v} (solo la entrada /static)`);
+            },
+            CallExpression(p) {
+                const a = p.node.arguments[0];
+                const carga = p.node.callee.type === 'Import' || (p.node.callee.type === 'Identifier' && p.node.callee.name === 'require');
+                if (carga && a && a.type === 'StringLiteral' && esPaqueteIconos(a.value)) malas.push(`${archivo}:${p.node.loc.start.line} carga ${a.value} con require/import()`);
+            },
+            JSXElement(p) {
+                if (nombreJsx(p.node) !== 'Icono') return;
+                const c = attrJsx(p.node, 'color');
+                if (!c || !c.value || c.value.type !== 'JSXExpressionContainer' || !colorDelTema(c.value.expression)) malas.push(`${archivo}:${p.node.loc.start.line} <Icono> sin color del tema`);
+            },
+        });
+    }
+    return malas;
+}
+const fuentesIconos = Object.fromEntries(TODO_SRC.map((f) => [f, leer(f)]));
+const malasIconos = revisarIconos(fuentesIconos);
+const usosIcono = Object.values(fuentesIconos).reduce((n, c) => n + (c.match(/<Icono\b/g) || []).length, 0);
+check(`íconos: solo src/components/Icono.js importa el paquete (entrada /static) y todo <Icono> lleva color del tema (${usosIcono} usos)`, malasIconos.length === 0 && usosIcono > 0, malasIconos.join(' | '));
+{
+    const sembradoIconos = {
+        'src/screens/Copia.js': `import { Lucide } from '@react-native-vector-icons/lucide/static';
+function P() { return (<View><Icono nombre="mas" color="#fff" /><Icono nombre="mas" /></View>); }`,
+        'src/components/Icono.js': `import { Lucide } from '@react-native-vector-icons/lucide';`,
+    };
+    const neg = revisarIconos(sembradoIconos);
+    check('control negativo de íconos: encuentra las 4 violaciones sembradas (import fuera de Icono.js, color literal, sin color, entrada dinámica en Icono.js)', neg.length === 4, neg.join(' | '));
+}
 
 console.log(`\n${fallas === 0 ? 'TEMA' : 'TEMA CON FALLAS'}: ${oks} OK, ${fallas} FALLA.`);
 process.exit(fallas === 0 ? 0 : 1);

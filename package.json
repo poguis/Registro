@@ -16,6 +16,7 @@
     "@expo-google-fonts/plus-jakarta-sans": "^0.4.2",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/netinfo": "11.4.1",
+    "@react-native-vector-icons/lucide": "14.0.0",
     "@supabase/supabase-js": "^2.118.0",
     "@types/react": "~19.1.10",
     "aes-js": "^3.1.2",

@@ -73,7 +73,9 @@ const seccion = (t) => console.log(`\n== ${t} ==`);
 const pausa = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const PANT = 'src/screens/BacklogScreen.js';
-const COMPONENTES = ['src/components/EtiquetasCampo.js', 'src/components/EtiquetasFiltroHoja.js', 'src/components/EtiquetasGestionHoja.js'];
+// 7.5b2a: el filtro de etiquetas pasó a ser el bloque de chips EtiquetasFiltro.js dentro de la hoja
+// "Filtros" (FiltrosPendienteHoja.js, que tiene ahora el título y los botones de esa hoja).
+const COMPONENTES = ['src/components/EtiquetasCampo.js', 'src/components/EtiquetasFiltro.js', 'src/components/EtiquetasGestionHoja.js', 'src/components/FiltrosPendienteHoja.js'];
 const REF_VIEJA = '1f1eec8'; // app 1.4.1 (corrección de la 7.5)
 const MIGRACION_NUEVA = '20261124000100_etiquetas.sql';
 const CFG = { ...DEFAULT_SYNC_CONFIG, enabled: true };
@@ -330,7 +332,8 @@ seccion('5. Guardar un título con etiquetas (handleAddItem real): una transacci
         const fn = instanciar('handleAddItem', {
             db: E.db, user: E.user, activeTab: tab, formData: { title: '', year: '', format: '24 min', start_year: '', end_year: '', subtype: null, tags: [], ...form },
             editingItem: editing, ...hojasDesdeAlert(A.Alert),
-            setModalVisible: (v) => { modal = v; }, setEditingItem: () => {}, setFormData: () => {}, setActiveStatus: () => {}, loadItems: () => {},
+            setModalVisible: (v) => { modal = v; }, setEditingItem: () => {}, setFormData: () => {}, setActiveStatus: () => {}, setActiveTab: () => {}, // 7.5b2a (P7): al guardar va a la sección del título
+            loadItems: () => {},
             FORM_VACIO: {},
         });
         E.usar();
@@ -484,15 +487,15 @@ seccion('8. Franquicia: comprobación estática (+ control negativo), conservaci
     // Nombres largos (estático): la línea de etiquetas de la fila en 1 línea con elipsis; chips y
     // nombres de la gestión en 1 línea; botones de las hojas y del campo con minHeight ≥ 52.
     const pant = readFileSync(PANT, 'utf8');
-    const campo = readFileSync(COMPONENTES[0], 'utf8'), filtro = readFileSync(COMPONENTES[1], 'utf8'), gestion = readFileSync(COMPONENTES[2], 'utf8');
+    const campo = readFileSync(COMPONENTES[0], 'utf8'), filtro = readFileSync(COMPONENTES[1], 'utf8'), gestion = readFileSync(COMPONENTES[2], 'utf8'), hojaFiltros = readFileSync(COMPONENTES[3], 'utf8');
     const minHeights = (src, estilos) => estilos.map((e) => { const m = new RegExp(`\\b${e}:\\s*\\{[^}]*minHeight:\\s*(\\d+)`).exec(src) || new RegExp(`\\b${e}:\\s*\\{[^}]*height:\\s*(\\d+)`).exec(src); return m ? Number(m[1]) : 0; });
     tabla('nombres largos y botones (estático)', [
         { caso: 'fila: etiquetas en 1 línea con elipsis', esperado: true, obtenido: /styles\.tagsLine[^>]*numberOfLines=\{1\}\s+ellipsizeMode="tail"/.test(pant) },
         { caso: 'chips del campo y del filtro: 1 línea con elipsis, contenedor que encoge', esperado: [true, true], obtenido: [campo, filtro].map((s) => /styles\.chipTexto[^>]*numberOfLines=\{1\}\s+ellipsizeMode="tail"/.test(s) && /maxWidth:\s*'100%'/.test(s) && /flexShrink:\s*1/.test(s)) },
         { caso: 'chips: texto centrado vertical y horizontal (O9)', esperado: [true, true], obtenido: [campo, filtro].map((s) => /textAlign:\s*'center'/.test(s) && /textAlignVertical:\s*'center'/.test(s) && /includeFontPadding:\s*false/.test(s) && /justifyContent:\s*'center'/.test(s)) },
         { caso: 'gestión: nombre en 1 línea con elipsis dentro de un contenedor flex 1 / minWidth 0', esperado: true, obtenido: /styles\.filaNombre[^>]*numberOfLines=\{1\}\s+ellipsizeMode="tail"/.test(gestion) && /filaTextos:\s*\{\s*flex:\s*1,\s*minWidth:\s*0/.test(gestion) },
-        { caso: 'botones ≥ 52: campo (boton), filtro (boton), gestión (boton, botonAncho, icono)', esperado: [true, true, true], obtenido: [minHeights(campo, ['boton']), minHeights(filtro, ['boton']), minHeights(gestion, ['boton', 'botonAncho', 'icono'])].map((xs) => xs.every((x) => x >= 52)) },
-        { caso: 'títulos de hoja en 1 línea con elipsis', esperado: [true, true], obtenido: [filtro, gestion].map((s) => /styles\.titulo[^>]*numberOfLines=\{1\}\s+ellipsizeMode="tail"/.test(s)) },
+        { caso: 'botones ≥ 52: campo (boton), hoja Filtros (boton), gestión (boton, botonAncho, icono)', esperado: [true, true, true], obtenido: [minHeights(campo, ['boton']), minHeights(hojaFiltros, ['boton']), minHeights(gestion, ['boton', 'botonAncho', 'icono'])].map((xs) => xs.every((x) => x >= 52)) },
+        { caso: 'títulos de hoja en 1 línea con elipsis (Filtros y gestión)', esperado: [true, true], obtenido: [hojaFiltros, gestion].map((s) => /styles\.titulo[^>]*numberOfLines=\{1\}\s+ellipsizeMode="tail"/.test(s)) },
     ]);
 }
 

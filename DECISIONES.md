@@ -233,7 +233,7 @@ Lista viva para la Fase 7: `claude/TRASPASO-FASE7.md`.
 - [OK] Las decisiones del rediseño de Pendiente + Series/Anime + Lectura (subfases 7.3–7.10) viven en `claude/DISENO-ENTRETENIMIENTO.md`, que es la **fuente única**: no se duplican aquí. Se actualiza al cerrar cada subfase.
 - El comportamiento actual que el rediseño corrige o conserva está en `docs/ENTRETENIMIENTO-ACTUAL.md` (7.2, `d55b5e1`), con el oráculo `scripts/probar-fase7-2.mjs`.
 
-## Interfaz (dirección visual, 2026-11-22, `c8eb200`, app 1.3.9 / vc 13; reglas de la 7.5b1, 2026-11-25)
+## Interfaz (dirección visual, 2026-11-22, `c8eb200`, app 1.3.9 / vc 13; reglas de la 7.5b1, 2026-11-25; de la 7.5b2a, 2026-11-25)
 - [OK] **Tema A "Hueso y petróleo"**, claro y oscuro. `src/contexts/ThemeContext.js` es la única fuente de colores, fuentes y radios. Los tokens son `bg`, `surface`, `raised`, `ink`, `muted`, `line` (decorativo), `lineStrong` (bordes de campos, ≥ 3:1), `accent`/`onAccent`/`soft`, `aheadFg/Bg`, `behindFg/Bg`, `okFg/Bg`, `danger`/`onDanger`, `overlay`, `shadow`, `money.{ingreso, gasto, deuda}` y `tones.{verde, azul, morado, naranja, rojo, pizarra}`. Los valores están en `claude/DISENO-ENTRETENIMIENTO.md` (Dirección visual A).
   - Las pantallas no usan colores fijos (`#hex`, `rgb()` ni nombres de color): leen `theme.*` o una `makeStyles(t)`.
   - Contraste exigido: ≥ 4.5 de todo texto y ≥ 3 de `lineStrong` y del texto destructivo.
@@ -261,6 +261,30 @@ Lista viva para la Fase 7: `claude/TRASPASO-FASE7.md`.
   - **Atrás por la pila de hojas** (`src/hooks/hojasAbiertas.js`): `App.js` es el único listener de `hardwareBackPress` y primero cierra la hoja abierta, sin navegar.
   - Lo verifica `scripts/probar-tema.mjs` (sección 8) con controles negativos.
 - [OK] **Alto de las hojas con `alturaHoja`** (`src/components/alturaHoja.js`, función pura): con el teclado cerrado, el 85 % de la ventana; con el teclado abierto, el área libre; arriba deja `insets.top + 24` y abajo `insets.bottom` (más el teclado). Las tarjetas no llevan `maxHeight` en porcentaje ni altos fijos de lista: miden su contenido hasta ese máximo y después su lista hace scroll.
+- [OK] **Excepción del teclado: la búsqueda de Pendiente** (7.5b2a). Es el ÚNICO `TextInput` del módulo fuera de una `HojaConTeclado`: `src/components/BuscarPendiente.js`, con `nativeID="busquedaPendiente"`, dibujado una sola vez en la fila del título de la cabecera, antes del paginador.
+  - **Motivo:** la app es solo vertical y el campo queda arriba; el teclado sale desde abajo y no pasa del 50–55 % de la ventana, así que no lo puede tapar.
+  - Lo que puede quedar debajo es el final de la lista: la página suma el alto del teclado a su relleno inferior.
+  - `scripts/probar-tema.mjs` (sección 8) acepta solo ese campo, por archivo y `nativeID`, con 5 controles negativos. El detector general no se relajó.
+- [OK] **Íconos** (7.5b2a, F4): `@react-native-vector-icons/lucide` 14.0.0, fijado exacto.
+  - **Embebido:** import estático (`/static`) y el plugin del paquete en `app.json`. En Android, la fuente la copia al APK la tarea `copyFonts` del Gradle del paquete (el plugin solo toca iOS), así que está disponible sin red desde el primer frame.
+  - **Fuera de `expo-font`:** su `.ttf` no se agrega a ese plugin, porque lo duplicaría.
+  - **Un solo importador:** `src/components/Icono.js` (mapa semántico → glifo).
+  - **Color:** siempre del tema; sin color no dibuja.
+  - Al generar cada APK se comprueba que traiga `assets/fonts/Lucide.ttf` (unos 815 KB).
+  - Lo verifican `probar-tema` (sección 9) y `probar-fase7-5b2a`.
+- [OK] **Paginador de estados de Pendiente** (7.5b2a, F2/F3): deslizar la lista cambia de pestaña.
+  - **Técnica:** React Native puro, una `FlatList` horizontal con `pagingEnabled` (`src/components/PaginadorEstados.js`), sincronizada con `onMomentumScrollEnd` y `scrollToIndex`.
+  - Las 4 páginas quedan montadas, así una recarga de la sync no pierde la página ni el scroll.
+  - **Prohibidos** `react-native-gesture-handler`, `react-native-pager-view`, `react-native-reanimated` y `PanResponder`.
+  - Atrás desde los bordes lo reserva el sistema y termina en el único listener de `App.js`.
+- [OK] **Memoria de sesión de Pendiente** (7.5b2a, F7): `src/hooks/memoriaPendiente.js`, un módulo puro en memoria.
+  - Recuerda tipo, estado y orden mientras la app está abierta; al cerrarla, todo vuelve al inicio.
+  - Nada va a AsyncStorage ni a SQLite. La búsqueda, el año, el subtipo y las etiquetas no se recuerdan.
+- [OK] **Lista de Pendiente en memoria** (7.5b2a): la pantalla lee una vez todas las filas vivas de la sección, y `src/entertainment/backlogList.ts` filtra, ordena y cuenta.
+  - Año por tipo (F6): películas, `year ?? start_year`; las demás secciones, `start_year ?? year`.
+  - Sin año, siempre al final.
+  - Desempates: año o registro → título (`localeCompare('es')`) → `id`; título → `id`.
+  - El orden por título dejó de ser el BINARY de SQLite. Son cambios declarados en el diseño (Decisiones de la 7.5b2).
 - Formularios fuera del módulo de entretenimiento con el mismo problema del teclado (Tarjetas, Servicios y Dinero sí; Deudas/Préstamos, Estadísticas y Trabajo probable): van a la subfase de pulido, junto con B2.
 - [OK] **Rediseño completo al final** (decisión del usuario, 2026-11-22): la dirección visual aplicó solo la base (tema A, tipografía, hojas y nombres largos). El rediseño completo de las pantallas se hace después de la 7.11, cuando toda la lógica esté terminada. "Hoy te toca" sigue en la 7.9.
 - Pendientes para una subfase de pulido: O7, B1 y B2 (`claude/DISENO-ENTRETENIMIENTO.md`, Observaciones).
