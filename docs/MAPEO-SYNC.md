@@ -197,7 +197,7 @@ Una columna sincronizada nueva se agrega primero en Supabase y después en la ap
   - `comparar-sync`: una tabla que la BD no tiene (una v7) cuenta como 0 filas, así que una v7 y una v8 recién migrada son idénticas.
 - **Fase 7.5 (`series.backlog_id`, `backlog.subtype`):** lo mismo, probado en `scripts/probar-fase7-5.mjs` con la app 1.3.9 (`6a1722f`):
   - **a)** La 1.3.9 contra el servidor con las columnas: pull sin fallos, outbox vacía, y su push conserva `backlog_id` y `subtype`. La 1.3.9 no conoce el vínculo: si cambia el estado de una serie vinculada, la app nueva reconcilia el título en su siguiente sync.
-  - **b)** La 1.4.x contra un servidor sin las columnas: las filas de `backlog` y `series` quedan bloqueadas (42703 / PGRST204). El pull de las 15 tablas termina, y como el pull aplica solo las columnas que trae la fila remota, nunca pone NULL encima de un `backlog_id` o un `subtype` locales. Tras el SQL, "Reintentar" sube lo bloqueado y también las hijas que esperaban (las temporadas de una serie bloqueada).
+  - **b)** La 1.4.x contra un servidor sin las columnas: las filas de `backlog` y `series` quedan bloqueadas (42703 / PGRST204). El pull de todas las tablas termina (entonces eran 15), y como el pull aplica solo las columnas que trae la fila remota, nunca pone NULL encima de un `backlog_id` o un `subtype` locales. Tras el SQL, "Reintentar" sube lo bloqueado y también las hijas que esperaban (las temporadas de una serie bloqueada).
 
 ## Columnas solo del servidor
 - `server_updated_at`: lo asigna el trigger `set_server_updated_at` (BEFORE INSERT OR UPDATE) e ignora el valor del cliente.
@@ -217,7 +217,7 @@ Una columna sincronizada nueva se agrega primero en Supabase y después en la ap
   4. Alternativa más estricta si la ventana no basta: guardar `pg_current_xact_id()` por fila y descargar solo hasta `pg_snapshot_xmin(pg_current_snapshot())`, que garantiza que no queden transacciones abiertas por debajo del cursor. Requiere una columna y una función extra en el servidor.
 
 ## Seguridad que impone el servidor
-- **RLS** en las 15 tablas. Políticas `to authenticated` para select, insert y update con `(select auth.uid()) = user_id`; update con USING y WITH CHECK. Sin DELETE.
+- **RLS** en las 16 tablas (15 desde la Fase 2 y `backlog_tags` desde la 7.5b1). Políticas `to authenticated` para select, insert y update con `(select auth.uid()) = user_id`; update con USING y WITH CHECK. Sin DELETE.
   - El pull recibe también los tombstones, porque select no filtra `deleted_at`.
   - Un upsert sobre un `id` de otro usuario falla (RLS USING) y no lo modifica.
 - **FK compuestas** `(parent_id, user_id)`: no se puede colgar una fila de un padre ajeno.

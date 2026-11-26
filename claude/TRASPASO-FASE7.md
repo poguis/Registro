@@ -1,22 +1,22 @@
 # Traspaso a la Fase 7
 
-Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar la 7.1 (2026-11-16), la 7.2 (2026-11-17), la 7.3 (2026-11-18), la 7.4a (2026-11-20), la 7.4b (2026-11-21), la dirección visual (2026-11-22) y la 7.5 (2026-11-23). Las fases 0–6 están cerradas; el detalle de cada una está en DECISIONES.md (Fases) y CLAUDE.md. El traspaso anterior (`claude/TRASPASO-FASE6.md`) queda como histórico.
+Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar la 7.1 (2026-11-16), la 7.2 (2026-11-17), la 7.3 (2026-11-18), la 7.4a (2026-11-20), la 7.4b (2026-11-21), la dirección visual (2026-11-22), la 7.5 (2026-11-23) y la 7.5b1 (2026-11-25). Las fases 0–6 están cerradas; el detalle de cada una está en DECISIONES.md (Fases) y CLAUDE.md. El traspaso anterior (`claude/TRASPASO-FASE6.md`) queda como histórico.
 
 ## 1. Estado actual
 
 ### Celular del usuario
-- **Registro (producción)** `com.poguis.Registro`: **1.4.1 / versionCode 15** (7.5, 2026-11-23), firma EAS `31:32:DE:…:3E:52`, instalada siempre encima (`install -r`), mismo `firstInstallTime` desde 2026-09-21. Sync encendida contra **Poguis**. BD local `user_version` **7**: sin `legacy_*` ni columna `password`, con `entertainment_quotas_history.frequency` (7.4b), `series.backlog_id` y `backlog.subtype` (7.5).
-- `respaldos/` del celular: los 10 respaldos manuales más recientes y la copia pre-migración más reciente (hoy la `pre-migracion-v7`); 0 copias con la contraseña antigua (retención de la 6.7).
-- **Registro Dev** `com.poguis.Registro.dev`: **1.4.1 / versionCode 15** (`user_version` 7), firma `debug.keystore` `fac61745…`, contra **Registro Dev**, instalada encima con el mismo `firstInstallTime`. Se instala al lado de la app real y tiene su propia BD.
+- **Registro (producción)** `com.poguis.Registro`: **1.4.4 / versionCode 18** (7.5b1, 2026-11-25), firma EAS `31:32:DE:…:3E:52`, instalada siempre encima (`install -r`), mismo `firstInstallTime` desde 2026-09-21 (07:49:29). Sync encendida contra **Poguis**. BD local `user_version` **8**: sin `legacy_*` ni columna `password`, con `entertainment_quotas_history.frequency` (7.4b), `series.backlog_id` y `backlog.subtype` (7.5), y la tabla `backlog_tags` y `backlog.tags` (7.5b1; la tabla vacía y las etiquetas en NULL).
+- `respaldos/` del celular: los 10 respaldos manuales más recientes y la copia pre-migración más reciente (hoy la `pre-migracion-v8`); 0 copias con la contraseña antigua (retención de la 6.7).
+- **Registro Dev** `com.poguis.Registro.dev`: **1.4.4 / versionCode 18** (`user_version` 8), firma `debug.keystore` `fac61745…`, contra **Registro Dev**, instalada encima con el mismo `firstInstallTime` (2026-11-02 13:00:52). El celular tiene Android 17 (SDK 37), con borde a borde obligatorio. Se instala al lado de la app real y tiene su propia BD.
 
 ### Poguis (producción)
-- **Conteos vigentes** (`verificar-fase5` en Poguis tras cerrar la 7.5, 2026-11-23; sin cambios en producción después de la instalación, idéntico tabla por tabla al respaldo "después"): **31 filas** en las 15 tablas sincronizadas, **12 vivas y 19 borradas**, un `user_id`, las 16 filas `ok`. Por tabla: `balance_history` 3/3/0, `finance_categories` 6/6/0, `entertainment_categories` 1/0/1, `entertainment_quotas_history` 1/0/1, `series` 1/0/1, `seasons` 1/0/1, `watch_history` 11/0/11, `backlog` 4/0/4, `work_people` 3/3/0 y las otras 6 en 0.
-- Historia de los conteos: 31 / 12 / 19 desde el "después" de la 7.3 (2026-11-18). **Sin cambios en la 7.4a** (2026-11-20: `verificar-fase5` = "después", 31 / 12 / 19, un `user_id`) **ni en la 7.4b** (2026-11-21: `verificar-fase5` = "después" en las 16 filas, 31 / 12 / 19, un `user_id`; `auditar-fase6` 18/18 estrictos) **ni en la dirección visual** (2026-11-22: sin SQL; `verificar-fase5` = "después" en las 16 filas, 31 / 12 / 19, un `user_id`) **ni en la 7.5** (2026-11-23: migración 6; `verificar-fase5` = "después" en las 16 filas, 31 / 12 / 19, un `user_id`).
+- **Conteos vigentes** (`verificar-fase5` en Poguis tras instalar la 1.4.4, 2026-11-25; idéntico tabla por tabla al respaldo "después"): **31 filas** en las 16 tablas sincronizadas, **12 vivas y 19 borradas**, un `user_id`, las 17 filas `ok`. Por tabla: `balance_history` 3/3/0, `finance_categories` 6/6/0, `entertainment_categories` 1/0/1, `entertainment_quotas_history` 1/0/1, `series` 1/0/1, `seasons` 1/0/1, `watch_history` 11/0/11, `backlog` 4/0/4, `work_people` 3/3/0, **`backlog_tags` 0/0/0** y las otras 6 en 0.
+- Historia de los conteos: 31 / 12 / 19 desde el "después" de la 7.3 (2026-11-18). **Sin cambios en la 7.4a** (2026-11-20: `verificar-fase5` = "después", 31 / 12 / 19, un `user_id`) **ni en la 7.4b** (2026-11-21: `verificar-fase5` = "después" en las 16 filas, 31 / 12 / 19, un `user_id`; `auditar-fase6` 18/18 estrictos) **ni en la dirección visual** (2026-11-22: sin SQL; `verificar-fase5` = "después" en las 16 filas, 31 / 12 / 19, un `user_id`) **ni en la 7.5** (2026-11-23: migración 6; `verificar-fase5` = "después" en las 16 filas, 31 / 12 / 19, un `user_id`) **ni en la 7.5b1** (2026-11-25: migración 7; `verificar-fase5` = "después" en las 17 filas, 31 / 12 / 19 y `backlog_tags` 0/0/0, un `user_id`).
 - **Diferencia con la 6.7** (30 / 26 / 4, que coincide con su `verificar-fase5-poguis.json`):
   - +1 fila viva en `balance_history` (de 2 a 3), un movimiento del usuario;
   - 15 tombstones de entretenimiento: 1 categoría, 1 cuota, 1 serie, 1 temporada y 11 filas de `watch_history`. El usuario los borró desde la app antes de la 7.3, como decidió el diseño (Alcance), y quedan para siempre igual que los de la 6.8.
 - Las otras 4 borradas son los tombstones de prueba de `backlog` (`[prueba RLS]` y 3 `[prueba F5]`). **Se quedan** (6.8, decisión del usuario).
-- Esquema: las **6** migraciones de `supabase/migrations/` (la 5.ª, `20261121000100_frecuencia_cuotas.sql`, de la 7.4b; la 6.ª, `20261122000100_vinculo_pendiente.sql`, de la 7.5, aplicada el 2026-11-23 justo antes del `install -r`), RLS en las 15 tablas, sin DELETE, sin `security definer`. Verificaciones tras la 6.ª: `verificar-fase7-5` 15/15, `verificar-fase2` 22/22 (fila 18 = 8 FK compuestas) y `auditar-fase6` con todos los estrictos ok (el informativo #31, tamaño de la base, cambia).
+- Esquema: las **7** migraciones de `supabase/migrations/` (la 5.ª, `20261121000100_frecuencia_cuotas.sql`, de la 7.4b; la 6.ª, `20261122000100_vinculo_pendiente.sql`, de la 7.5; la 7.ª, `20261124000100_etiquetas.sql`, de la 7.5b1, aplicada el 2026-11-25 justo antes del `install -r`), RLS en las **16** tablas, sin DELETE, sin `security definer`. Verificaciones tras la 7.ª: `verificar-fase7-5b1` 20/20, `verificar-fase2` 22/22 (16 tablas, fila 18 = 8 FK compuestas) y `auditar-fase6` con todos los estrictos ok (informativo #31, tamaño de la base: 12 MB).
 - Auth:
   - registro de usuarios nuevos **cerrado**;
   - proveedor Google;
@@ -25,11 +25,12 @@ Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar
   - Site URL `localhost` (solo de respaldo).
 
 ### Registro Dev
-- Mismas **6** migraciones (la 6.ª aplicada antes del APK 1.4.0: `verificar-fase7-5` 15/15, `verificar-fase2` 22/22, `auditar-fase6` con todos los estrictos ok) y proveedor Google. El registro está **abierto** para pruebas.
-- **Datos:** al cerrar la 7.5 el usuario borró desde la app todos los datos de prueba (las categorías de la 7.4b —"Video 7.4b", "Lectura 7.4b"— y de la 7.5, sus series y todo Pendiente, incluido `[prueba F6.3]`). Sus tombstones quedan. Sigue el tombstone "Venta" en `finance_categories` (6.6). El usuario sintético de la 6.2 se borró (cascade verificado).
+- Mismas **7** migraciones (la 6.ª aplicada antes del APK 1.4.0 y la 7.ª antes del APK 1.4.2, cada una con sus verificaciones: `verificar-fase7-5` 15/15, `verificar-fase7-5b1` 20/20, `verificar-fase2` 22/22, `auditar-fase6` con todos los estrictos ok) y proveedor Google. El registro está **abierto** para pruebas.
+- **Datos de la 7.5b1:** los títulos y las etiquetas de las pruebas de la 7.5b1 (pasos 3.x, 4.x y 6.x) **se conservan hasta cerrar la 7.5b2**, para probar los filtros y el selector. El respaldo final de la 1.4.2 coincidió con `verificar-fase5` de Registro Dev (17/17), con `backlog.tags` en forma canónica y el catálogo sin anomalías.
+- **Datos anteriores:** al cerrar la 7.5 el usuario borró desde la app todos los datos de prueba (las categorías de la 7.4b —"Video 7.4b", "Lectura 7.4b"— y de la 7.5, sus series y todo Pendiente, incluido `[prueba F6.3]`). Sus tombstones quedan. Sigue el tombstone "Venta" en `finance_categories` (6.6). El usuario sintético de la 6.2 se borró (cascade verificado).
 
 ### Versiones y commits
-- `app.json`: `versionName` 1.4.1, `versionCode` 15. Para cada APK que se vaya a instalar, subir los dos (las versiones no pueden bajar).
+- `app.json`: `versionName` 1.4.4, `versionCode` 18. Para cada APK que se vaya a instalar, subir los dos (las versiones no pueden bajar).
 - Expo SDK 54 (`expo` 54.0.38), React Native 0.81.5, `expo-sqlite` 16.0.10 (SQLite 3.50.3, sin modo de solo lectura), auth-js 2.118.
 - Commits de la Fase 6:
   - `97fb9b6` / `ceed19b` (6.1)
@@ -47,7 +48,9 @@ Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar
   - `90ea3b5` (7.4a), `47f358c` (corrección de la 7.4a) y `6fbc2c6` (cierre de la 7.4a);
   - `20ad1cb` (7.4b) y `bd17bb9` (cierre de la 7.4b);
   - `c8eb200` (dirección visual) y `6a1722f` (cierre de la dirección visual);
-  - `c2c42c2` (7.5, APK 1.4.0 / vc 14, solo Registro Dev), `1f1eec8` (corrección tras la prueba del celular, APK 1.4.1 / vc 15) y el commit de este cierre.
+  - `c2c42c2` (7.5, APK 1.4.0 / vc 14, solo Registro Dev), `1f1eec8` (corrección tras la prueba del celular, APK 1.4.1 / vc 15) y `0154e5d` (cierre de la 7.5);
+  - `78ae675` (diseño: orden tras la 7.5 y decisiones de O11, O13 y O14);
+  - `1d8d756` (7.5b1, APK 1.4.2 / vc 16, solo Registro Dev), `a0a4cfc` (corrección 1, APK 1.4.3 / vc 17, solo Registro Dev), `78d8755` (corrección 2, APK 1.4.4 / vc 18) y el commit de este cierre.
 
 ### Credenciales (nombres y ubicación, nunca valores)
 - `.env` (fuera de git; plantilla `.env.example`): `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (Poguis) y `EXPO_PUBLIC_SUPABASE_DEV_URL` / `EXPO_PUBLIC_SUPABASE_DEV_PUBLISHABLE_KEY` (Registro Dev). Solo claves `sb_publishable_`; 0 secret keys en los dos proyectos.
@@ -75,7 +78,7 @@ Estado al cerrar la Fase 6 (2026-11-11, commit `f97227f`), actualizado al cerrar
   2. `install -r` encima, sin desinstalar, comprobando la firma y el `firstInstallTime`. `apksigner` está en `D:\Users\Carlos\AppData\Local\Android\Sdk\build-tools\36.0.0\apksigner.bat` (la 34.0.0 no existe en esta PC; `scripts/build-apk.mjs` usa la 36.0.0);
   3. abrir y comprobar los datos y el indicador;
   4. respaldo "después";
-  5. `validar-respaldo` de los dos y `comparar-sync` antes vs después (15 tablas, mismo saldo);
+  5. `validar-respaldo` de los dos y `comparar-sync` antes vs después (16 tablas desde la 7.5b1, mismo saldo);
   6. el usuario ejecuta `supabase/verificar-fase5.sql` en el SQL Editor de **Poguis**, comprobando que es Poguis y no Registro Dev, y se compara con "después".
 - **El usuario aplica a mano** todo lo que toca los proyectos remotos (SQL Editor, dashboards). Claude Code solo escribe archivos y los prueba en local.
 - **Revisar con lupa lo que se propone.** El usuario detectó errores reales en los planes y el SQL (la consulta B de la 6.6, plegada por Postgres al planificar). Una prueba que falla se arregla en la implementación, no cambiando la prueba sin justificarlo; las referencias se fijan contra el commit original.
@@ -101,7 +104,7 @@ Cerrado: el punto 7 (7.1, ver §5). Los demás siguen pendientes.
      - la reconexión dentro de los 60 s de enfriamiento de auth-js seguida del ciclo por `TOKEN_REFRESHED` (solo en `probar-fase5`);
      - una cuenta Google distinta bloqueada (solo en `probar-fase3`).
    - **Descartado:** el cursor para las tablas vacías (DECISIONES.md, Descartado).
-9. **Rediseño de entretenimiento (subfases 7.3–7.10):** ver `claude/DISENO-ENTRETENIMIENTO.md`. El análisis previo (7.2, §6), el motor puro (7.3, §7), la 7.4a (§8), la 7.4b (§9), la dirección visual (§10) y la 7.5 (§11) están cerrados; el orden siguiente quedó [OK] el 2026-11-23 en el diseño (7.5b Pendiente, 7.6, 7.7 Lectura, 7.7b Películas, 7.8…). El rediseño completo de las pantallas va al final, después de la 7.11 (decisión del usuario, 2026-11-22).
+9. **Rediseño de entretenimiento (subfases 7.3–7.10):** ver `claude/DISENO-ENTRETENIMIENTO.md`. El análisis previo (7.2, §6), el motor puro (7.3, §7), la 7.4a (§8), la 7.4b (§9), la dirección visual (§10) la 7.5 (§11) y la 7.5b1 (§12) están cerrados; el orden siguiente quedó [OK] el 2026-11-23 en el diseño (7.5b2 Pendiente, 7.6, 7.7 Lectura, 7.7b Películas, 7.8…). El rediseño completo de las pantallas va al final, después de la 7.11 (decisión del usuario, 2026-11-22).
 10. **FK local `seasons → series` en el pull** (hallazgo de la 7.5, anterior a ella; sin corregir). Las FK locales de la migración 2 son diferidas: si otro dispositivo sube una serie y sus temporadas entre el pull de `series` y el de `seasons` de este, la página de `seasons` falla al confirmar. La excepción sale de `localTx` sin capturar y el runner solo la escribe en la consola: ese ciclo no deja `last_error`, no bloquea filas y no baja las tablas siguientes. El ciclo siguiente lo corrige solo. Probado en `probar-fase7-5` §12a. La 7.5 evitó el mismo problema en `series.backlog_id` dejándolo sin FK local.
 
 ## 4. [PENDIENTE] vigentes (DECISIONES.md)
@@ -284,4 +287,52 @@ Cerrado: el punto 7 (7.1, ver §5). Los demás siguen pendientes.
   - **Respaldo "antes" de Registro Dev perdido.** Sin impacto: era solo Dev, y la migración se verificó con `verificar-fase7-5` (15/15), `auditar-fase6` (todos los estrictos ok), `verificar-fase2` (22/22) y las pruebas del celular. En producción el "antes" sigue siendo obligatorio.
   - **Formulario de categorías de lectura:** el límite (`series_count`) aparece dos veces, como "Límite (Viendo)" y como "Límite Simultáneo (Viendo)". Es el mismo campo. → 7.7.
 - **Observaciones del celular:** O8–O14 en `claude/DISENO-ENTRETENIMIENTO.md` (Observaciones). El orden tras la 7.5 y O11, O13 y O14 quedaron [OK] el 2026-11-23.
-- **Siguiente:** la 7.5b (Pendiente: O8–O12), según el diseño.
+- **Siguiente:** la 7.5b (Pendiente: O8–O12), según el diseño. Se dividió en 7.5b1 (cerrada: ver §12) y 7.5b2.
+
+## 12. Fase 7.5b1 — etiquetas [CERRADA 2026-11-25]
+- **Commits:**
+  - `1d8d756` (APK 1.4.2 / vc 16, solo Registro Dev);
+  - `a0a4cfc` (corrección 1, APK 1.4.3 / vc 17, solo Registro Dev);
+  - `78d8755` (corrección 2, APK **1.4.4 / versionCode 18**, producción);
+  - el commit de este cierre.
+  - Migración 7 de Supabase (`supabase/migrations/20261124000100_etiquetas.sql`, solo aditiva) y migración local 8 (`src/data/db/migration8.ts`, copia `pre-migracion-v8`). Verificación de solo lectura: `supabase/verificar-fase7-5b1.sql` (20 filas).
+- **Qué cambió** (decisiones E1–E9 y P-a…P-f en `claude/DISENO-ENTRETENIMIENTO.md`, "Decisiones de la 7.5b1"):
+  - **Modelo A:** catálogo sincronizado `backlog_tags` (`section`, `name`, `name_key`) y `backlog.tags` (nombres; TEXT con JSON en local, jsonb en el servidor; NULL = sin etiquetas).
+  - **`name_key`:** el nombre normalizado en minúsculas, calculado solo por la app. Clave natural y UNIQUE `(user_id, section, name_key)` en los dos lados, con los tombstones incluidos: crear o renombrar a la clave de una borrada la revive (P-b). En el servidor, CHECK de `name` de 1 a 30 y de `name_key` de 1 a 60.
+  - **Forma canónica de `backlog.tags`:** sin repetir por clave, ordenada por clave código por código, NULL si queda vacía. La aplican el repositorio y el mapeo (también al bajar). En pantalla, `localeCompare('es')`.
+  - **Todo compara por clave:** guardar un título usa el nombre del catálogo; el filtro (TODAS las elegidas, o "Sin etiquetas") y el conteo de borrado ("Se quitará de N títulos." / "Se quitará de 1 título." / "No está en ningún título."). Renombrar, también solo mayúsculas, reescribe los títulos de la sección.
+  - **Pantalla:** chips en el formulario, con "Nueva etiqueta" y "De otras secciones"; gestión por sección; filtro en las 4 secciones; etiquetas de la fila en 1 línea. Fuera las chips y el filtro de franquicia (O9 cerrada).
+  - **`backlog.franchise`** queda como columna heredada: no se muestra, no se filtra ni se escribe (el DEFAULT llena las altas; editar conserva el valor).
+  - **`linkAccount`** reescribe también `backlog_tags.user_id`.
+  - **Sync:** `backlog_tags` al final de `TABLES`, `NATURAL_KEYS` `(user_id, section, name_key)`, tipo `tags` canónico en el mapeo. Herramientas en 16 tablas; `verificar-fase5` de 17 filas.
+- **Corrección 1** (1.4.3, tras la prueba del celular):
+  - **C1:** en Pendiente el título se ve completo en la fila; el campo de título es multilínea (hasta 5 líneas, Enter cierra el teclado, los saltos de línea pasan a espacio).
+  - **C2 y C3** (el teclado tapaba campos): **`HojaConTeclado`**, sin `Modal` nativo. Usa el alto del evento de teclado (`e.endCoordinates.height`) y los insets de safe-area, sin `KeyboardAvoidingView`, y lleva el campo con el foco a la vista con `measureLayout`. Se usa en el formulario de Pendiente, la gestión de etiquetas, las categorías y los formularios de serie y de obra (variante centrada).
+  - **Atrás con pila de hojas:** `App.js` es el único listener de `hardwareBackPress` y primero cierra la hoja abierta (`src/hooks/hojasAbiertas.js`).
+- **Corrección 2** (1.4.4):
+  - **D1** (la gestión quedaba fija en ~2,5 filas): la causa era un `maxHeight` en porcentaje contra un envoltorio que mide su contenido. Ahora las tarjetas no tienen porcentajes ni altos fijos, y **`alturaHoja`** (función pura) da el máximo: 85 % de la ventana con el teclado cerrado, el área libre con el teclado abierto.
+  - **D2** (franja bajo la hoja): la hoja se dibujaba dentro del `SafeAreaView` de la pantalla. Ahora se dibuja en **`HojasHost`**, el último hijo de la `View` raíz de `App.js`, a través de un almacén puro (`src/hooks/almacenHojas.js`, id estable, publicación en `useLayoutEffect`).
+- **Pruebas en la PC (finales, 1.4.4):**
+  - `scripts/probar-fase7-5b1.mjs`: **51 OK**. Cubre el módulo puro, el catálogo, renombrar y borrar con sus textos, guardar en una transacción, la forma canónica y los huérfanos, el filtro, la comprobación estática de `franchise`, la migración 8 sobre una v7 de `1f1eec8`, Supabase en PGlite, la sync entre 2 dispositivos, la compatibilidad a y b, `linkAccount`, C1, Atrás con el `handleBack` real, `alturaHoja` y el almacén.
+  - `probar-tema` **54** (sección 8, teclado: `HojaConTeclado`, Atrás con un solo listener, campos dentro de la hoja, ningún alto fijo, con controles negativos).
+  - `probar-fase1` **85** (+3: una prueba por cada mutación nueva de la fachada).
+  - Las demás, iguales a la 7.5, en serie y con `probar-fase4` sola: `probar-fase0` 22, `dryrun-fase1` 60, `probar-fase2` 63, `probar-fase3` 104, `probar-fase4` 88, `probar-fase5` 35, `probar-fase6` 13, `probar-fase6-2` 47, `probar-fase6-5` 45, `probar-fase6-6` 29, `probar-fase6-7` 39, `probar-fase7-1` 25, `probar-fase7-2` 17 (`CASOS` sin cambios), `probar-fase7-3` 12, `probar-fase7-4a` 35, `probar-fase7-4b` 24, `probar-fase7-5` 61 y `test-date-range` 24.
+  - `expo-doctor` 18/18, `expo export` sin errores, `escanear-historial` y `verificar-secretos` en 0.
+- **Registro Dev** (Android 17 / SDK 37):
+  - el SQL se aplicó antes de la 1.4.2 (`verificar-fase7-5b1` 20/20, `verificar-fase2` 22/22, `auditar-fase6` con los estrictos ok);
+  - 1.4.2 → 1.4.3 → 1.4.4, siempre `install -r` con el mismo `firstInstallTime` (2026-11-02 13:00:52);
+  - los respaldos "antes" (v7) y "después de instalar" (v8) son idénticos en las 16 tablas. El respaldo final de la 1.4.2 coincide con `verificar-fase5` de Registro Dev (17/17), con `backlog.tags` canónicas y el catálogo sin anomalías;
+  - los datos de prueba se conservan hasta cerrar la 7.5b2 (§1).
+- **Producción, con el protocolo completo** (2026-11-25):
+  - respaldo "antes" `registro_respaldo_20261125-211157` (app 1.4.1, v7, outbox vacía, 31 / 12 / 19, un `user_id`);
+  - SQL en Poguis justo antes del `install -r` (`verificar-fase7-5b1` 20/20, `verificar-fase2` 22/22 con 16 tablas y 8 FK compuestas, `auditar-fase6` con todos los estrictos ok; informativo #31: 12 MB);
+  - `install -r` de `registro-release-1.4.4-vc18-78d8755.apk`, con la firma EAS `3132ded2…3e52` verificada con `apksigner` antes de instalar, de versionCode 15 a 18 y con el `firstInstallTime` 2026-09-21 07:49:29 antes y después;
+  - respaldo "después" `registro_respaldo_20261125-211946` (app 1.4.4, v8, `pre-migracion-v8`, 1 resumen nuevo en `_migration_log`, `backlog_tags` vacía, `tags` NULL, outbox vacía) y `comparar-sync` antes vs después idénticos en las 16 tablas, con el mismo saldo;
+  - `verificar-fase5` en Poguis (17 filas) = "después" en las 17 (31 / 12 / 19, `backlog_tags` 0/0/0, un `user_id`).
+- **Hallazgos:**
+  - **Compatibilidad b** (el APK antes que el SQL): las filas de `backlog` y `backlog_tags` quedan bloqueadas, el pull de `backlog_tags` falla y el ciclo termina "offline": el indicador dice "Sin conexión" aunque haya red. No se pierde nada, y tras el SQL + "Reintentar" converge. El orden de siempre (SQL → APK) lo evita; el motor no se cambió.
+  - **`scripts/lib/ts-esm-hook.mjs`** resuelve ahora los imports sin extensión entre módulos de `src/` (desde que `mapping.ts` importa `tags.ts`).
+  - **Android 17 con borde a borde obligatorio:** el `Modal` nativo vive en su propia ventana, el teclado no lo redimensiona, y los eventos de teclado de RN 0.81 son de la ventana de la actividad. De ahí `HojaConTeclado` y `HojasHost`. Plan B documentado y no instalado: `react-native-keyboard-controller` 1.18.5 (Expo SDK 54), que exige `react-native-reanimated` ~4.1.1 y `react-native-worklets` 0.5.1, `KeyboardProvider` y recompilar lo nativo.
+  - **Formularios fuera del módulo** con el mismo problema del teclado: Tarjetas, Servicios y Dinero **sí**; Deudas/Préstamos, Estadísticas y Trabajo **probable**. → subfase de pulido, junto con B2. `PendientePicker` pasa a `HojaConTeclado` en la 7.5b2, por su campo de búsqueda (O10).
+- **Observaciones del celular:** O15 (títulos completos dentro de una categoría) en el diseño → 7.5b2.
+- **Siguiente:** la 7.5b2 (Pendiente compacto O12, selector "De Pendiente" dinámico O10, O8 y O15), según el diseño.

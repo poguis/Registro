@@ -4,7 +4,7 @@ Estados: [OK] decidido por el usuario · [PROPUESTA] sugerido, se confirma en la
 
 Origen: respuestas del usuario del 2026-11-17 y resultados de la 7.2 (commit `d55b5e1`: `docs/ENTRETENIMIENTO-ACTUAL.md` y `scripts/probar-fase7-2.mjs`, 17 OK). R1–R14 y C1–C14 remiten a ese documento y a esa suite.
 
-**Estado: vigente.** 7.5 cerrada (2026-11-23, `c2c42c2` y la corrección `1f1eec8`, app 1.4.1 / vc 15); 7.5b1 en curso (etiquetas; orden confirmado el 2026-11-23, ver Orden de trabajo). Se actualiza al cerrar cada subfase, y cualquier cambio de criterio se marca aquí.
+**Estado: vigente.** 7.5b1 cerrada (2026-11-25, `1d8d756` y las correcciones `a0a4cfc` y `78d8755`, app 1.4.4 / vc 18); sigue la 7.5b2 (orden confirmado el 2026-11-23, ver Orden de trabajo). Se actualiza al cerrar cada subfase, y cualquier cambio de criterio se marca aquí.
 
 ## Alcance y datos
 - [OK] Datos existentes de entretenimiento en producción (1 categoría de video, 1 serie, 1 temporada y 11 filas en `watch_history`): el usuario los borra desde la app (borrado lógico) y el rediseño no los migra. Sus tombstones quedan en el celular y en Poguis, igual que los de la 6.8. Las migraciones nuevas tienen que tolerar tombstones.
@@ -40,7 +40,7 @@ Origen: respuestas del usuario del 2026-11-17 y resultados de la 7.2 (commit `d5
 - [OK] **D9.** Los datos de prueba de Registro Dev (7.4b y 7.5) se borraron desde la app al cerrar la 7.5; sus tombstones quedan.
 - **Límite conocido:** si se borra una serie mientras su título todavía no llegó al celular (solo con dos dispositivos), la reconciliación devuelve el título a Pendiente sin vínculo. No se pierde nada.
 
-### Decisiones de la 7.5b1 [OK] (2026-11-23; plan aprobado el 2026-11-24 con sus condiciones)
+### Decisiones de la 7.5b1 [OK] (2026-11-23; plan aprobado el 2026-11-24 con sus condiciones; aplicadas: `1d8d756`, `a0a4cfc` y `78d8755`, 1.4.4 / vc 18)
 - [OK] **E1.** La 7.5b se divide en 7.5b1 (etiquetas O11 con su migración, la pantalla mínima y O9) y 7.5b2 (sin esquema: Pendiente compacto O12, selector "De Pendiente" dinámico O10 y O8).
 - [OK] **E2. Modelo A** (reemplaza la propuesta de dos tablas de O11: la fusión por clave natural solo es segura en tablas que nadie referencia por id, y una tabla de relación referenciaría las etiquetas por id).
   - Tabla sincronizada nueva `backlog_tags` (catálogo): `id`, `user_id`, `section`, `name`, `name_key` y las columnas de sync, más `server_updated_at` en Postgres. Ninguna tabla la referencia por id, así que reutiliza la fusión por clave natural tal como está (como `finance_categories`).
@@ -161,15 +161,15 @@ Lista viva. Cada observación se asigna a una subfase cuando se planifica; las d
 - B2 (dirección visual): el formulario de Trabajo no tiene `onRequestClose`, así que Atrás no lo cierra (igual que antes). → subfase de pulido.
 - Hallazgo (7.5): en el formulario de categorías de lectura, el límite (`series_count`) aparece dos veces, como "Límite (Viendo)" y como "Límite Simultáneo (Viendo)". Es el mismo campo. → 7.7.
 - O8 (prueba 7.5, visual): en Pendiente, el "+" del botón de agregar queda más abajo del centro. → 7.5b.
-- O9 (prueba 7.5, visual): en el formulario de Pendiente, el texto de las chips de franquicia ("Otros", "Marvel") queda más arriba del centro. → 7.5b1. **Cerrada en la 7.5b1** (las chips de franquicia se quitaron; las de etiquetas centran el texto vertical y horizontalmente, sin el relleno de fuente de Android). Falta verla en el celular.
+- O9 (prueba 7.5, visual): en el formulario de Pendiente, el texto de las chips de franquicia ("Otros", "Marvel") queda más arriba del centro. → 7.5b1. **Cerrada en la 7.5b1** (las chips de franquicia se quitaron; las de etiquetas centran el texto vertical y horizontalmente, sin el relleno de fuente de Android). Verificada en el celular.
 - O10 (prueba 7.5). Selector "De Pendiente" dinámico, en video y en lectura:
   - orden ascendente o descendente por año y por fecha de registro;
   - filtro por año, con un selector de los años que existen;
   - búsqueda por nombre;
   - filtro por tipo (Serie / Anime), con el tipo elegido desde el inicio;
-  - filtro por franquicia o etiqueta.
+  - filtro por franquicia o etiqueta (desde la 7.5b1, por etiqueta).
 
-  → 7.5b.
+  Con la búsqueda, `PendientePicker` tiene un campo de texto: en la 7.5b2 pasa a `HojaConTeclado` (regla de la 7.5b1: ningún `Modal` con campos). → 7.5b2.
 - O11 (prueba 7.5). Franquicias / etiquetas por sección (Películas, Series, Anime, Lectura), creadas por el usuario.
 
   [OK] (2026-11-23)
@@ -182,14 +182,14 @@ Lista viva. Cada observación se asigna a una subfase cuando se planifica; las d
 
   ~~[PENDIENTE] Qué pasa con `backlog.franchise`.~~ Resuelto por E3 (columna heredada).
 
-  → 7.5b1 (ver Decisiones de la 7.5b1).
+  → 7.5b1 (ver Decisiones de la 7.5b1). **Cerrada en la 7.5b1.**
 - O12 (prueba 7.5). Pendiente más compacto: la cabecera ocupa mucho espacio.
   - tipos con íconos en una fila fija, sin desplazamiento horizontal;
   - etiquetas en un filtro desplegable;
   - estado (Pendiente / Mirando / Terminado / Total) que también cambie deslizando, sin depender solo del botón;
   - formulario y filtros mejorados.
 
-  Adelanta, solo para Pendiente, parte del rediseño que iba después de la 7.11. → 7.5b.
+  Adelanta, solo para Pendiente, parte del rediseño que iba después de la 7.11. → 7.5b2.
 - O13 (prueba 7.5). Lectura (7.7):
   - el ritmo pasa a dos modos en el formulario, "N capítulos por día" o "1 capítulo cada N días", sin números negativos en la pantalla;
   - la agrupación K ya estaba decidida en el diseño;
@@ -213,6 +213,14 @@ Lista viva. Cada observación se asigna a una subfase cuando se planifica; las d
   - **Estados:** "Empezar" la pasa a Mirando (puede haber varias a la vez). "Vista" la pasa a Terminado y cuenta para el ritmo; también se puede marcar directamente.
   - **Por dentro:** cada película empezada o vista crea una serie vinculada de 1 unidad. Así reutiliza el vínculo, el historial, el ritmo, "Hoy te toca" y las notificaciones.
   - **Esquema:** migración para el tipo nuevo de categoría y para el ritmo semanal.
+- C1–C3 y D1–D2 (pruebas de la 7.5b1): título completo en Pendiente, el teclado tapaba campos (gestión de etiquetas, formulario de categorías) y el alto y el borde inferior de la hoja de etiquetas. **Cerradas en las correcciones de la 7.5b1** (`a0a4cfc` y `78d8755`; reglas de `HojaConTeclado`, `HojasHost` y `alturaHoja` en DECISIONES.md, Interfaz).
+- O15 (prueba 7.5b1).
+
+  [OK] (2026-11-25)
+  - Dentro de una categoría, de video y de lectura, los títulos se ven **completos**: en la lista de series u obras, en el título del detalle y en las filas del Registro de capítulos o tomos.
+  - El nombre de la categoría **no** cambia: sigue con elipsis, 2 líneas en la cabecera y en la lista de categorías.
+
+  → 7.5b2.
 
 ## Ideas nuevas [OK] (aceptadas por el usuario el 2026-11-18, todas con un diseño visual mejorado)
 - I1 "Hoy te toca" en el inicio: lo que toca ver y leer hoy en todas las categorías, para marcar con un toque. → 7.9.
@@ -260,8 +268,8 @@ Cada subfase con su plan, su aprobación y su ciclo completo. Si surge algo nuev
    - Dirección visual (antes de la 7.5): **cerrada** (`c8eb200` y el commit de este cierre). Tema A, Plus Jakarta Sans, hojas propias (O5 y O6) y nombres largos, con APK 1.3.9 / vc 13. Solo la base visual.
 5. 7.5 Vínculo Pendiente↔Series/Lectura y subtipo de lectura: **cerrada** (`c2c42c2`, corrección `1f1eec8` con D5 final y la confirmación de D6, y el commit de este cierre). Migración 6 de Supabase y local 7, con APK 1.4.1 / vc 15.
 6. 7.5b Pendiente: O8–O12, en dos subfases (E1):
-   - 6a. 7.5b1: etiquetas (O11) con su migración (Supabase 7, local 8), la pantalla mínima y O9. **En curso** (etapa A en la PC, app 1.4.2 / vc 16).
-   - 6b. 7.5b2 (sin esquema): Pendiente compacto (O12), selector "De Pendiente" dinámico (O10) y O8.
+   - 6a. 7.5b1: etiquetas (O11) con su migración (Supabase 7, local 8), la pantalla mínima y O9. **Cerrada** (`1d8d756`, correcciones `a0a4cfc` y `78d8755`, y el commit de este cierre; APK 1.4.4 / vc 18).
+   - 6b. 7.5b2 (sin esquema): Pendiente compacto (O12), selector "De Pendiente" dinámico (O10, con `PendientePicker` en `HojaConTeclado`), O8 y O15.
 7. 7.6 Punto de inicio (T0/C0), "Continuar" y "Volver a ver" desde En espera y Terminado (O3), deslizar para marcar con "Deshacer" (I6).
 8. 7.7 Lectura por capítulos, tomo opcional y K, con O13 (obra "completa") y el límite repetido del formulario de categorías de lectura.
 9. 7.7b Películas con ritmo (O14).
